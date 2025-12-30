@@ -1020,10 +1020,7 @@ impl NetworkService {
             };
 
             // Signal that connection attempt finished (success or failure).
-            send_network_update(NetworkUpdate::ConnectionAttemptFinished {
-                ssid,
-                success,
-            });
+            send_network_update(NetworkUpdate::ConnectionAttemptFinished { ssid, success });
         });
     }
 

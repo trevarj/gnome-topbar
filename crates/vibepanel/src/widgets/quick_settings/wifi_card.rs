@@ -741,8 +741,7 @@ fn set_password_connecting_state(
                                     "vibepanel-qs-window",
                                 )
                                 && let Some(qs) = weak_ptr.as_ref().upgrade()
-                                && let Some(label) =
-                                    qs.wifi.password_error_label.borrow().as_ref()
+                                && let Some(label) = qs.wifi.password_error_label.borrow().as_ref()
                             {
                                 let step = step_cell.get().wrapping_add(1) % 4;
                                 step_cell.set(step);
@@ -786,7 +785,10 @@ pub fn update_subtitle(state: &WifiCardState, snapshot: &NetworkSnapshot) {
     let is_connecting = snapshot.connecting_ssid.is_some();
 
     let subtitle = if is_connecting {
-        format!("Connecting to {}", snapshot.connecting_ssid.as_ref().unwrap())
+        format!(
+            "Connecting to {}",
+            snapshot.connecting_ssid.as_ref().unwrap()
+        )
     } else if let Some(ref ssid) = snapshot.ssid {
         ssid.clone()
     } else if enabled {
@@ -887,19 +889,29 @@ pub fn on_network_changed(
                 // Clear the failed state so we don't re-trigger
                 NetworkService::global().clear_failed_state();
             }
-        } else if snapshot.ssid.as_ref() == Some(target_ssid) && snapshot.connecting_ssid.is_none() {
+        } else if snapshot.ssid.as_ref() == Some(target_ssid) && snapshot.connecting_ssid.is_none()
+        {
             // Successfully connected to target - hide dialog and clear state
-            debug!("Successfully connected to '{}', hiding password dialog", target_ssid);
+            debug!(
+                "Successfully connected to '{}', hiding password dialog",
+                target_ssid
+            );
             hide_password_dialog(state);
         }
         // If connecting_ssid matches target, keep showing animation (do nothing)
     } else if let Some(ref failed_ssid) = snapshot.failed_ssid {
         // No dialog open but connection failed - show dialog with error if window is mapped
         if window.is_mapped() {
-            debug!("Connection failed for '{}', showing password dialog with error", failed_ssid);
+            debug!(
+                "Connection failed for '{}', showing password dialog with error",
+                failed_ssid
+            );
             show_password_dialog_with_error(state, failed_ssid, true);
         } else {
-            debug!("Connection failed for '{}', but window is closed - clearing failed state", failed_ssid);
+            debug!(
+                "Connection failed for '{}', but window is closed - clearing failed state",
+                failed_ssid
+            );
             NetworkService::global().clear_failed_state();
         }
     }
@@ -945,9 +957,7 @@ pub fn on_network_changed(
         .borrow()
         .as_ref()
         .is_some_and(|b| b.is_visible());
-    if !password_dialog_visible
-        && let Some(list_box) = state.base.list_box.borrow().as_ref()
-    {
+    if !password_dialog_visible && let Some(list_box) = state.base.list_box.borrow().as_ref() {
         populate_wifi_list(state, list_box, snapshot);
         // Apply Pango font attrs to dynamically created list rows
         SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
