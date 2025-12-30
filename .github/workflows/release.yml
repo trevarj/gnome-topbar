@@ -116,10 +116,30 @@ jobs:
             sha256sum "$f" > "$f.sha256"
           done
 
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          # Extract version from tag (removes 'v' prefix)
+          VERSION=${GITHUB_REF_NAME#v}
+          
+          # Extract the section for this version from CHANGELOG.md
+          # Looks for ## [version] and captures until the next ## [ or end of file
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## \[/ { 
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+              next
+            }
+            found { print }
+          ' CHANGELOG.md)
+          
+          # Write to file for the release action
+          echo "$NOTES" > release_notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release_notes.md
           files: |
             release/*
         env:
