@@ -316,6 +316,7 @@ pub struct CardLabel {
     title: String,
     subtitle: Option<String>,
     width_chars: i32,
+    subtitle_width_chars: i32,
     title_class: String,
     subtitle_class: String,
 }
@@ -327,6 +328,7 @@ impl CardLabel {
             title: title.to_string(),
             subtitle: None,
             width_chars: 16,
+            subtitle_width_chars: 22,
             title_class: String::new(),
             subtitle_class: String::new(),
         }
@@ -347,6 +349,12 @@ impl CardLabel {
     /// Set the width in characters for the title label.
     pub fn width_chars(mut self, width: i32) -> Self {
         self.width_chars = width;
+        self
+    }
+
+    /// Set the width in characters for the subtitle label.
+    pub fn subtitle_width_chars(mut self, width: i32) -> Self {
+        self.subtitle_width_chars = width;
         self
     }
 
@@ -389,6 +397,10 @@ impl CardLabel {
         let subtitle = if let Some(subtitle_text) = &self.subtitle {
             let sub = Label::new(Some(subtitle_text));
             sub.set_xalign(0.0);
+            sub.set_ellipsize(EllipsizeMode::End);
+            sub.set_single_line_mode(true);
+            sub.set_width_chars(self.subtitle_width_chars);
+            sub.set_max_width_chars(self.subtitle_width_chars);
             if !self.subtitle_class.is_empty() {
                 sub.add_css_class(&self.subtitle_class);
             }
