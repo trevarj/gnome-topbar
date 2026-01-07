@@ -20,6 +20,20 @@ pub fn utility_css() -> String {
 .vp-accent { color: var(--color-accent-primary); }
 .vp-error { color: var(--color-state-urgent); }
 
+/* Standard Link Styling */
+label link {
+    color: var(--color-accent-primary);
+    text-decoration: none;
+}
+label link:hover {
+    text-decoration: underline;
+    color: var(--color-accent-primary);
+    opacity: 0.8;
+}
+label link:active {
+    opacity: 0.6;
+}
+
 /* Popover header icon button - minimal styling for icon-only buttons in headers */
 .vp-popover-icon-btn {
     background: transparent;

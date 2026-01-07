@@ -5,10 +5,9 @@
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Image, Label, Orientation, PolicyType, Revealer,
-    RevealerTransitionType, ScrolledWindow,
+    Align, Box as GtkBox, Button, Image, Label, Orientation, PolicyType, ScrolledWindow, glib,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::services::icons::IconsService;
@@ -20,7 +19,7 @@ use crate::styles::{button, card, color, notification as notif, surface};
 
 use super::notification_common::{
     BODY_TRUNCATE_THRESHOLD, POPOVER_MAX_VISIBLE_ROWS, POPOVER_ROW_HEIGHT, POPOVER_WIDTH,
-    char_boundary, create_notification_image_widget, format_timestamp,
+    create_notification_image_widget, format_timestamp, sanitize_body_markup,
 };
 
 /// Callback type for closing the popover from within the content.
@@ -323,80 +322,56 @@ fn build_notification_row(
     }
 
     // Body with expandable support for long text
-    // Collapsed: truncated text with ellipsis
-    // Expanded: full text (ellipsis removed) with continuation revealed below
-    // Store revealer and labels for expand button wiring
-    let mut expand_widgets: Option<(Revealer, Label, Label)> = None;
+    // Use a single label with dynamic line limiting to avoid breaking markup tags
+    let mut body_label_opt: Option<Label> = None;
 
     if !notification.body.is_empty() {
-        let body_clean = notification.body.replace('\n', " ");
+        // Sanitize markup and clean up for display
+        let body_markup = sanitize_body_markup(&notification.body);
+        let body_clean = body_markup.replace('\n', " ");
         let body_clean = body_clean.trim();
         let needs_expansion = body_clean.chars().count() > BODY_TRUNCATE_THRESHOLD;
 
+        let body_label = Label::new(None);
+        body_label.set_markup(body_clean);
+        body_label.add_css_class(notif::BODY);
+        body_label.add_css_class(color::MUTED);
+        body_label.set_xalign(0.0);
+        body_label.set_wrap(true);
+        body_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+
         if needs_expansion {
-            // Expandable body: show truncated text, reveal continuation below
-            let body_container = GtkBox::new(Orientation::Vertical, 0);
-            body_container.add_css_class(notif::BODY_CONTAINER);
-
-            // Find the byte boundary for the truncation point (UTF-8 safe)
-            let split_byte_idx = char_boundary(body_clean, BODY_TRUNCATE_THRESHOLD);
-
-            // First-line stack: collapsed (with ellipsis) vs expanded (without ellipsis)
-            let first_line_stack = GtkBox::new(Orientation::Vertical, 0);
-
-            let collapsed_text = format!("{}…", &body_clean[..split_byte_idx]);
-            let collapsed_label = Label::new(Some(&collapsed_text));
-            collapsed_label.add_css_class(notif::BODY);
-            collapsed_label.add_css_class(notif::BODY_TRUNCATED);
-            collapsed_label.add_css_class(color::MUTED);
-            collapsed_label.set_xalign(0.0);
-            collapsed_label.set_wrap(true);
-            collapsed_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-
-            let expanded_first_text = &body_clean[..split_byte_idx];
-            let expanded_first_label = Label::new(Some(expanded_first_text));
-            expanded_first_label.add_css_class(notif::BODY);
-            expanded_first_label.add_css_class(color::MUTED);
-            expanded_first_label.set_xalign(0.0);
-            expanded_first_label.set_wrap(true);
-            expanded_first_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-            expanded_first_label.set_visible(false);
-
-            first_line_stack.append(&collapsed_label);
-            first_line_stack.append(&expanded_first_label);
-
-            // Continuation (the rest of the text) in a revealer
-            let continuation_text = &body_clean[split_byte_idx..];
-            let continuation_label = Label::new(Some(continuation_text));
-            continuation_label.add_css_class(notif::BODY);
-            continuation_label.add_css_class(color::MUTED);
-            continuation_label.set_xalign(0.0);
-            continuation_label.set_wrap(true);
-            continuation_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-
-            let revealer = Revealer::new();
-            revealer.set_transition_type(RevealerTransitionType::SlideDown);
-            revealer.set_transition_duration(150);
-            revealer.set_reveal_child(false);
-            revealer.set_child(Some(&continuation_label));
-
-            body_container.append(&first_line_stack);
-            body_container.append(&revealer);
-
-            content.append(&body_container);
-
-            // Store revealer and labels for expand button
-            expand_widgets = Some((revealer, collapsed_label, expanded_first_label));
+            // Start collapsed: limit to 2 lines with ellipsis
+            body_label.set_lines(2);
+            body_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            body_label.set_vexpand(false);
+            body_label_opt = Some(body_label.clone());
         } else {
-            // Short body - show in full, no expand/collapse
-            let body_label = Label::new(Some(body_clean));
-            body_label.add_css_class(notif::BODY);
-            body_label.add_css_class(color::MUTED);
-            body_label.set_xalign(0.0);
-            body_label.set_wrap(true);
-            body_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-            content.append(&body_label);
+            // Short body - no line limit
+            body_label.set_lines(-1);
+            body_label.set_ellipsize(gtk4::pango::EllipsizeMode::None);
         }
+
+        // Handle link activation manually to avoid Wayland protocol errors.
+        // Protocol error 71 often occurs when gtk_show_uri triggers a focus switch or
+        // interaction that conflicts with the layer shell surface state.
+        let on_close_link = on_close.clone();
+        body_label.connect_activate_link(move |_, uri| {
+            // Use xdg-open via spawn_command_line_async for a detached process
+            let cmd = format!("xdg-open '{}'", uri.replace("'", "'\\''"));
+            // We ignore the result here because this is a fire-and-forget operation
+            // and we can't do much if xdg-open fails to launch from here anyway.
+            let _ = glib::spawn_command_line_async(&cmd);
+
+            // Close popover when user navigates away via link
+            if let Some(ref close_cb) = on_close_link {
+                close_cb();
+            }
+
+            glib::Propagation::Stop // Stop propagation to default handler
+        });
+
+        content.append(&body_label);
     }
 
     main_row.append(&content);
@@ -428,7 +403,7 @@ fn build_notification_row(
         .filter(|(id, _)| id != "default")
         .collect();
 
-    let has_expand = expand_widgets.is_some();
+    let has_expand = body_label_opt.is_some();
 
     // Determine primary action (default or explicit "Open")
     let mut default_action: Option<String> = None;
@@ -449,23 +424,33 @@ fn build_notification_row(
         actions_row.add_css_class(notif::ACTIONS);
 
         // Optional expand button on the left
-        if let Some((revealer, collapsed_label, expanded_first_label)) = expand_widgets {
+        if let Some(body_label) = body_label_opt {
             let expand_btn = Button::with_label("Show more");
             expand_btn.set_has_frame(false);
             expand_btn.add_css_class(notif::ACTION_BTN);
             expand_btn.add_css_class(button::LINK);
 
-            expand_btn.connect_clicked(move |btn| {
-                let is_expanded = revealer.reveals_child();
-                let new_state = !is_expanded;
+            // Store expanded state in a Cell
+            let is_expanded = Rc::new(Cell::new(false));
+            let is_expanded_clone = Rc::clone(&is_expanded);
 
-                revealer.set_reveal_child(new_state);
-                collapsed_label.set_visible(!new_state);
-                expanded_first_label.set_visible(new_state);
+            expand_btn.connect_clicked(move |btn| {
+                let expanded = is_expanded_clone.get();
+                let new_state = !expanded;
+                is_expanded_clone.set(new_state);
 
                 if new_state {
+                    // Expanded: remove line limit and ellipsis
+                    body_label.set_lines(-1);
+                    body_label.set_ellipsize(gtk4::pango::EllipsizeMode::None);
+                    // Ensure the label can expand vertically in the container
+                    body_label.set_vexpand(true);
                     btn.set_label("Show less");
                 } else {
+                    // Collapsed: limit to 2 lines with ellipsis
+                    body_label.set_lines(2);
+                    body_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                    body_label.set_vexpand(false);
                     btn.set_label("Show more");
                 }
             });
