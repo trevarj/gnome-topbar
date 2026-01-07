@@ -4,7 +4,7 @@
 
 A GTK4 status bar for Wayland. Supports Hyprland, Niri and MangoWC/DWL.
 
-VibePanel aims to be a simple bar that just works and look good without configuration while also being fully customizable. Configure what you need, ignore what you don't.
+VibePanel aims to be a simple bar that just works and looks good without configuration while also being fully customizable. Configure what you need, ignore what you don't.
 
 ## Features
 
@@ -31,7 +31,7 @@ VibePanel aims to be a simple bar that just works and look good without configur
 <p>
   <img src="assets/screenshots/vibepanel_qs.png" alt="Quick settings" height="187" />
   <img src="assets/screenshots/vibepanel_battery.png" alt="Battery" height="187" />
-  <img src="assets/screenshots/vibepanel_notification.png" alt="Battery" height="187" />
+  <img src="assets/screenshots/vibepanel_notification.png" alt="Notifications" height="187" />
 </p>
 
 ## Status
@@ -86,7 +86,7 @@ accent = "#adabe0"
 
 See [docs/configuration.md](docs/configuration.md) for all options and [docs/css-variables.md](docs/css-variables.md) for styling.
 
-## Vibe code Disclaimer
+## Vibe Code Disclaimer
 
 As the title suggests, this project is mainly vibe coded. While I've tried to do it responsibly, I'm not a Rust developer nor particularly familiar with GTK. Without AI, VibePanel wouldn't exist but it allowed me to create a bar I actually enjoy using so I'm thankful. I've done my due diligence to the best of my abilities to make sure the codebase is solid, but you have been warned :)
 
