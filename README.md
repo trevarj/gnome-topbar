@@ -2,18 +2,17 @@
 
 ![VibePanel](assets/screenshots/vibepanel_islands.png)
 
-A GTK4 status bar for Wayland. Supports Hyprland, Niri, and DWL.
+A GTK4 status bar for Wayland. Supports Hyprland, Niri and MangoWC/DWL.
+
+VibePanel aims to be a simple bar that just works and look good without configuration while also being fully customizable. Configure what you need, ignore what you don't.
 
 ## Features
 
-VibePanel aims to be a simple bar that just works and comes good-looking out of the box while being fully customizable.
-Configure what you need, ignore what you don't. Changes hot-reload instantly.
-
 - **Hot-reload** - config and style changes apply instantly
-- **Multi-monitor support** - per-monitor configuration
+- **Multi-monitor support** - Configure which monitors to display the bar on
 - **Theming** - dark/light modes, custom accents, GTK theme integration, full CSS customization
 - **OSD** - on-screen display for brightness and volume changes
-- **CLI tools** - control brightness, volume, and idle inhibition from scripts
+- **CLI tools** - control brightness, volume, and idle inhibition
 - **Widgets**
   - Workspaces - clickable indicators with tooltips
   - Window title - active window with app icon
@@ -22,13 +21,18 @@ Configure what you need, ignore what you don't. Changes hot-reload instantly.
   - Quick settings - audio, brightness, bluetooth, wifi, VPN, power profiles, idle inhibitor
   - System tray - XDG tray support
   - Notifications - notification center with Do Not Disturb
-  - Updates - package update indicator (dnf, pacman/paru)
+  - Updates - package update indicator (dnf and pacman/paru support right now)
   - CPU & Memory - system resource monitors
 
 ## Screenshots
 
 ![Full bar](assets/screenshots/vibepanel_bar.png)
-![Quick settings](assets/screenshots/vibepanel_qs.png)
+![Islands](assets/screenshots/vibepanel_islands.png)
+<p>
+  <img src="assets/screenshots/vibepanel_qs.png" alt="Quick settings" height="187" />
+  <img src="assets/screenshots/vibepanel_battery.png" alt="Battery" height="187" />
+  <img src="assets/screenshots/vibepanel_notification.png" alt="Battery" height="187" />
+</p>
 
 ## Status
 
