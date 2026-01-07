@@ -2,18 +2,17 @@
 
 ![VibePanel](assets/screenshots/vibepanel_islands.png)
 
-A GTK4 status bar for Wayland. Supports Hyprland, Niri, and DWL.
+A GTK4 status bar for Wayland. Supports Hyprland, Niri and MangoWC/DWL.
+
+VibePanel aims to be a simple bar that just works and looks good without configuration while also being fully customizable. Configure what you need, ignore what you don't.
 
 ## Features
 
-VibePanel aims to be a simple bar that just works and comes good-looking out of the box while being fully customizable.
-Configure what you need, ignore what you don't. Changes hot-reload instantly.
-
 - **Hot-reload** - config and style changes apply instantly
-- **Multi-monitor support** - per-monitor configuration
+- **Multi-monitor support** - Configure which monitors to display the bar on
 - **Theming** - dark/light modes, custom accents, GTK theme integration, full CSS customization
 - **OSD** - on-screen display for brightness and volume changes
-- **CLI tools** - control brightness, volume, and idle inhibition from scripts
+- **CLI tools** - control brightness, volume, and idle inhibition
 - **Widgets**
   - Workspaces - clickable indicators with tooltips
   - Window title - active window with app icon
@@ -22,13 +21,18 @@ Configure what you need, ignore what you don't. Changes hot-reload instantly.
   - Quick settings - audio, brightness, bluetooth, wifi, VPN, power profiles, idle inhibitor
   - System tray - XDG tray support
   - Notifications - notification center with Do Not Disturb
-  - Updates - package update indicator (dnf, pacman/paru)
+  - Updates - package update indicator (dnf and pacman/paru support right now)
   - CPU & Memory - system resource monitors
 
 ## Screenshots
 
 ![Full bar](assets/screenshots/vibepanel_bar.png)
-![Quick settings](assets/screenshots/vibepanel_qs.png)
+![Islands](assets/screenshots/vibepanel_islands.png)
+<p>
+  <img src="assets/screenshots/vibepanel_qs.png" alt="Quick settings" height="187" />
+  <img src="assets/screenshots/vibepanel_battery.png" alt="Battery" height="187" />
+  <img src="assets/screenshots/vibepanel_notification.png" alt="Notifications" height="187" />
+</p>
 
 ## Status
 
@@ -82,7 +86,7 @@ accent = "#adabe0"
 
 See [docs/configuration.md](docs/configuration.md) for all options and [docs/css-variables.md](docs/css-variables.md) for styling.
 
-## Vibe code Disclaimer
+## Vibe Code Disclaimer
 
 As the title suggests, this project is mainly vibe coded. While I've tried to do it responsibly, I'm not a Rust developer nor particularly familiar with GTK. Without AI, VibePanel wouldn't exist but it allowed me to create a bar I actually enjoy using so I'm thankful. I've done my due diligence to the best of my abilities to make sure the codebase is solid, but you have been warned :)
 
