@@ -24,7 +24,8 @@ use crate::styles::{button, color, notification as notif};
 
 use super::notification_common::{
     TOAST_ESTIMATED_HEIGHT, TOAST_GAP, TOAST_MARGIN_RIGHT, TOAST_MARGIN_TOP,
-    TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget, truncate_body,
+    TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget,
+    sanitize_body_markup,
 };
 
 /// Floating toast window for displaying a single notification.
@@ -193,8 +194,9 @@ impl NotificationToast {
         }
 
         if !notification.body.is_empty() {
-            let body_text = truncate_body(&notification.body, 80);
-            let body_label = Label::new(Some(&body_text));
+            let body_markup = sanitize_body_markup(&notification.body);
+            let body_label = Label::new(None);
+            body_label.set_markup(&body_markup);
             body_label.add_css_class(notif::TOAST_BODY);
             body_label.add_css_class(color::MUTED);
             body_label.set_xalign(0.0);
