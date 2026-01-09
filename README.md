@@ -2,7 +2,7 @@
 
 ![VibePanel](assets/screenshots/vibepanel_islands.png)
 
-A GTK4 status bar for Wayland. Supports Hyprland, Niri and MangoWC/DWL.
+A GTK4 status bar for Wayland. Supports Hyprland, Niri, MangoWC and DWL.
 
 VibePanel aims to be a simple bar that just works and looks good without configuration while also being fully customizable. Configure what you need, ignore what you don't.
 
@@ -46,60 +46,65 @@ Config options and defaults may change between minor releases, check the changel
 
 ## Quickstart
 
-1. Install runtime dependencies: Wayland, a supported compositor (Hyprland, Niri, MangoWC, DWL), PulseAudio/PipeWire, UPower, NetworkManager, BlueZ, GTK4.
+1. Install [runtime dependencies](https://github.com/prankstr/vibepanel/wiki/Installation#runtime-dependencies) for your distro.
 
 2. Install VibePanel:
 
-   - **Option A: Download a release binary** (recommended)
+   ```sh
+   curl -LO https://github.com/prankstr/vibepanel/releases/latest/download/vibepanel-x86_64-unknown-linux-gnu
+   install -Dm755 vibepanel-x86_64-unknown-linux-gnu ~/.local/bin/vibepanel
+   ```
 
-     Download the latest `vibepanel-<target>` from the GitHub Releases page and place it in your `$PATH`, e.g.:
+   Or [build from source](https://github.com/prankstr/vibepanel/wiki/Installation#from-source).
 
-     ```sh
-     install -Dm755 vibepanel-x86_64-unknown-linux-gnu ~/.local/bin/vibepanel
-     ```
-
-   - **Option B: Build from source**
-
-     ```sh
-     git clone https://github.com/prankstr/vibepanel.git
-     cd vibepanel
-     cargo build --release
-     install -Dm755 target/release/vibepanel ~/.local/bin/vibepanel
-     ```
-
-3. Create a config and run:
+3. Run it:
 
    ```sh
-   mkdir -p ~/.config/vibepanel
-   vibepanel --print-default-config > ~/.config/vibepanel/config.toml
    vibepanel &
    ```
 
+See [Installation](https://github.com/prankstr/vibepanel/wiki/Installation) for auto-start setup.
+
 ## Configuration
 
-Config lives at `~/.config/vibepanel/config.toml`. Here's a minimal example:
+VibePanel works without a config file and tries to have sensible defaults while still keeping everything configurable. If you want to customize, create a config at `~/.config/vibepanel/config.toml`:
+
+```sh
+touch ~/.config/vibepanel/config.toml
+# or generate an example config
+vibepanel --print-example-config > ~/.config/vibepanel/config.toml
+```
+
+Here's a minimal example:
 
 ```toml
+[bar]
+size = 32
+
 [widgets]
 left = ["workspace", "window_title"]
-right = ["quick_settings", "battery", "clock"]
+right = ["quick_settings", "battery", "clock", "notifications"]
 
 [theme]
 mode = "dark"
 accent = "#adabe0"
 ```
 
-See [docs/configuration.md](docs/configuration.md) for all options and [docs/css-variables.md](docs/css-variables.md) for styling.
-
-## Vibe Code Disclaimer
-
-As the title suggests, this project is mainly vibe coded. I'm not a Rust developer and had little GTK experience when starting this project. I've done my best to keep the codebase solid and maintainable, but rough edges might exist. You have been warned :)
+Changes hot-reload instantly. See the [Configuration wiki](https://github.com/prankstr/vibepanel/wiki/Configuration) for all options.
 
 ## Documentation
 
-Configuration, theming, CLI usage, and compositor notes will be documented in the GitHub wiki.
+Full documentation lives in the [wiki](https://github.com/prankstr/vibepanel/wiki):
 
-For a raw reference of all config options and CSS variables, you can also check the files in `docs/` inside this repository.
+- [Installation](https://github.com/prankstr/vibepanel/wiki/Installation) - Dependencies, building, auto-start
+- [Configuration](https://github.com/prankstr/vibepanel/wiki/Configuration) - All config options
+- [Widgets](https://github.com/prankstr/vibepanel/wiki/Widgets) - Widget reference and per-widget options
+- [Theming](https://github.com/prankstr/vibepanel/wiki/Theming) - Custom CSS styling
+- [CSS Variables](https://github.com/prankstr/vibepanel/wiki/CSS-Variables) - Full CSS variable reference
+
+## Vibe Code Disclaimer
+
+As the name suggests, this project is mainly vibe code, i.e responsible AI-assisted development not just blindly accepting outputs. I'm not a Rust developer, nor was I particularly familiar with GTK when I started but it's been a great learning experience. Without AI, VibePanel wouldn't exist but it allowed me to create a bar I actually enjoy using so I'm thankful. I've done my due diligence to ensure the codebase is solid, but you have been warned :)
 
 ## Contributing
 
