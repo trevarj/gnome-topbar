@@ -12,7 +12,9 @@ use vibepanel_core::{Config, ThemePalette};
 
 use crate::sectioned_bar::SectionedBar;
 use crate::styles::class;
-use crate::widgets::{self, BarState, QuickSettingsConfig, WidgetConfig, WidgetFactory};
+use crate::widgets::{
+    self, BarState, QuickSettingsConfig, WidgetConfig, WidgetFactory, apply_widget_color,
+};
 
 /// Create and configure the bar window with layer-shell.
 ///
@@ -184,6 +186,13 @@ fn build_widget_or_group(
             let island = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
             island.add_css_class(class::WIDGET);
             island.add_css_class(class::WIDGET_GROUP);
+
+            // Apply first widget's color to the group island for unified background
+            if let Some(first_entry) = group.first() {
+                if let Some(ref color) = first_entry.color {
+                    apply_widget_color(&island, color);
+                }
+            }
 
             // Create inner content box (matching BaseWidget structure)
             let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);

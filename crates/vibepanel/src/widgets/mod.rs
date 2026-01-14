@@ -78,6 +78,7 @@ pub mod css;
 pub mod quick_settings;
 
 pub use base::BaseWidget;
+pub use base::apply_widget_color;
 pub use battery::{BatteryConfig, BatteryWidget};
 pub use clock::{ClockConfig, ClockWidget};
 pub use notification::{NotificationConfig, NotificationWidget};
