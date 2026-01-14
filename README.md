@@ -1,10 +1,25 @@
 # VibePanel
 
-![VibePanel](assets/screenshots/vibepanel_islands.png)
-
 A GTK4 status bar for Wayland. Supports Hyprland, Niri, MangoWC and DWL.
 
 VibePanel aims to be a simple bar that just works and looks good without configuration while also being fully customizable. Configure what you need, ignore what you don't.
+
+## Screenshots
+
+Here are some examples of what you can do with VibePanel and just ~10-40 lines of config, no CSS.
+
+<table align="center">
+  <tr>
+    <td colspan="2"><img src="assets/screenshots/islands_desktop.png"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="assets/screenshots/gruvbox_desktop.png"></td>
+  </tr>
+  <tr>
+    <td><a href="assets/screenshots/frosted_minimal_desktop.png"><img src="assets/screenshots/frosted_minimal_desktop.png" width="400"></a></td>
+    <td><a href="assets/screenshots/sonoma_desktop.png"><img src="assets/screenshots/sonoma_desktop.png" width="400"></a></td>
+  </tr>
+</table>
 
 ## Features
 
@@ -23,16 +38,6 @@ VibePanel aims to be a simple bar that just works and looks good without configu
   - Notifications - notification center with Do Not Disturb
   - Updates - package update indicator (dnf and pacman/paru support right now)
   - CPU & Memory - system resource monitors
-
-## Screenshots
-
-![Full bar](assets/screenshots/vibepanel_bar.png)
-![Islands](assets/screenshots/vibepanel_islands.png)
-<p>
-  <img src="assets/screenshots/vibepanel_qs.png" alt="Quick settings" height="187" />
-  <img src="assets/screenshots/vibepanel_battery.png" alt="Battery" height="187" />
-  <img src="assets/screenshots/vibepanel_notification.png" alt="Notifications" height="187" />
-</p>
 
 ## Status
 
