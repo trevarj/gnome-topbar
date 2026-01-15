@@ -5,7 +5,17 @@ on:
     tags:
       - 'v*'
   workflow_call:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release'
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release (e.g., v0.4.0)'
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -121,8 +131,10 @@ jobs:
       - name: Extract changelog for this version
         id: changelog
         run: |
+          # Get tag from input (workflow_call) or from git ref (push tag)
+          TAG_NAME="${{ inputs.tag_name || github.ref_name }}"
           # Extract version from tag (removes 'v' prefix)
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${TAG_NAME#v}
           
           # Extract the section for this version from CHANGELOG.md
           # Looks for ## [version] and captures until the next ## [ or end of file
@@ -141,6 +153,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
           body_path: release_notes.md
           files: |
             release/*
