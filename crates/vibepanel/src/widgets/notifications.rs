@@ -7,10 +7,10 @@
 //! - Toast overlay windows for new notifications (top-right stacked)
 //!
 //! This module is split into several files for maintainability:
-//! - `notification.rs` (this file): Widget implementation and badge logic
-//! - `notification_toast.rs`: Toast window management and queue
-//! - `notification_popover.rs`: Popover content and notification list
-//! - `notification_common.rs`: Shared constants and helper functions
+//! - `notifications.rs` (this file): Widget implementation and badge logic
+//! - `notifications_toast.rs`: Toast window management and queue
+//! - `notifications_popover.rs`: Popover content and notification list
+//! - `notifications_common.rs`: Shared constants and helper functions
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -29,17 +29,17 @@ use crate::styles::widget;
 use crate::widgets::base::MenuHandle;
 use crate::widgets::{BaseWidget, WidgetConfig};
 
-use super::notification_popover::{ClosePopoverCallback, build_popover_content};
-use super::notification_toast::NotificationToastManager;
+use super::notifications_popover::{ClosePopoverCallback, build_popover_content};
+use super::notifications_toast::NotificationToastManager;
 
 /// Configuration for the notification widget.
 #[derive(Debug, Clone, Default)]
-pub struct NotificationConfig {
+pub struct NotificationsConfig {
     /// Custom background color for this widget.
     pub background_color: Option<String>,
 }
 
-impl WidgetConfig for NotificationConfig {
+impl WidgetConfig for NotificationsConfig {
     fn from_entry(entry: &WidgetEntry) -> Self {
         Self {
             background_color: entry.background_color.clone(),
@@ -50,7 +50,7 @@ impl WidgetConfig for NotificationConfig {
 /// Shared inner state for the notification widget.
 ///
 /// This is wrapped in Rc<RefCell<...>> to allow safe sharing with callbacks.
-struct NotificationWidgetInner {
+struct NotificationsWidgetInner {
     icon_handle: IconHandle,
     badge: Widget,
     container: GtkBox,
@@ -61,11 +61,11 @@ struct NotificationWidgetInner {
     menu_handle: RefCell<Option<Rc<MenuHandle>>>,
 }
 
-impl NotificationWidgetInner {
+impl NotificationsWidgetInner {
     fn on_service_update(&self, service: &NotificationService) {
         let count = service.count();
         debug!(
-            "NotificationWidget: on_service_update called, count={}",
+            "NotificationsWidget: on_service_update called, count={}",
             count
         );
 
@@ -75,7 +75,7 @@ impl NotificationWidgetInner {
         // Update badge: unread since last popover open
         // Badge is shown as a simple dot (no text), count is only in tooltip
         let unread = self.calculate_unread_count(service);
-        debug!("NotificationWidget: unread count = {}", unread);
+        debug!("NotificationsWidget: unread count = {}", unread);
         if unread > 0 {
             self.badge.set_visible(true);
         } else {
@@ -147,7 +147,7 @@ impl NotificationWidgetInner {
 
     fn calculate_unread_count(&self, service: &NotificationService) -> usize {
         if !service.backend_available() {
-            debug!("NotificationWidget: backend not available, returning 0");
+            debug!("NotificationsWidget: backend not available, returning 0");
             return 0;
         }
 
@@ -161,7 +161,7 @@ impl NotificationWidgetInner {
         let last_seen = self.last_seen_timestamp.get();
 
         debug!(
-            "NotificationWidget: calculate_unread_count - active_toast_ids={:?}, last_seen={}, notifications_count={}",
+            "NotificationsWidget: calculate_unread_count - active_toast_ids={:?}, last_seen={}, notifications_count={}",
             active_toast_ids,
             last_seen,
             service.notifications().len()
@@ -173,14 +173,14 @@ impl NotificationWidgetInner {
             .filter(|n| {
                 // Skip if currently shown as toast
                 if active_toast_ids.contains(&n.id) {
-                    debug!("NotificationWidget: skipping {} (active toast)", n.id);
+                    debug!("NotificationsWidget: skipping {} (active toast)", n.id);
                     return false;
                 }
 
                 // First run (never opened): count all non-toasted as unread
                 if last_seen <= 0.0 {
                     debug!(
-                        "NotificationWidget: counting {} (never opened popover)",
+                        "NotificationsWidget: counting {} (never opened popover)",
                         n.id
                     );
                     return true;
@@ -189,7 +189,7 @@ impl NotificationWidgetInner {
                 // Count if delivered after last seen
                 let is_unread = n.timestamp > last_seen;
                 debug!(
-                    "NotificationWidget: {} timestamp={} > last_seen={} = {}",
+                    "NotificationsWidget: {} timestamp={} > last_seen={} = {}",
                     n.id, n.timestamp, last_seen, is_unread
                 );
                 is_unread
@@ -270,14 +270,14 @@ impl NotificationWidgetInner {
 }
 
 /// Notification bell widget with popover showing notification list.
-pub struct NotificationWidget {
+pub struct NotificationsWidget {
     base: BaseWidget,
-    inner: Rc<NotificationWidgetInner>,
+    inner: Rc<NotificationsWidgetInner>,
 }
 
-impl NotificationWidget {
+impl NotificationsWidget {
     /// Create a new notification widget.
-    pub fn new(config: NotificationConfig) -> Self {
+    pub fn new(config: NotificationsConfig) -> Self {
         let base = BaseWidget::new(&[widget::NOTIFICATIONS], config.background_color);
 
         // Create an overlay for badge on top of icon
@@ -307,7 +307,7 @@ impl NotificationWidget {
 
         base.set_tooltip("Notifications");
 
-        let inner = Rc::new(NotificationWidgetInner {
+        let inner = Rc::new(NotificationsWidgetInner {
             icon_handle,
             badge: badge.upcast(),
             container: base.widget().clone(),
@@ -404,8 +404,8 @@ impl NotificationWidget {
     }
 }
 
-impl Default for NotificationWidget {
+impl Default for NotificationsWidget {
     fn default() -> Self {
-        Self::new(NotificationConfig::default())
+        Self::new(NotificationsConfig::default())
     }
 }

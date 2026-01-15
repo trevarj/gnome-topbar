@@ -87,7 +87,7 @@ Here's a minimal example:
 size = 32
 
 [widgets]
-left = ["workspace", "window_title"]
+left = ["workspaces", "window_title"]
 right = ["quick_settings", "battery", "clock", "notifications"]
 
 [theme]

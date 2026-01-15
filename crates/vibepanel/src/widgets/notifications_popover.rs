@@ -17,7 +17,7 @@ use crate::services::notification::{
 use crate::services::tooltip::TooltipManager;
 use crate::styles::{button, card, color, notification as notif, surface};
 
-use super::notification_common::{
+use super::notifications_common::{
     BODY_TRUNCATE_THRESHOLD, POPOVER_MAX_VISIBLE_ROWS, POPOVER_ROW_HEIGHT, POPOVER_WIDTH,
     create_notification_image_widget, format_timestamp, sanitize_body_markup,
 };

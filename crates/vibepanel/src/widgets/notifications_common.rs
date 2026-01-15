@@ -1,7 +1,7 @@
 //! Common utilities shared between notification widget modules.
 //!
 //! This module contains constants and helper functions used by both
-//! notification_toast.rs and notification_popover.rs.
+//! notifications_toast.rs and notifications_popover.rs.
 
 use gtk4::Image;
 

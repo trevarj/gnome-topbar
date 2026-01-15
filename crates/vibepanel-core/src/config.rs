@@ -13,8 +13,8 @@ use toml::Table;
 
 use crate::error::{Error, Result};
 
-/// Known valid values for workspace.backend.
-const VALID_BACKENDS: &[&str] = &["auto", "mango", "hyprland", "niri"];
+/// Known valid values for advanced.compositor.
+const VALID_COMPOSITORS: &[&str] = &["auto", "mango", "hyprland", "niri"];
 
 /// Known valid values for theme.mode.
 const VALID_THEME_MODES: &[&str] = &["auto", "dark", "light", "gtk"];
@@ -46,9 +46,6 @@ pub struct Config {
 
     /// Widget configuration (left, center, right sections).
     pub widgets: WidgetsConfig,
-
-    /// Workspace/compositor configuration.
-    pub workspace: WorkspaceConfig,
 
     /// Theme configuration (colors, typography, icons).
     pub theme: ThemeConfig,
@@ -214,12 +211,12 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         let mut errors = Vec::new();
 
-        // Validate workspace.backend
-        if !VALID_BACKENDS.contains(&self.workspace.backend.as_str()) {
+        // Validate advanced.compositor
+        if !VALID_COMPOSITORS.contains(&self.advanced.compositor.as_str()) {
             errors.push(format!(
-                "workspace.backend: invalid value '{}', expected one of: {}",
-                self.workspace.backend,
-                VALID_BACKENDS.join(", ")
+                "advanced.compositor: invalid value '{}', expected one of: {}",
+                self.advanced.compositor,
+                VALID_COMPOSITORS.join(", ")
             ));
         }
 
@@ -411,8 +408,8 @@ impl Config {
         lines.push(format!("  icon_theme: {}", self.theme.icons.theme));
         lines.push(format!("  icon_weight: {}", self.theme.icons.weight));
 
-        lines.push("\nWorkspace:".to_string());
-        lines.push(format!("  backend: {}", self.workspace.backend));
+        lines.push("\nAdvanced:".to_string());
+        lines.push(format!("  compositor: {}", self.advanced.compositor));
 
         lines.push("\nOSD:".to_string());
         lines.push(format!(
@@ -538,9 +535,9 @@ impl BarConfig {
 ///
 /// ```toml
 /// [widgets]
-/// left = ["workspace", "window_title"]
+/// left = ["workspaces", "window_title"]
 /// right = [
-///   "system_tray",
+///   "tray",
 ///   { group = ["battery", "clock"] },
 ///   "notifications",
 /// ]
@@ -887,7 +884,7 @@ pub struct WidgetOptions {
 /// against per-widget configuration tables.
 #[derive(Debug, Clone)]
 pub struct WidgetEntry {
-    /// Widget type name (e.g., "clock", "battery", "workspace").
+    /// Widget type name (e.g., "clock", "battery", "workspaces").
     pub name: String,
 
     /// Merged widget-specific options from `[widgets.<name>]`.
@@ -992,22 +989,6 @@ impl Default for ThemeIconsConfig {
         Self {
             theme: "material".to_string(),
             weight: 400,
-        }
-    }
-}
-
-/// Workspace/compositor configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct WorkspaceConfig {
-    /// Compositor backend: "auto", "mango", "hyprland", "niri".
-    pub backend: String,
-}
-
-impl Default for WorkspaceConfig {
-    fn default() -> Self {
-        Self {
-            backend: "auto".to_string(),
         }
     }
 }
@@ -1121,8 +1102,16 @@ impl Default for OsdConfig {
 /// environments. Most users should not need to change these.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[derive(Default)]
 pub struct AdvancedConfig {
+    /// Compositor to connect to: "auto", "mango", "hyprland", "niri".
+    ///
+    /// In most cases, "auto" will correctly detect your compositor.
+    /// Only change this if auto-detection fails or you want to force
+    /// a specific backend for testing.
+    ///
+    /// Default: "auto"
+    pub compositor: String,
+
     /// Use Pango attributes for font rendering instead of CSS.
     ///
     /// When enabled, applies Pango font attributes directly to labels,
@@ -1132,6 +1121,15 @@ pub struct AdvancedConfig {
     ///
     /// Default: false (use standard GTK/CSS font rendering)
     pub pango_font_rendering: bool,
+}
+
+impl Default for AdvancedConfig {
+    fn default() -> Self {
+        Self {
+            compositor: "auto".to_string(),
+            pango_font_rendering: false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1145,7 +1143,7 @@ mod tests {
         assert_eq!(config.bar.screen_margin, 4);
         assert_eq!(config.bar.background_opacity, 0.0);
         assert_eq!(config.widgets.background_opacity, 1.0);
-        assert_eq!(config.workspace.backend, "auto");
+        assert_eq!(config.advanced.compositor, "auto");
         assert_eq!(config.theme.mode, "auto");
         assert_eq!(config.theme.accent, "#adabe0");
         assert_eq!(config.theme.typography.font_family, "monospace");
@@ -1177,7 +1175,10 @@ mod tests {
         );
 
         // Basic structural fields should match
-        assert_eq!(from_toml.workspace.backend, from_struct.workspace.backend);
+        assert_eq!(
+            from_toml.advanced.compositor,
+            from_struct.advanced.compositor
+        );
     }
 
     #[test]
@@ -1392,10 +1393,10 @@ mod tests {
         // New format: widget names as strings, options in separate sections
         let toml = r#"
             [widgets]
-            left = ["workspace", "window_title"]
+            left = ["workspaces", "window_title"]
             right = ["clock"]
 
-            [widgets.workspace]
+            [widgets.workspaces]
             label_type = "none"
 
             [widgets.window_title]
@@ -1408,7 +1409,7 @@ mod tests {
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.widgets.left.len(), 2);
         match &config.widgets.left[0] {
-            WidgetPlacement::Single(name) => assert_eq!(name, "workspace"),
+            WidgetPlacement::Single(name) => assert_eq!(name, "workspaces"),
             WidgetPlacement::Group { .. } => panic!("expected single widget"),
         }
         assert_eq!(config.widgets.right.len(), 1);
@@ -1430,16 +1431,16 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_invalid_backend() {
+    fn test_validate_invalid_compositor() {
         let mut config = Config::default();
-        config.workspace.backend = "sway".to_string();
+        config.advanced.compositor = "sway".to_string();
 
         let result = config.validate();
         assert!(result.is_err());
 
         let err = result.unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("workspace.backend"));
+        assert!(msg.contains("advanced.compositor"));
         assert!(msg.contains("sway"));
     }
 
@@ -1485,7 +1486,7 @@ mod tests {
     #[test]
     fn test_validate_multiple_errors() {
         let mut config = Config::default();
-        config.workspace.backend = "invalid".to_string();
+        config.advanced.compositor = "invalid".to_string();
         config.bar.size = 0;
 
         let result = config.validate();
@@ -1494,7 +1495,7 @@ mod tests {
         let err = result.unwrap_err();
         let msg = err.to_string();
         // Should contain both errors
-        assert!(msg.contains("workspace.backend"));
+        assert!(msg.contains("advanced.compositor"));
         assert!(msg.contains("bar.size"));
     }
 
@@ -1804,7 +1805,7 @@ mod tests {
     fn test_section_has_expander_mixed() {
         // Mix of regular widgets and flexible spacer
         let section = vec![
-            WidgetPlacement::Single("workspace".to_string()),
+            WidgetPlacement::Single("workspaces".to_string()),
             WidgetPlacement::Single("window_title".to_string()),
             WidgetPlacement::Single("spacer".to_string()),
             WidgetPlacement::Single("clock".to_string()),
@@ -1817,7 +1818,7 @@ mod tests {
     fn test_section_has_expander_disabled_spacer() {
         // Disabled spacer should NOT count as expander
         let section = vec![
-            WidgetPlacement::Single("workspace".to_string()),
+            WidgetPlacement::Single("workspaces".to_string()),
             WidgetPlacement::Single("spacer".to_string()),
         ];
 
@@ -1837,7 +1838,7 @@ mod tests {
     fn test_section_has_expander_width_in_options() {
         // Spacer with width defined in TOML options should NOT count as expander
         let section = vec![
-            WidgetPlacement::Single("workspace".to_string()),
+            WidgetPlacement::Single("workspaces".to_string()),
             WidgetPlacement::Single("spacer".to_string()),
         ];
 

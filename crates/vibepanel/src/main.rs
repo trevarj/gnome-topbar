@@ -421,9 +421,9 @@ fn run_gtk_app(config: Config, config_source: Option<PathBuf>) -> ExitCode {
     // Initialize the config manager singleton (before GTK, so it's ready for hot-reload)
     ConfigManager::init_global(config.clone(), config_source.clone());
 
-    // Initialize the compositor manager singleton with workspace config
+    // Initialize the compositor manager singleton with advanced config
     // This must happen after ConfigManager but before GTK widgets are created
-    CompositorManager::init_global(&config.workspace);
+    CompositorManager::init_global(&config.advanced);
 
     // Default to Wayland backend
     // SAFETY: This is called before GTK initialization, and we're setting a

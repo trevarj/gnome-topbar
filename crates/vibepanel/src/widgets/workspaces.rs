@@ -1,4 +1,4 @@
-//! Workspace widget - displays workspace indicators.
+//! Workspaces widget - displays workspace indicators.
 //!
 //! Shows occupied/active workspaces with visual indicators and CSS classes.
 //! Clicking on a workspace indicator switches to that workspace.
@@ -46,9 +46,9 @@ impl LabelType {
 const DEFAULT_LABEL_TYPE: LabelType = LabelType::None;
 const DEFAULT_SEPARATOR: &str = "";
 
-/// Configuration for the workspace widget.
+/// Configuration for the workspaces widget.
 #[derive(Debug, Clone)]
-pub struct WorkspaceConfig {
+pub struct WorkspacesConfig {
     /// How to display workspace labels.
     pub label_type: LabelType,
     /// Separator string between workspace indicators.
@@ -57,9 +57,9 @@ pub struct WorkspaceConfig {
     pub background_color: Option<String>,
 }
 
-impl WidgetConfig for WorkspaceConfig {
+impl WidgetConfig for WorkspacesConfig {
     fn from_entry(entry: &WidgetEntry) -> Self {
-        warn_unknown_options("workspace", entry, &["label_type", "separator"]);
+        warn_unknown_options("workspaces", entry, &["label_type", "separator"]);
 
         let label_type = entry
             .options
@@ -83,7 +83,7 @@ impl WidgetConfig for WorkspaceConfig {
     }
 }
 
-impl Default for WorkspaceConfig {
+impl Default for WorkspacesConfig {
     fn default() -> Self {
         Self {
             label_type: DEFAULT_LABEL_TYPE,
@@ -93,14 +93,14 @@ impl Default for WorkspaceConfig {
     }
 }
 
-/// Workspace widget that displays workspace indicators.
-pub struct WorkspaceWidget {
+/// Workspaces widget that displays workspace indicators.
+pub struct WorkspacesWidget {
     /// Shared base widget container.
     base: BaseWidget,
 }
 
-impl WorkspaceWidget {
-    /// Create a new workspace widget with the given configuration.
+impl WorkspacesWidget {
+    /// Create a new workspaces widget with the given configuration.
     ///
     /// # Arguments
     ///
@@ -109,8 +109,8 @@ impl WorkspaceWidget {
     ///   - For Niri: only show workspaces belonging to this output.
     ///   - For MangoWC: show all workspaces but with per-output window counts.
     ///   - For Hyprland: ignored (global workspace view).
-    pub fn new(config: WorkspaceConfig, output_id: Option<String>) -> Self {
-        let base = BaseWidget::new(&[widget::WORKSPACE], config.background_color);
+    pub fn new(config: WorkspacesConfig, output_id: Option<String>) -> Self {
+        let base = BaseWidget::new(&[widget::WORKSPACES], config.background_color);
 
         // Use the content box provided by BaseWidget
         let workspace_container = base.content().clone();
@@ -138,7 +138,10 @@ impl WorkspaceWidget {
             );
         });
 
-        debug!("WorkspaceWidget created (output_id: {:?})", output_id_debug);
+        debug!(
+            "WorkspacesWidget created (output_id: {:?})",
+            output_id_debug
+        );
         Self { base }
     }
 
@@ -421,8 +424,8 @@ mod tests {
 
     #[test]
     fn test_workspace_config_default() {
-        let entry = make_widget_entry("workspace", HashMap::new());
-        let config = WorkspaceConfig::from_entry(&entry);
+        let entry = make_widget_entry("workspaces", HashMap::new());
+        let config = WorkspacesConfig::from_entry(&entry);
         assert_eq!(config.label_type, LabelType::None);
         assert_eq!(config.separator, "");
     }
@@ -435,8 +438,8 @@ mod tests {
             Value::String("numbers".to_string()),
         );
         options.insert("separator".to_string(), Value::String("|".to_string()));
-        let entry = make_widget_entry("workspace", options);
-        let config = WorkspaceConfig::from_entry(&entry);
+        let entry = make_widget_entry("workspaces", options);
+        let config = WorkspacesConfig::from_entry(&entry);
         assert_eq!(config.label_type, LabelType::Numbers);
         assert_eq!(config.separator, "|");
     }
@@ -445,8 +448,8 @@ mod tests {
     fn test_workspace_config_none() {
         let mut options = HashMap::new();
         options.insert("label_type".to_string(), Value::String("none".to_string()));
-        let entry = make_widget_entry("workspace", options);
-        let config = WorkspaceConfig::from_entry(&entry);
+        let entry = make_widget_entry("workspaces", options);
+        let config = WorkspacesConfig::from_entry(&entry);
         assert_eq!(config.label_type, LabelType::None);
     }
 

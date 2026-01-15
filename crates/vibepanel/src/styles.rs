@@ -354,9 +354,9 @@ pub mod widget {
     /// Battery percentage label (`.battery-percentage`).
     pub const BATTERY_PERCENTAGE: &str = "battery-percentage";
 
-    // Workspace
-    /// Workspace widget (`.workspace`).
-    pub const WORKSPACE: &str = "workspace";
+    // Workspaces
+    /// Workspaces widget (`.workspaces`).
+    pub const WORKSPACES: &str = "workspaces";
 
     /// Workspace indicator (`.workspace-indicator`).
     pub const WORKSPACE_INDICATOR: &str = "workspace-indicator";

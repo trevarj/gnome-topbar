@@ -446,11 +446,11 @@ fn config_structure_changed(old: &Config, new: &Config) -> bool {
         return true;
     }
 
-    // Workspace backend changes
-    if old.workspace.backend != new.workspace.backend {
+    // Compositor changes
+    if old.advanced.compositor != new.advanced.compositor {
         debug!(
-            "workspace.backend changed ({} -> {})",
-            old.workspace.backend, new.workspace.backend
+            "advanced.compositor changed ({} -> {})",
+            old.advanced.compositor, new.advanced.compositor
         );
         return true;
     }
@@ -537,14 +537,14 @@ mod tests {
         config
             .widgets
             .left
-            .push(WidgetPlacement::Single("workspace".to_string()));
+            .push(WidgetPlacement::Single("workspaces".to_string()));
         config
             .widgets
             .right
             .push(WidgetPlacement::Single("clock".to_string()));
 
         let names = widget_names(&config);
-        assert!(names.iter().any(|n| n == "left:workspace"));
+        assert!(names.iter().any(|n| n == "left:workspaces"));
         assert!(names.iter().any(|n| n == "right:clock"));
     }
 }

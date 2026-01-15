@@ -75,7 +75,7 @@ pub struct TrayPixmap {
 
 /// Snapshot of a tray item's current state.
 #[derive(Debug, Clone)]
-pub struct TrayItemSnapshot {
+pub struct TrayItem {
     pub identifier: String,
     pub title: String,
     pub tooltip: Option<String>,
@@ -112,7 +112,7 @@ impl TrayMenuEntry {
 /// Shared, process-wide tray service implementing StatusNotifierHost.
 pub struct TrayService {
     /// Current tray items by identifier.
-    items: RefCell<HashMap<String, TrayItemSnapshot>>,
+    items: RefCell<HashMap<String, TrayItem>>,
     /// DBus connection.
     bus: RefCell<Option<gio::DBusConnection>>,
     /// External watcher proxy (when not acting as watcher).
@@ -206,7 +206,7 @@ impl TrayService {
     ///
     /// Returns a Vec of (identifier, snapshot) pairs sorted by identifier
     /// for stable ordering across updates.
-    pub fn items(&self) -> Vec<(String, TrayItemSnapshot)> {
+    pub fn items(&self) -> Vec<(String, TrayItem)> {
         let items = self.items.borrow();
         let mut result: Vec<_> = items.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         result.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1121,7 +1121,7 @@ impl TrayService {
         identifier: &str,
         proxy: &gio::DBusProxy,
         overrides: Option<&HashMap<String, Variant>>,
-    ) -> Option<TrayItemSnapshot> {
+    ) -> Option<TrayItem> {
         let get_prop = |name: &str| -> Option<Variant> {
             if let Some(map) = overrides
                 && let Some(v) = map.get(name)
@@ -1149,7 +1149,7 @@ impl TrayService {
             .and_then(|v| v.get::<bool>())
             .unwrap_or(false);
 
-        Some(TrayItemSnapshot {
+        Some(TrayItem {
             identifier: identifier.to_string(),
             title,
             tooltip,

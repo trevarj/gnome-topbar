@@ -27,10 +27,10 @@ fn test_load_real_config() {
     assert!(!config.widgets.left.is_empty(), "Expected left widgets");
     assert!(!config.widgets.right.is_empty(), "Expected right widgets");
 
-    // Verify workspace config has valid backend
+    // Verify advanced config has valid compositor
     assert!(
-        ["auto", "mango", "hyprland", "niri"].contains(&config.workspace.backend.as_str()),
-        "Workspace backend should be valid"
+        ["auto", "mango", "hyprland", "niri"].contains(&config.advanced.compositor.as_str()),
+        "Compositor should be valid"
     );
 
     // Verify theme config has valid mode
@@ -69,8 +69,8 @@ fn test_widget_names() {
         .collect();
 
     assert!(
-        left_names.iter().any(|n| n.contains("workspace")),
-        "Expected workspace widget in left"
+        left_names.iter().any(|n| n.contains("workspaces")),
+        "Expected workspaces widget in left"
     );
     assert!(
         left_names.iter().any(|n| n.contains("window_title")),
@@ -98,7 +98,7 @@ fn test_config_summary() {
     assert!(summary.contains("Bar Configuration:"));
     assert!(summary.contains("Widgets:"));
     assert!(summary.contains("Theme:"));
-    assert!(summary.contains("Workspace:"));
+    assert!(summary.contains("Advanced:"));
     assert!(summary.contains("OSD:"));
 
     // Verify summary contains size (a stable value)
@@ -194,10 +194,10 @@ fn test_validation_rejects_invalid_theme_mode() {
 }
 
 #[test]
-fn test_validation_rejects_invalid_workspace_backend() {
+fn test_validation_rejects_invalid_compositor() {
     let toml = r#"
-        [workspace]
-        backend = "gnome_shell"
+        [advanced]
+        compositor = "gnome_shell"
     "#;
 
     let config: Config = toml::from_str(toml).unwrap();
@@ -205,12 +205,12 @@ fn test_validation_rejects_invalid_workspace_backend() {
 
     assert!(
         result.is_err(),
-        "Invalid workspace.backend should fail validation"
+        "Invalid advanced.compositor should fail validation"
     );
     let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("workspace.backend"),
-        "Error should mention workspace.backend"
+        err.contains("advanced.compositor"),
+        "Error should mention advanced.compositor"
     );
 }
 
@@ -274,8 +274,8 @@ fn test_validation_accepts_valid_enum_values() {
         [theme]
         mode = "dark"
         
-        [workspace]
-        backend = "hyprland"
+        [advanced]
+        compositor = "hyprland"
         
         [osd]
         position = "bottom"
@@ -297,8 +297,8 @@ fn test_validation_accepts_valid_enum_values() {
         [theme]
         mode = "light"
         
-        [workspace]
-        backend = "niri"
+        [advanced]
+        compositor = "niri"
         
         [osd]
         position = "top"

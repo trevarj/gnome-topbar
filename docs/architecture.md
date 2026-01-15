@@ -200,7 +200,7 @@ crates/vibepanel/src/
     base.rs         # BaseWidget helper
     clock.rs        # Clock widget
     battery.rs      # Battery widget
-    workspace.rs    # Workspace indicators
+    workspaces.rs   # Workspace indicators
     quick_settings/ # Quick settings panel components
     ...
 ```

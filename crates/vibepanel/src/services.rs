@@ -11,9 +11,9 @@
 //! - **tooltip**: Styled GTK tooltips
 //! - **surfaces**: Shared surface styling for popovers, menus, overlays
 //! - **compositor**: Pluggable compositor backend abstraction
-//! - **workspace**: Workspace state monitoring
+//! - **workspaces**: Workspace state monitoring
 //! - **window_title**: Focused window title monitoring
-//! - **system_tray**: StatusNotifierItem host for system tray icons
+//! - **tray**: StatusNotifierItem host for system tray icons
 //! - **vpn**: VPN connection management via NetworkManager
 //! - **idle_inhibitor**: System idle/sleep prevention
 //! - **state**: Persistent state storage (DND, VPN last used, notification history)
@@ -36,8 +36,8 @@ pub mod power_profile;
 pub mod state;
 pub mod surfaces;
 pub mod system;
-pub mod system_tray;
 pub mod tooltip;
+pub mod tray;
 pub mod updates;
 pub mod vpn;
 pub mod window_title;

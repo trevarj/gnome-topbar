@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use gtk4::glib;
 use tracing::{debug, info};
-use vibepanel_core::config::WorkspaceConfig;
+use vibepanel_core::config::AdvancedConfig;
 
 use super::{
     BackendKind, CompositorBackend, WindowCallback, WindowInfo, WindowOpenedCallback,
@@ -68,8 +68,8 @@ pub struct CompositorManager {
 }
 
 impl CompositorManager {
-    /// Create a new CompositorManager with the given workspace configuration.
-    fn new(workspace_config: &WorkspaceConfig) -> Rc<Self> {
+    /// Create a new CompositorManager with the given advanced configuration.
+    fn new(advanced_config: &AdvancedConfig) -> Rc<Self> {
         let manager = Rc::new(Self {
             backend: RefCell::new(None),
             workspace_callbacks: RefCell::new(Vec::new()),
@@ -81,23 +81,23 @@ impl CompositorManager {
         });
 
         // Initialize backend with config
-        Self::init_backend(&manager, workspace_config);
+        Self::init_backend(&manager, advanced_config);
 
         manager
     }
 
-    /// Initialize the global CompositorManager singleton with workspace configuration.
+    /// Initialize the global CompositorManager singleton with advanced configuration.
     ///
     /// This must be called once from the GTK main thread before any calls to `global()`.
     /// Typically called during application startup after ConfigManager is initialized.
-    pub fn init_global(workspace_config: &WorkspaceConfig) {
+    pub fn init_global(advanced_config: &AdvancedConfig) {
         COMPOSITOR_MANAGER.with(|cell| {
             let mut opt = cell.borrow_mut();
             if opt.is_some() {
                 debug!("CompositorManager already initialized, skipping re-init");
                 return;
             }
-            *opt = Some(CompositorManager::new(workspace_config));
+            *opt = Some(CompositorManager::new(advanced_config));
         });
     }
 
@@ -277,9 +277,9 @@ impl CompositorManager {
     }
 
     /// Initialize the backend.
-    fn init_backend(this: &Rc<Self>, workspace_config: &WorkspaceConfig) {
+    fn init_backend(this: &Rc<Self>, advanced_config: &AdvancedConfig) {
         // Parse backend kind from config
-        let backend_kind = BackendKind::from_str(&workspace_config.backend);
+        let backend_kind = BackendKind::from_str(&advanced_config.compositor);
 
         // Backends no longer filter by outputs - that's now handled at the widget level
         let backend = factory::create_backend(backend_kind, None);
@@ -287,7 +287,7 @@ impl CompositorManager {
         info!(
             "CompositorManager using backend: {} (config: {})",
             backend.name(),
-            workspace_config.backend,
+            advanced_config.compositor,
         );
 
         // Create thread-safe callbacks that use idle_add_once to schedule on main loop

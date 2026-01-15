@@ -61,18 +61,18 @@ mod calendar_popover;
 mod clock;
 mod cpu;
 mod memory;
-mod notification;
-mod notification_common;
-mod notification_popover;
-mod notification_toast;
+mod notifications;
+mod notifications_common;
+mod notifications_popover;
+mod notifications_toast;
 mod osd;
 mod spacer;
 mod system_popover;
-mod system_tray;
+mod tray;
 mod updates;
 mod updates_common;
 mod window_title;
-mod workspace;
+mod workspaces;
 
 pub mod css;
 
@@ -82,15 +82,15 @@ pub use base::BaseWidget;
 pub use base::apply_widget_color;
 pub use battery::{BatteryConfig, BatteryWidget};
 pub use clock::{ClockConfig, ClockWidget};
-pub use notification::{NotificationConfig, NotificationWidget};
+pub use notifications::{NotificationsConfig, NotificationsWidget};
 pub use osd::OsdOverlay;
 pub use quick_settings::QuickSettingsWindowHandle;
 pub use quick_settings::{QuickSettingsConfig, QuickSettingsWidget};
 pub use spacer::{SpacerConfig, SpacerWidget};
-pub use system_tray::{SystemTrayConfig, SystemTrayWidget};
+pub use tray::{TrayConfig, TrayWidget};
 pub use updates::{UpdatesConfig, UpdatesWidget};
 pub use window_title::{WindowTitleConfig, WindowTitleWidget};
-pub use workspace::{WorkspaceConfig, WorkspaceWidget};
+pub use workspaces::{WorkspacesConfig, WorkspacesWidget};
 
 pub use cpu::{CpuConfig, CpuWidget};
 pub use memory::{MemoryConfig, MemoryWidget};
@@ -223,13 +223,13 @@ impl WidgetFactory {
                     handle: Box::new(battery),
                 })
             }
-            "workspace" => {
-                let cfg = WorkspaceConfig::from_entry(entry);
-                let workspace = WorkspaceWidget::new(cfg, output_id.map(|s| s.to_string()));
-                let root = workspace.widget().clone().upcast::<Widget>();
+            "workspaces" => {
+                let cfg = WorkspacesConfig::from_entry(entry);
+                let workspaces = WorkspacesWidget::new(cfg, output_id.map(|s| s.to_string()));
+                let root = workspaces.widget().clone().upcast::<Widget>();
                 Some(BuiltWidget {
                     widget: root,
-                    handle: Box::new(workspace),
+                    handle: Box::new(workspaces),
                 })
             }
             "window_title" => {
@@ -241,22 +241,22 @@ impl WidgetFactory {
                     handle: Box::new(window_title),
                 })
             }
-            "system_tray" => {
-                let cfg = SystemTrayConfig::from_entry(entry);
-                let system_tray = SystemTrayWidget::new(cfg);
-                let root = system_tray.widget().clone().upcast::<Widget>();
+            "tray" => {
+                let cfg = TrayConfig::from_entry(entry);
+                let tray = TrayWidget::new(cfg);
+                let root = tray.widget().clone().upcast::<Widget>();
                 Some(BuiltWidget {
                     widget: root,
-                    handle: Box::new(system_tray),
+                    handle: Box::new(tray),
                 })
             }
             "notifications" => {
-                let cfg = NotificationConfig::from_entry(entry);
-                let notification = NotificationWidget::new(cfg);
-                let root = notification.widget().clone().upcast::<Widget>();
+                let cfg = NotificationsConfig::from_entry(entry);
+                let notifications = NotificationsWidget::new(cfg);
+                let root = notifications.widget().clone().upcast::<Widget>();
                 Some(BuiltWidget {
                     widget: root,
-                    handle: Box::new(notification),
+                    handle: Box::new(notifications),
                 })
             }
             "quick_settings" => {

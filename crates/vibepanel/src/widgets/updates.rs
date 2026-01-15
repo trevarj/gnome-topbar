@@ -8,7 +8,6 @@
 //!
 //! Configuration options:
 //! - `check_interval`: How often to check for updates (seconds, default: 3600)
-//! - `package_manager`: Override auto-detection ("auto", "dnf", "pacman", "paru")
 //! - `terminal`: Override terminal emulator detection
 
 use gtk4::prelude::*;

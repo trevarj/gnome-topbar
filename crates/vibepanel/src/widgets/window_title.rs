@@ -49,14 +49,12 @@ pub struct WindowTitleConfig {
 
 impl WidgetConfig for WindowTitleConfig {
     fn from_entry(entry: &WidgetEntry) -> Self {
-        // Note: "format" is a legacy alias for "template"
         warn_unknown_options(
             "window_title",
             entry,
             &[
                 "empty_text",
                 "template",
-                "format",
                 "show_app_fallback",
                 "max_chars",
                 "show_icon",
@@ -71,11 +69,9 @@ impl WidgetConfig for WindowTitleConfig {
             .unwrap_or(DEFAULT_EMPTY_TEXT)
             .to_string();
 
-        // Support both "format" and "template" for compatibility
         let template = entry
             .options
             .get("template")
-            .or_else(|| entry.options.get("format"))
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_TEMPLATE)
             .to_string();

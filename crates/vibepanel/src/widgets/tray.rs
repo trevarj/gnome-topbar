@@ -18,8 +18,8 @@ use vibepanel_core::config::WidgetEntry;
 
 use crate::services::config_manager::ConfigManager;
 use crate::services::surfaces::SurfaceStyleManager;
-use crate::services::system_tray::{TrayItemSnapshot, TrayMenuEntry, TrayPixmap, TrayService};
 use crate::services::tooltip::TooltipManager;
+use crate::services::tray::{TrayItem, TrayMenuEntry, TrayPixmap, TrayService};
 use crate::styles::{button as btn, color, icon, surface, widget};
 use crate::widgets::WidgetConfig;
 use crate::widgets::base::{BaseWidget, configure_popover};
@@ -30,7 +30,7 @@ const DEFAULT_PIXMAP_ICON_SIZE: i32 = 18;
 
 /// Configuration for the system tray widget.
 #[derive(Debug, Clone)]
-pub struct SystemTrayConfig {
+pub struct TrayConfig {
     /// Maximum number of tray icons to display.
     pub max_icons: usize,
     /// Icon size for pixmap icons (in pixels).
@@ -39,7 +39,7 @@ pub struct SystemTrayConfig {
     pub background_color: Option<String>,
 }
 
-impl Default for SystemTrayConfig {
+impl Default for TrayConfig {
     fn default() -> Self {
         // Get pixmap_icon_size from theme, falling back to default if ConfigManager isn't initialized yet
         let pixmap_icon_size = std::panic::catch_unwind(|| {
@@ -55,9 +55,9 @@ impl Default for SystemTrayConfig {
     }
 }
 
-impl WidgetConfig for SystemTrayConfig {
+impl WidgetConfig for TrayConfig {
     fn from_entry(entry: &WidgetEntry) -> Self {
-        warn_unknown_options("system_tray", entry, &["max_icons", "pixmap_icon_size"]);
+        warn_unknown_options("tray", entry, &["max_icons", "pixmap_icon_size"]);
 
         let defaults = Self::default();
 
@@ -91,21 +91,21 @@ struct MenuState {
 }
 
 struct WidgetState {
-    config: SystemTrayConfig,
+    config: TrayConfig,
     buttons: HashMap<String, Button>,
     pixmap_cache: HashMap<String, gdk::Texture>,
     menu: Option<MenuState>,
 }
 
 /// System tray widget displaying StatusNotifierItem icons.
-pub struct SystemTrayWidget {
+pub struct TrayWidget {
     base: BaseWidget,
     state: Rc<RefCell<WidgetState>>,
 }
 
-impl SystemTrayWidget {
+impl TrayWidget {
     /// Create a new system tray widget.
-    pub fn new(config: SystemTrayConfig) -> Self {
+    pub fn new(config: TrayConfig) -> Self {
         let base = BaseWidget::new(&[widget::TRAY], config.background_color.clone());
 
         let state = Rc::new(RefCell::new(WidgetState {
@@ -276,7 +276,7 @@ fn create_button(state: &Rc<RefCell<WidgetState>>, identifier: &str) -> Button {
     button
 }
 
-fn update_button(state: &Rc<RefCell<WidgetState>>, button: &Button, snapshot: &TrayItemSnapshot) {
+fn update_button(state: &Rc<RefCell<WidgetState>>, button: &Button, snapshot: &TrayItem) {
     let child = match button.child() {
         Some(c) => c,
         None => return,

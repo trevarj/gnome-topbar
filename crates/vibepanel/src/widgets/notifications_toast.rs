@@ -22,7 +22,7 @@ type ToastActionCallback = Rc<dyn Fn(u32, &str)>;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{button, color, notification as notif};
 
-use super::notification_common::{
+use super::notifications_common::{
     POPOVER_WIDTH, TOAST_ESTIMATED_HEIGHT, TOAST_GAP, TOAST_MARGIN_RIGHT, TOAST_MARGIN_TOP,
     TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget,
     sanitize_body_markup,
