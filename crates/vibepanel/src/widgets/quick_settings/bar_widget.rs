@@ -73,7 +73,7 @@ pub struct QuickSettingsConfig {
     /// Which cards to show in the Quick Settings panel.
     pub cards: QuickSettingsCardsConfig,
     /// Custom background color for this widget.
-    pub color: Option<String>,
+    pub background_color: Option<String>,
 }
 
 impl WidgetConfig for QuickSettingsConfig {
@@ -111,7 +111,7 @@ impl WidgetConfig for QuickSettingsConfig {
                 brightness: get_bool("brightness"),
                 power: get_bool("power"),
             },
-            color: entry.color.clone(),
+            background_color: entry.background_color.clone(),
         }
     }
 }
@@ -124,7 +124,7 @@ pub struct QuickSettingsWidget {
 impl QuickSettingsWidget {
     pub fn new(cfg: QuickSettingsConfig, qs_window: QuickSettingsWindowHandle) -> Self {
         let cards = &cfg.cards;
-        let base = BaseWidget::new(&[widget::QUICK_SETTINGS], cfg.color);
+        let base = BaseWidget::new(&[widget::QUICK_SETTINGS], cfg.background_color);
 
         // Build icons only for enabled cards (order: Audio, Bluetooth, Wi-Fi, VPN)
         // Audio icon
@@ -378,14 +378,14 @@ impl QuickSettingsWidget {
 
                     // Compute widget bounds relative to the native window
                     if let Some(bounds) = root.compute_bounds(&native) {
-                        // The bar window is offset from the monitor edge by outer_margin.
+                        // The bar window is offset from the monitor edge by screen_margin.
                         // Widget bounds are relative to the bar window's (0,0).
-                        // To get monitor-relative coordinates, we need to add outer_margin.
-                        let outer_margin = ConfigManager::global().bar_outer_margin() as i32;
+                        // To get monitor-relative coordinates, we need to add screen_margin.
+                        let screen_margin = ConfigManager::global().screen_margin() as i32;
 
                         let widget_center_x =
-                            (bounds.x() + bounds.width() / 2.0) as i32 + outer_margin;
-                        let widget_bottom_y = (bounds.y() + bounds.height()) as i32 + outer_margin;
+                            (bounds.x() + bounds.width() / 2.0) as i32 + screen_margin;
+                        let widget_bottom_y = (bounds.y() + bounds.height()) as i32 + screen_margin;
 
                         let monitor = monitor.flatten();
                         qs_window_handle.toggle_at(widget_center_x, widget_bottom_y, monitor);

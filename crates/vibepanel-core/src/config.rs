@@ -47,13 +47,10 @@ pub struct Config {
     /// Widget configuration (left, center, right sections).
     pub widgets: WidgetsConfig,
 
-    /// Icon theme configuration.
-    pub icons: IconsConfig,
-
     /// Workspace/compositor configuration.
     pub workspace: WorkspaceConfig,
 
-    /// Theme configuration (colors, typography).
+    /// Theme configuration (colors, typography, icons).
     pub theme: ThemeConfig,
 
     /// On-screen display configuration.
@@ -270,17 +267,17 @@ impl Config {
         }
 
         // Validate opacity ranges (0.0 to 1.0)
-        if !(0.0..=1.0).contains(&self.theme.bar_opacity) {
+        if !(0.0..=1.0).contains(&self.bar.background_opacity) {
             errors.push(format!(
-                "theme.bar_opacity: invalid value '{}', must be between 0.0 and 1.0",
-                self.theme.bar_opacity
+                "bar.background_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                self.bar.background_opacity
             ));
         }
 
-        if !(0.0..=1.0).contains(&self.theme.widget_opacity) {
+        if !(0.0..=1.0).contains(&self.widgets.background_opacity) {
             errors.push(format!(
-                "theme.widget_opacity: invalid value '{}', must be between 0.0 and 1.0",
-                self.theme.widget_opacity
+                "widgets.background_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                self.widgets.background_opacity
             ));
         }
 
@@ -343,8 +340,8 @@ impl Config {
 
         lines.push("Bar Configuration:".to_string());
         lines.push(format!("  size: {}px", self.bar.size));
-        lines.push(format!("  widget_spacing: {}px", self.bar.widget_spacing));
-        lines.push(format!("  outer_margin: {}px", self.bar.outer_margin));
+        lines.push(format!("  spacing: {}px", self.bar.spacing));
+        lines.push(format!("  screen_margin: {}px", self.bar.screen_margin));
         lines.push(format!(
             "  notch: {} (width: {}px)",
             if self.bar.notch_enabled {
@@ -354,6 +351,13 @@ impl Config {
             },
             self.bar.notch_width
         ));
+        lines.push(format!(
+            "  background_opacity: {}",
+            self.bar.background_opacity
+        ));
+        if let Some(ref color) = self.bar.background_color {
+            lines.push(format!("  background_color: {}", color));
+        }
         if !self.bar.outputs.is_empty() {
             lines.push(format!("  outputs: {:?}", self.bar.outputs));
         }
@@ -389,22 +393,23 @@ impl Config {
         for name in format_widget_section(&self.widgets.right) {
             lines.push(format!("    - {}", name));
         }
+        lines.push(format!(
+            "  background_opacity: {}",
+            self.widgets.background_opacity
+        ));
+        if let Some(ref color) = self.widgets.background_color {
+            lines.push(format!("  background_color: {}", color));
+        }
 
         lines.push("\nTheme:".to_string());
         lines.push(format!("  mode: {}", self.theme.mode));
         lines.push(format!("  accent: {}", self.theme.accent));
-        lines.push(format!("  bar_opacity: {}", self.theme.bar_opacity));
-        lines.push(format!("  widget_opacity: {}", self.theme.widget_opacity));
-        if let Some(ref color) = self.theme.bar_background_color {
-            lines.push(format!("  bar_background_color: {}", color));
-        }
-        if let Some(ref color) = self.theme.widget_background_color {
-            lines.push(format!("  widget_background_color: {}", color));
-        }
         lines.push(format!(
             "  font_family: {}",
             self.theme.typography.font_family
         ));
+        lines.push(format!("  icon_theme: {}", self.theme.icons.theme));
+        lines.push(format!("  icon_weight: {}", self.theme.icons.weight));
 
         lines.push("\nWorkspace:".to_string());
         lines.push(format!("  backend: {}", self.workspace.backend));
@@ -446,13 +451,13 @@ pub struct BarConfig {
     pub size: u32,
 
     /// Spacing between widgets in pixels.
-    pub widget_spacing: u32,
+    pub spacing: u32,
 
     /// Distance from screen edge to bar window in pixels.
-    pub outer_margin: u32,
+    pub screen_margin: u32,
 
     /// Distance from bar edge to first/last section in pixels.
-    pub section_edge_margin: u32,
+    pub inset: u32,
 
     /// Whether notch mode is enabled.
     pub notch_enabled: bool,
@@ -473,20 +478,30 @@ pub struct BarConfig {
     /// If empty, bars are created on all monitors.
     /// Example: ["eDP-1", "DP-1"]
     pub outputs: Vec<String>,
+
+    /// Bar background color override (CSS format, e.g., "#1a1a2e").
+    /// If not set, derived from theme mode.
+    pub background_color: Option<String>,
+
+    /// Bar background opacity (0.0 = fully transparent, 1.0 = fully opaque).
+    /// Default: 0.0 (transparent bar for "islands" look).
+    pub background_opacity: f64,
 }
 
 impl Default for BarConfig {
     fn default() -> Self {
         Self {
             size: 32,
-            widget_spacing: 8,
-            outer_margin: 4,
-            section_edge_margin: 8,
+            spacing: 8,
+            screen_margin: 4,
+            inset: 8,
             notch_enabled: false,
             notch_width: 0,
             border_radius: 30,
             popover_offset: 1,
             outputs: Vec::new(),
+            background_color: None,
+            background_opacity: 0.0,
         }
     }
 }
@@ -555,6 +570,14 @@ pub struct WidgetsConfig {
     /// Border radius (percentage of widget height).
     pub border_radius: u32,
 
+    /// Widget background color override (CSS format, e.g., "#1a1a2e").
+    /// If not set, derived from theme mode.
+    pub background_color: Option<String>,
+
+    /// Widget background opacity (0.0 = fully transparent, 1.0 = fully opaque).
+    /// Default: 1.0 (fully visible widgets).
+    pub background_opacity: f64,
+
     /// Per-widget configuration tables.
     /// Keys are widget names, values are widget-specific options.
     #[serde(flatten)]
@@ -568,6 +591,8 @@ impl Default for WidgetsConfig {
             center: Vec::new(),
             right: Vec::new(),
             border_radius: 40,
+            background_color: None,
+            background_opacity: 1.0,
             widget_configs: HashMap::new(),
         }
     }
@@ -849,7 +874,7 @@ pub struct WidgetOptions {
     /// Background color override for this widget (hex like "#f5c2e7").
     /// If invalid or not set, uses the theme's default widget background.
     #[serde(default)]
-    pub color: Option<String>,
+    pub background_color: Option<String>,
 
     /// Widget-specific options (format, show_icon, etc.).
     #[serde(flatten)]
@@ -870,7 +895,7 @@ pub struct WidgetEntry {
 
     /// Background color override (hex like "#f5c2e7").
     /// None means use theme default.
-    pub color: Option<String>,
+    pub background_color: Option<String>,
 }
 
 impl WidgetEntry {
@@ -879,7 +904,7 @@ impl WidgetEntry {
         Self {
             name: name.into(),
             options: HashMap::new(),
-            color: None,
+            background_color: None,
         }
     }
 
@@ -887,12 +912,12 @@ impl WidgetEntry {
     pub fn with_options(name: impl Into<String>, widget_options: &WidgetOptions) -> Self {
         let name = name.into();
 
-        // Validate color if provided - warn on invalid hex colors
-        if let Some(ref color) = widget_options.color
+        // Validate background_color if provided - warn on invalid hex colors
+        if let Some(ref color) = widget_options.background_color
             && crate::theme::parse_hex_color(color).is_none()
         {
             tracing::warn!(
-                "Invalid color '{}' for widget '{}' - expected hex color like '#ff0000' or '#f00'",
+                "Invalid background_color '{}' for widget '{}' - expected hex color like '#ff0000' or '#f00'",
                 color,
                 name
             );
@@ -901,7 +926,7 @@ impl WidgetEntry {
         Self {
             name,
             options: widget_options.options.clone(),
-            color: widget_options.color.clone(),
+            background_color: widget_options.background_color.clone(),
         }
     }
 }
@@ -949,10 +974,10 @@ fn format_widget_section(items: &[WidgetPlacement]) -> Vec<String> {
     items.iter().flat_map(|item| item.display_names()).collect()
 }
 
-/// Icon theme configuration.
+/// Icon theme configuration (nested under [theme.icons]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct IconsConfig {
+pub struct ThemeIconsConfig {
     /// Icon backend: "material" for bundled Material Symbols, or "gtk" for
     /// the system GTK icon theme.
     pub theme: String,
@@ -962,7 +987,7 @@ pub struct IconsConfig {
     pub weight: u16,
 }
 
-impl Default for IconsConfig {
+impl Default for ThemeIconsConfig {
     fn default() -> Self {
         Self {
             theme: "material".to_string(),
@@ -1004,27 +1029,14 @@ pub struct ThemeConfig {
     /// - "#rrggbb": use this specific color as the accent
     pub accent: String,
 
-    /// Bar background color override (CSS format, e.g., "#1a1a2e").
-    /// If not set, derived from theme mode.
-    pub bar_background_color: Option<String>,
-
-    /// Bar opacity (0.0 = fully transparent, 1.0 = fully opaque).
-    /// Default: 0.0 (transparent bar for "islands" look).
-    pub bar_opacity: f64,
-
-    /// Widget background color override (CSS format, e.g., "#1a1a2e").
-    /// If not set, derived from theme mode.
-    pub widget_background_color: Option<String>,
-
-    /// Widget opacity (0.0 = fully transparent, 1.0 = fully opaque).
-    /// Default: 1.0 (fully visible widgets).
-    pub widget_opacity: f64,
-
     /// State colors (success, warning, urgent).
     pub states: ThemeStates,
 
     /// Typography settings.
     pub typography: ThemeTypography,
+
+    /// Icon theme configuration.
+    pub icons: ThemeIconsConfig,
 }
 
 impl Default for ThemeConfig {
@@ -1032,12 +1044,9 @@ impl Default for ThemeConfig {
         Self {
             mode: "auto".to_string(),
             accent: "#adabe0".to_string(),
-            bar_background_color: None,
-            bar_opacity: 0.0,
-            widget_background_color: None,
-            widget_opacity: 1.0,
             states: ThemeStates::default(),
             typography: ThemeTypography::default(),
+            icons: ThemeIconsConfig::default(),
         }
     }
 }
@@ -1133,13 +1142,15 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.bar.size, 32);
-        assert_eq!(config.bar.outer_margin, 4);
+        assert_eq!(config.bar.screen_margin, 4);
+        assert_eq!(config.bar.background_opacity, 0.0);
+        assert_eq!(config.widgets.background_opacity, 1.0);
         assert_eq!(config.workspace.backend, "auto");
         assert_eq!(config.theme.mode, "auto");
         assert_eq!(config.theme.accent, "#adabe0");
-        assert_eq!(config.theme.bar_opacity, 0.0);
-        assert_eq!(config.theme.widget_opacity, 1.0);
         assert_eq!(config.theme.typography.font_family, "monospace");
+        assert_eq!(config.theme.icons.theme, "material");
+        assert_eq!(config.theme.icons.weight, 400);
     }
 
     #[test]
@@ -1186,7 +1197,7 @@ mod tests {
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.bar.size, 40);
         // Struct defaults should be applied
-        assert_eq!(config.bar.outer_margin, 4);
+        assert_eq!(config.bar.screen_margin, 4);
         // Without merge, widgets are empty (struct default)
         assert!(config.widgets.left.is_empty());
     }
@@ -1205,7 +1216,7 @@ mod tests {
         assert_eq!(config.bar.size, 40);
 
         // Default values from embedded config should be inherited
-        assert_eq!(config.bar.outer_margin, 4);
+        assert_eq!(config.bar.screen_margin, 4);
 
         // Widgets should come from embedded defaults, not be empty
         assert!(
@@ -1262,7 +1273,8 @@ mod tests {
 
         // Other theme values should come from defaults
         assert_eq!(config.theme.accent, "#adabe0");
-        assert_eq!(config.theme.bar_opacity, 0.0);
+        // bar.background_opacity comes from bar section defaults
+        assert_eq!(config.bar.background_opacity, 0.0);
     }
 
     #[test]
