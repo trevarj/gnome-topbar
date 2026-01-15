@@ -1,8 +1,23 @@
 # VibePanel
 
-A GTK4 status bar for Wayland. Supports Hyprland, Niri, MangoWC and DWL.
+<p align="center">
+  <img src="assets/screenshots/islands_bar_light.png" alt="VibePanel bar preview" width="830">
+</p>
 
-VibePanel is a GTK4 status bar for Wayland that works out of the box with zero configuration. It's designed to be simple to use but easy to tweak when you want to customize it.
+A GTK4 panel for Wayland with integrated notifications, OSD, and quick settings. Supports Hyprland, Niri, MangoWC and DWL.
+
+## Why VibePanel?
+
+VibePanel is something between a simple status bar and a full desktop shell:
+
+- **Minimal config** – Sensible defaults out of the box; customize with TOML, CSS only if needed.
+- **Batteries included** – VibePanel replaces several common components with a single binary:
+  - **Notifications** – Integrated notification center
+  - **OSD** – Built-in on-screen display for volume and brightness
+  - **Quick settings** – Native panel for Wi‑Fi, Bluetooth, audio, power profiles and more
+- **Modern aesthetics** – Defaults to a floating “island” style with instant hot‑reloading for layouts and themes.
+- **Integrated CLI** – Small CLI for controlling volume, brightness and idle inhibition.
+- **Center anchoring** – Custom GTK4 layout keeps center widgets centered even when left/right sections grow.
 
 ## Screenshots
 
@@ -21,23 +36,17 @@ These examples use roughly ~10–35 lines of TOML to get completely different vi
   </tr>
 </table>
 
-## Features
+## Widgets
 
-- **Hot-reload** - config and style changes apply instantly
-- **Theming & Styling** - Simple TOML config, CSS is there if you need it
-- **Multi-monitor support** - Configure which monitors to display the bar on
-- **OSD** - on-screen display for brightness and volume changes
-- **CLI tools** - control brightness volume
-- **Widgets**
-  - Workspaces - clickable indicators with tooltips
-  - Window title - active window with app icon
-  - Clock - configurable format with calendar popover
-  - Battery - status with detailed popover and power profiles
-  - Quick settings - audio, brightness, bluetooth, wifi, VPN, power profiles, idle inhibitor
-  - System tray - XDG tray support
-  - Notifications - notification center with Do Not Disturb
-  - Updates - package update indicator (dnf and pacman/paru support right now)
-  - CPU & Memory - system resource monitors
+- Workspaces - clickable indicators with tooltips
+- Window title - active window with app icon
+- Clock - configurable format with calendar popover
+- Battery - status with detailed popover and power profiles
+- Quick settings - audio, brightness, bluetooth, wifi, VPN, power profiles, idle inhibitor
+- System tray - XDG tray support
+- Notifications - notification center with Do Not Disturb
+- Updates - package update indicator (dnf and pacman/paru support right now)
+- CPU & Memory - system resource monitors
 
 ## Status
 
@@ -65,7 +74,7 @@ Config options and defaults may change between minor releases, check the changel
 3. Run it:
 
    ```sh
-   vibepanel &
+   vibepanel
    ```
 
 See [Installation](https://github.com/prankstr/vibepanel/wiki/Installation) for auto-start setup.
