@@ -321,7 +321,10 @@ impl QuickSettingsWindow {
         outer.set_margin_bottom(4);
         outer.set_margin_start(4);
         outer.set_margin_end(4);
-        SurfaceStyleManager::global().apply_surface_styles(&outer, true, None);
+
+        // Apply surface styles with optional background color override from widget config
+        let color_override = qs.cards_config.background_color.as_deref();
+        SurfaceStyleManager::global().apply_surface_styles(&outer, true, color_override);
 
         let content = GtkBox::new(Orientation::Vertical, 0);
         content.add_css_class(qs::CONTROL_CENTER);
@@ -481,6 +484,9 @@ impl QuickSettingsWindow {
             .with_expander(true)
             .build();
 
+        // Add card identifier for CSS targeting
+        wifi_card.card.add_css_class(qs::WIFI);
+
         if !wifi_enabled {
             wifi_card
                 .icon_handle
@@ -572,6 +578,9 @@ impl QuickSettingsWindow {
             .with_expander(true)
             .build();
 
+        // Add card identifier for CSS targeting
+        bt_card.card.add_css_class(qs::BLUETOOTH);
+
         {
             let toggle = bt_card.toggle.clone();
             toggle.connect_toggled(move |toggle| {
@@ -642,6 +651,9 @@ impl QuickSettingsWindow {
             .with_expander(true)
             .build();
 
+        // Add card identifier for CSS targeting
+        vpn_card.card.add_css_class(qs::VPN);
+
         {
             let toggle = vpn_card.toggle.clone();
             toggle.connect_toggled(move |toggle| {
@@ -704,6 +716,9 @@ impl QuickSettingsWindow {
             .with_expander(false)
             .build();
 
+        // Add card identifier for CSS targeting
+        idle_card.card.add_css_class(qs::IDLE_INHIBITOR);
+
         {
             let toggle = idle_card.toggle.clone();
             toggle.connect_toggled(move |toggle| {
@@ -724,6 +739,9 @@ impl QuickSettingsWindow {
         let audio_widgets = build_audio_row();
         let audio_details = build_audio_details();
         let audio_hint_label = build_audio_hint_label();
+
+        // Add row identifier for CSS targeting
+        audio_widgets.row.add_css_class(qs::AUDIO_OUTPUT);
 
         // Get initial audio state
         let audio_service = AudioService::global();
@@ -815,6 +833,9 @@ impl QuickSettingsWindow {
         let mic_widgets = build_mic_row();
         let mic_details = build_mic_details();
         let mic_hint_label = build_mic_hint_label();
+
+        // Add row identifier for CSS targeting
+        mic_widgets.row.add_css_class(qs::AUDIO_MIC);
 
         // Get initial audio state (mic info comes from AudioService)
         let audio_service = AudioService::global();

@@ -312,8 +312,9 @@ impl SurfaceStyleManager {
             String::new()
         };
 
-        // Use color override if provided, otherwise use theme default
-        let bg = color_override.unwrap_or(&styles.background_color);
+        // Use color override if provided, otherwise use CSS variable for consistency
+        // with widget_opacity setting
+        let bg = color_override.unwrap_or("var(--color-background-widget)");
 
         // Build CSS targeting the widget's CSS name
         // For Popover, we need to target both the popover and its contents
@@ -342,7 +343,7 @@ popover.widget-menu.background > contents {{
     border-radius: var(--radius-surface);
     font-family: {font};
     font-size: var(--font-size);
-    color: {fg};
+    color: var(--color-foreground-primary);
     {padding}
     margin: 0;
     box-shadow: none;
@@ -359,12 +360,10 @@ popover.widget-menu.background > arrow {{
 popover.widget-menu *,
 popover.widget-menu.background * {{
     font-family: inherit;
-    color: inherit;
 }}
 "#,
                 bg = bg,
                 font = styles.font_family,
-                fg = styles.text_color,
                 padding = padding_css,
                 shadow = styles.shadow,
             )
@@ -387,20 +386,18 @@ popover.widget-menu.background * {{
     border-radius: var(--radius-surface);
     font-family: {font};
     font-size: var(--font-size);
-    color: {fg};
+    color: var(--color-foreground-primary);
     {padding}
     box-shadow: {shadow};
 }}
 
 {selector} * {{
     font-family: inherit;
-    color: inherit;
 }}
 "#,
                 selector = selector,
                 bg = bg,
                 font = styles.font_family,
-                fg = styles.text_color,
                 padding = padding_css,
                 shadow = styles.shadow,
             )

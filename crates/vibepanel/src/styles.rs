@@ -191,6 +191,32 @@ pub mod state {
 
 /// Quick Settings specific component classes.
 pub mod qs {
+    // Card identifiers (for per-card CSS targeting)
+    /// Wi-Fi toggle card (`.qs-wifi`).
+    pub const WIFI: &str = "qs-wifi";
+
+    /// Bluetooth toggle card (`.qs-bluetooth`).
+    pub const BLUETOOTH: &str = "qs-bluetooth";
+
+    /// VPN toggle card (`.qs-vpn`).
+    pub const VPN: &str = "qs-vpn";
+
+    /// Updates toggle card (`.qs-updates`).
+    pub const UPDATES: &str = "qs-updates";
+
+    /// Idle inhibitor toggle card (`.qs-idle-inhibitor`).
+    pub const IDLE_INHIBITOR: &str = "qs-idle-inhibitor";
+
+    // Slider row identifiers (for per-row CSS targeting)
+    /// Audio output slider row (`.qs-audio-output`).
+    pub const AUDIO_OUTPUT: &str = "qs-audio-output";
+
+    /// Microphone input slider row (`.qs-audio-mic`).
+    pub const AUDIO_MIC: &str = "qs-audio-mic";
+
+    /// Brightness slider row (`.qs-brightness`).
+    pub const BRIGHTNESS: &str = "qs-brightness";
+
     // Window
     /// Quick Settings window (`.quick-settings-window`).
     pub const WINDOW: &str = "quick-settings-window";
@@ -374,8 +400,8 @@ pub mod widget {
     pub const BATTERY_LOW: &str = "battery-low";
 
     // Notifications
-    /// Notification widget (`.notification`).
-    pub const NOTIFICATION: &str = "notification";
+    /// Notifications widget (`.notifications`).
+    pub const NOTIFICATIONS: &str = "notifications";
 
     /// Notification icon (`.notification-icon`).
     pub const NOTIFICATION_ICON: &str = "notification-icon";

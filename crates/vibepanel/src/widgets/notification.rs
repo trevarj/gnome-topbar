@@ -278,7 +278,7 @@ pub struct NotificationWidget {
 impl NotificationWidget {
     /// Create a new notification widget.
     pub fn new(config: NotificationConfig) -> Self {
-        let base = BaseWidget::new(&[widget::NOTIFICATION], config.background_color);
+        let base = BaseWidget::new(&[widget::NOTIFICATIONS], config.background_color);
 
         // Create an overlay for badge on top of icon
         let overlay = Overlay::new();

@@ -12,6 +12,7 @@ use gtk4::{Box as GtkBox, Scale};
 use super::components::SliderRow;
 use crate::services::brightness::BrightnessSnapshot;
 use crate::services::icons::IconHandle;
+use crate::styles::qs;
 
 /// State for the Brightness card in the Quick Settings panel.
 pub struct BrightnessCardState {
@@ -59,6 +60,9 @@ pub fn build_brightness_row() -> BrightnessRowWidgets {
         .step(1.0)
         .with_spacer(true) // Match audio row width
         .build();
+
+    // Add row identifier for CSS targeting
+    result.container.add_css_class(qs::BRIGHTNESS);
 
     BrightnessRowWidgets {
         row: result.container,

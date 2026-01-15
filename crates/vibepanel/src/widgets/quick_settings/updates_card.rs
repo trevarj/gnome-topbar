@@ -100,6 +100,9 @@ pub fn build_updates_card(
         .with_expander(true)
         .build();
 
+    // Add card identifier for CSS targeting
+    card.card.add_css_class(qs::UPDATES);
+
     // Store references
     *state.base.toggle.borrow_mut() = Some(card.toggle.clone());
     *state.base.card_icon.borrow_mut() = Some(card.icon_handle.clone());
