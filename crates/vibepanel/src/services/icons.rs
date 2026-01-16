@@ -205,24 +205,29 @@ unsafe fn register_font_fontconfig_ffi(font_path: &std::path::Path) -> bool {
 /// renders the battery_full glyph. This mapping converts our canonical names
 /// (e.g., "battery-full") to Material's naming convention.
 ///
-/// Battery icons:
-///   - battery-full, battery-high, battery-medium, battery-low, battery-critical
-///   - Plus "-charging" variants
+/// Battery icons (8 levels for granular display):
+///   - battery-full, battery-high, battery-medium-high, battery-medium
+///   - battery-medium-low, battery-low, battery-critical
+///   - Plus "-charging" variants for each level
 ///   - battery-missing for unknown state
 pub fn material_symbol_name(icon_name: &str) -> &str {
     match icon_name {
-        // Battery (discharging)
+        // Battery (discharging) - 8 levels for granular display
         "battery-full" => "battery_full",
-        "battery-high" => "battery_5_bar",
-        "battery-medium" => "battery_3_bar",
+        "battery-high" => "battery_6_bar",
+        "battery-medium-high" => "battery_5_bar",
+        "battery-medium" => "battery_4_bar",
+        "battery-medium-low" => "battery_3_bar",
         "battery-low" => "battery_2_bar",
         "battery-critical" => "battery_1_bar",
         "battery-missing" => "battery_unknown",
 
-        // Battery (charging)
+        // Battery (charging) - matching 8 levels
         "battery-full-charging" => "battery_charging_full",
-        "battery-high-charging" => "battery_charging_80",
-        "battery-medium-charging" => "battery_charging_50",
+        "battery-high-charging" => "battery_charging_90",
+        "battery-medium-high-charging" => "battery_charging_80",
+        "battery-medium-charging" => "battery_charging_60",
+        "battery-medium-low-charging" => "battery_charging_50",
         "battery-low-charging" => "battery_charging_30",
         "battery-critical-charging" => "battery_charging_20",
 
@@ -348,80 +353,100 @@ pub fn material_symbol_name(icon_name: &str) -> &str {
 /// and use the first one that exists.
 pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
     match logical {
-        // Battery (discharging) - Freedesktop spec names
+        // Battery (discharging) - Adwaita level icons, then GNOME/freedesktop fallbacks
         "battery-full" => &[
+            "battery-level-100-symbolic",
             "battery-full-symbolic",
             "battery-good-symbolic",
             "battery-symbolic",
-            "battery",
         ],
         "battery-high" => &[
+            "battery-level-80-symbolic",
             "battery-good-symbolic",
             "battery-full-symbolic",
             "battery-symbolic",
-            "battery",
+        ],
+        "battery-medium-high" => &[
+            "battery-level-60-symbolic",
+            "battery-good-symbolic",
+            "battery-symbolic",
         ],
         "battery-medium" => &[
+            "battery-level-50-symbolic",
             "battery-good-symbolic",
+            "battery-symbolic",
+        ],
+        "battery-medium-low" => &[
+            "battery-level-30-symbolic",
+            "battery-caution-symbolic",
             "battery-low-symbolic",
             "battery-symbolic",
-            "battery",
         ],
         "battery-low" => &[
+            "battery-level-20-symbolic",
             "battery-low-symbolic",
             "battery-caution-symbolic",
             "battery-symbolic",
-            "battery",
         ],
         "battery-critical" => &[
+            "battery-level-10-symbolic",
             "battery-caution-symbolic",
             "battery-empty-symbolic",
             "battery-low-symbolic",
             "battery-symbolic",
-            "battery",
         ],
         "battery-missing" => &[
             "battery-missing-symbolic",
             "battery-empty-symbolic",
             "battery-caution-symbolic",
             "battery-symbolic",
-            "battery",
         ],
 
-        // Battery (charging) - Freedesktop spec names with charging suffix
+        // Battery (charging) - Adwaita level icons, then GNOME/freedesktop fallbacks
         "battery-full-charging" => &[
+            "battery-level-100-charged-symbolic",
             "battery-full-charging-symbolic",
             "battery-good-charging-symbolic",
             "battery-full-symbolic",
-            "battery-good-symbolic",
             "battery-symbolic",
         ],
         "battery-high-charging" => &[
+            "battery-level-80-charging-symbolic",
             "battery-good-charging-symbolic",
             "battery-full-charging-symbolic",
             "battery-good-symbolic",
-            "battery-full-symbolic",
+            "battery-symbolic",
+        ],
+        "battery-medium-high-charging" => &[
+            "battery-level-60-charging-symbolic",
+            "battery-good-charging-symbolic",
+            "battery-good-symbolic",
             "battery-symbolic",
         ],
         "battery-medium-charging" => &[
+            "battery-level-50-charging-symbolic",
             "battery-good-charging-symbolic",
-            "battery-low-charging-symbolic",
             "battery-good-symbolic",
-            "battery-low-symbolic",
+            "battery-symbolic",
+        ],
+        "battery-medium-low-charging" => &[
+            "battery-level-30-charging-symbolic",
+            "battery-low-charging-symbolic",
+            "battery-caution-symbolic",
             "battery-symbolic",
         ],
         "battery-low-charging" => &[
+            "battery-level-20-charging-symbolic",
             "battery-low-charging-symbolic",
             "battery-caution-charging-symbolic",
             "battery-low-symbolic",
-            "battery-caution-symbolic",
             "battery-symbolic",
         ],
         "battery-critical-charging" => &[
+            "battery-level-10-charging-symbolic",
             "battery-caution-charging-symbolic",
             "battery-empty-charging-symbolic",
             "battery-caution-symbolic",
-            "battery-empty-symbolic",
             "battery-symbolic",
         ],
 
@@ -1672,8 +1697,10 @@ mod tests {
     #[test]
     fn test_material_symbol_mapping() {
         assert_eq!(material_symbol_name("battery-full"), "battery_full");
-        assert_eq!(material_symbol_name("battery-high"), "battery_5_bar");
-        assert_eq!(material_symbol_name("battery-medium"), "battery_3_bar");
+        assert_eq!(material_symbol_name("battery-high"), "battery_6_bar");
+        assert_eq!(material_symbol_name("battery-medium-high"), "battery_5_bar");
+        assert_eq!(material_symbol_name("battery-medium"), "battery_4_bar");
+        assert_eq!(material_symbol_name("battery-medium-low"), "battery_3_bar");
         assert_eq!(material_symbol_name("battery-low"), "battery_2_bar");
         assert_eq!(material_symbol_name("battery-critical"), "battery_1_bar");
         assert_eq!(material_symbol_name("battery-missing"), "battery_unknown");
@@ -1687,10 +1714,18 @@ mod tests {
         );
         assert_eq!(
             material_symbol_name("battery-high-charging"),
+            "battery_charging_90"
+        );
+        assert_eq!(
+            material_symbol_name("battery-medium-high-charging"),
             "battery_charging_80"
         );
         assert_eq!(
             material_symbol_name("battery-medium-charging"),
+            "battery_charging_60"
+        );
+        assert_eq!(
+            material_symbol_name("battery-medium-low-charging"),
             "battery_charging_50"
         );
         assert_eq!(
@@ -1714,59 +1749,78 @@ mod tests {
 
     #[test]
     fn test_gtk_icon_candidates_battery_discharging() {
-        // Each logical name should return a non-empty candidate list
-        // with freedesktop spec names (not Adwaita-specific battery-level-* names)
+        // Adwaita level icons should be primary, with GNOME/freedesktop fallbacks
         let candidates = gtk_icon_candidates("battery-full");
         assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-100-symbolic");
         assert!(candidates.contains(&"battery-full-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-high");
         assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-80-symbolic");
+        assert!(candidates.contains(&"battery-good-symbolic"));
+
+        let candidates = gtk_icon_candidates("battery-medium-high");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-60-symbolic");
         assert!(candidates.contains(&"battery-good-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-medium");
         assert!(!candidates.is_empty());
-        assert!(
-            candidates.contains(&"battery-good-symbolic")
-                || candidates.contains(&"battery-low-symbolic")
-        );
+        assert_eq!(candidates[0], "battery-level-50-symbolic");
+        assert!(candidates.contains(&"battery-good-symbolic"));
+
+        let candidates = gtk_icon_candidates("battery-medium-low");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-30-symbolic");
+        assert!(candidates.contains(&"battery-caution-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-low");
         assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-20-symbolic");
         assert!(candidates.contains(&"battery-low-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-critical");
         assert!(!candidates.is_empty());
-        assert!(
-            candidates.contains(&"battery-caution-symbolic")
-                || candidates.contains(&"battery-empty-symbolic")
-        );
+        assert_eq!(candidates[0], "battery-level-10-symbolic");
+        assert!(candidates.contains(&"battery-caution-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-missing");
         assert!(!candidates.is_empty());
-        assert!(candidates.contains(&"battery-missing-symbolic"));
+        assert_eq!(candidates[0], "battery-missing-symbolic");
     }
 
     #[test]
     fn test_gtk_icon_candidates_battery_charging() {
-        // Charging variants should include charging-specific names
+        // Adwaita charging level icons should be primary
         let candidates = gtk_icon_candidates("battery-full-charging");
         assert!(!candidates.is_empty());
-        assert!(
-            candidates.contains(&"battery-full-charging-symbolic")
-                || candidates.contains(&"battery-good-charging-symbolic")
-        );
+        assert_eq!(candidates[0], "battery-level-100-charged-symbolic");
+        assert!(candidates.contains(&"battery-full-charging-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-high-charging");
         assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-80-charging-symbolic");
         assert!(candidates.contains(&"battery-good-charging-symbolic"));
+
+        let candidates = gtk_icon_candidates("battery-medium-high-charging");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-60-charging-symbolic");
+        assert!(candidates.contains(&"battery-good-charging-symbolic"));
+
+        let candidates = gtk_icon_candidates("battery-medium-low-charging");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-30-charging-symbolic");
+        assert!(candidates.contains(&"battery-low-charging-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-low-charging");
         assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-20-charging-symbolic");
         assert!(candidates.contains(&"battery-low-charging-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-critical-charging");
         assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-10-charging-symbolic");
         assert!(candidates.contains(&"battery-caution-charging-symbolic"));
     }
 

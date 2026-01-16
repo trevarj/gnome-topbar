@@ -340,15 +340,21 @@ pub fn readable_pct(percent: u8) -> String {
 /// Returns names like "battery-full", "battery-high-charging", etc.
 /// These are then mapped to Material Symbols glyphs by `IconsService`.
 ///
-/// Thresholds: full (>=90%), high (>=70%), medium (>=40%), low (>=20%), critical (<20%).
+/// Thresholds (8 levels to match Material icon granularity):
+/// - full (>=95%), high (>=80%), medium-high (>=60%), medium (>=40%)
+/// - medium-low (>=25%), low (>=10%), critical (<10%)
 pub fn battery_icon_name(percent: u8, charging: bool) -> String {
-    let level = if percent >= 90 {
+    let level = if percent >= 95 {
         "full"
-    } else if percent >= 70 {
+    } else if percent >= 80 {
         "high"
+    } else if percent >= 60 {
+        "medium-high"
     } else if percent >= 40 {
         "medium"
-    } else if percent >= 20 {
+    } else if percent >= 25 {
+        "medium-low"
+    } else if percent >= 10 {
         "low"
     } else {
         "critical"
@@ -391,18 +397,23 @@ mod tests {
 
     #[test]
     fn test_battery_icon_name_discharge() {
+        assert_eq!(battery_icon_name(100, false), "battery-full");
         assert_eq!(battery_icon_name(95, false), "battery-full");
-        assert_eq!(battery_icon_name(75, false), "battery-high");
+        assert_eq!(battery_icon_name(85, false), "battery-high");
+        assert_eq!(battery_icon_name(67, false), "battery-medium-high");
         assert_eq!(battery_icon_name(50, false), "battery-medium");
-        assert_eq!(battery_icon_name(25, false), "battery-low");
-        assert_eq!(battery_icon_name(10, false), "battery-critical");
+        assert_eq!(battery_icon_name(30, false), "battery-medium-low");
+        assert_eq!(battery_icon_name(15, false), "battery-low");
+        assert_eq!(battery_icon_name(5, false), "battery-critical");
     }
 
     #[test]
     fn test_battery_icon_name_charging() {
         assert_eq!(battery_icon_name(95, true), "battery-full-charging");
+        assert_eq!(battery_icon_name(65, true), "battery-medium-high-charging");
         assert_eq!(battery_icon_name(50, true), "battery-medium-charging");
-        assert_eq!(battery_icon_name(10, true), "battery-critical-charging");
+        assert_eq!(battery_icon_name(30, true), "battery-medium-low-charging");
+        assert_eq!(battery_icon_name(5, true), "battery-critical-charging");
     }
 
     #[test]
