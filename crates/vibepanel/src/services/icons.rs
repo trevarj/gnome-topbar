@@ -20,14 +20,14 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::ffi::CString;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
 use gtk4::gio::{AppInfo, DesktopAppInfo, prelude::*};
 use gtk4::prelude::*;
 use gtk4::{IconTheme, Image, Label};
-use tracing::{debug, error, info, warn};
+use pango::prelude::FontMapExt;
+use tracing::{debug, info, warn};
 
 use crate::styles::icon;
 
@@ -45,7 +45,6 @@ const EMBEDDED_FONT_DATA: &[u8] =
 // Thread-local singleton storage for IconsService
 thread_local! {
     static ICONS_INSTANCE: RefCell<Option<Rc<IconsService>>> = const { RefCell::new(None) };
-    static FONT_REGISTERED: RefCell<bool> = const { RefCell::new(false) };
 
     // Caches for desktop app info lookups
     static APP_ICON_NAME_CACHE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
@@ -53,17 +52,14 @@ thread_local! {
     static ALL_APP_INFOS: RefCell<Option<Vec<AppInfo>>> = const { RefCell::new(None) };
 }
 
-/// Register a font file with fontconfig so it's available to GTK/Pango.
+/// Register a font file directly with Pango's font map.
 ///
-/// Uses fontconfig FFI to register fonts at runtime.
+/// This uses Pango 1.56+'s `add_font_file()` API which registers fonts
+/// directly with Pango, bypassing fontconfig. This is cleaner and avoids
+/// font cache timing issues that occur with fontconfig registration.
+///
 /// Returns true if the font was successfully registered.
-fn register_font_with_fontconfig(font_path: &std::path::Path) -> bool {
-    // Check if already registered
-    let already_registered = FONT_REGISTERED.with(|cell| *cell.borrow());
-    if already_registered {
-        return true;
-    }
-
+fn register_font_with_pango(font_path: &std::path::Path) -> bool {
     if !font_path.exists() {
         warn!(
             "Material font missing at {}; icons may render as text",
@@ -72,131 +68,30 @@ fn register_font_with_fontconfig(font_path: &std::path::Path) -> bool {
         return false;
     }
 
-    // Try to load fontconfig dynamically
-    // We use libloading to avoid a hard dependency on fontconfig at compile time
-    let result = unsafe { register_font_fontconfig_ffi(font_path) };
-
-    if result {
-        FONT_REGISTERED.with(|cell| *cell.borrow_mut() = true);
-        debug!(
-            "Registered Material Symbols font with fontconfig: {}",
-            font_path.display()
-        );
-    }
-
-    result
-}
-
-/// Low-level fontconfig FFI registration.
-///
-/// SAFETY: This function calls C library functions. The caller must ensure
-/// the font_path is valid and exists.
-unsafe fn register_font_fontconfig_ffi(font_path: &std::path::Path) -> bool {
-    // Define fontconfig function signatures
-    // FcBool FcInit(void)
-    // FcConfig* FcConfigGetCurrent(void)
-    // FcBool FcConfigAppFontAddFile(FcConfig *config, const FcChar8 *file)
-
-    type FcBool = i32;
-    type FcConfig = std::ffi::c_void;
-    type FcChar8 = std::ffi::c_char;
-
-    // Try to load libfontconfig
-    // SAFETY: We're loading a well-known system library
-    let lib = match unsafe { libloading::Library::new("libfontconfig.so.1") } {
-        Ok(lib) => lib,
-        Err(_) => {
-            // Try alternate names
-            // SAFETY: We're loading a well-known system library
-            match unsafe { libloading::Library::new("libfontconfig.so") } {
-                Ok(lib) => lib,
-                Err(e) => {
-                    warn!(
-                        "Could not load fontconfig library: {}; Material Symbols may not render",
-                        e
-                    );
-                    return false;
-                }
-            }
-        }
+    // Create a temporary label to access Pango's font map
+    let temp_label = Label::new(None);
+    let Some(font_map) = temp_label.pango_context().font_map() else {
+        warn!("Could not get Pango font map; Material Symbols may not render");
+        return false;
     };
 
-    // Get function pointers
-    // SAFETY: FcInit is a well-known fontconfig function with this signature
-    let fc_init: libloading::Symbol<unsafe extern "C" fn() -> FcBool> =
-        match unsafe { lib.get(b"FcInit") } {
-            Ok(f) => f,
-            Err(e) => {
-                error!("Could not find FcInit in fontconfig: {}", e);
-                return false;
-            }
-        };
-
-    // SAFETY: FcConfigGetCurrent is a well-known fontconfig function with this signature
-    let fc_config_get_current: libloading::Symbol<unsafe extern "C" fn() -> *mut FcConfig> =
-        match unsafe { lib.get(b"FcConfigGetCurrent") } {
-            Ok(f) => f,
-            Err(e) => {
-                error!("Could not find FcConfigGetCurrent in fontconfig: {}", e);
-                return false;
-            }
-        };
-
-    // SAFETY: FcConfigAppFontAddFile is a well-known fontconfig function with this signature
-    let fc_config_app_font_add_file: libloading::Symbol<
-        unsafe extern "C" fn(*mut FcConfig, *const FcChar8) -> FcBool,
-    > = match unsafe { lib.get(b"FcConfigAppFontAddFile") } {
-        Ok(f) => f,
+    match font_map.add_font_file(font_path) {
+        Ok(()) => {
+            debug!(
+                "Registered Material Symbols font with Pango: {}",
+                font_path.display()
+            );
+            true
+        }
         Err(e) => {
-            error!("Could not find FcConfigAppFontAddFile in fontconfig: {}", e);
-            return false;
+            warn!(
+                "Pango could not register font {}: {}; icons may render as text",
+                font_path.display(),
+                e
+            );
+            false
         }
-    };
-
-    // Initialize fontconfig
-    // SAFETY: FcInit is safe to call and returns 0 on failure
-    if unsafe { fc_init() } == 0 {
-        error!("fontconfig initialization failed");
-        return false;
     }
-
-    // Get current config
-    // SAFETY: FcConfigGetCurrent is safe to call after FcInit
-    let config = unsafe { fc_config_get_current() };
-    if config.is_null() {
-        error!("fontconfig returned null config");
-        return false;
-    }
-
-    // Convert path to C string
-    let path_str = match font_path.to_str() {
-        Some(s) => s,
-        None => {
-            error!("Font path is not valid UTF-8");
-            return false;
-        }
-    };
-
-    let c_path = match CString::new(path_str) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Could not create C string from font path: {}", e);
-            return false;
-        }
-    };
-
-    // Register the font
-    // SAFETY: config is valid (checked above), c_path is a valid null-terminated C string
-    let result = unsafe { fc_config_app_font_add_file(config, c_path.as_ptr()) };
-    if result == 0 {
-        warn!(
-            "fontconfig could not register {}; icons may render as text",
-            font_path.display()
-        );
-        return false;
-    }
-
-    true
 }
 
 /// Maps logical icon names to Material Symbols glyph names.
@@ -1332,28 +1227,18 @@ impl IconsService {
         *self.theme.borrow_mut() = new_theme.to_string();
         *self.weight.borrow_mut() = new_weight;
 
-        // Track if we're switching TO material (need to defer icon rebuild)
-        let switching_to_material = is_material_theme(new_theme) && !is_material_theme(&old_theme);
-
         // Reload Material CSS if switching to Material or if weight changed while using Material
+        let switching_to_material = is_material_theme(new_theme) && !is_material_theme(&old_theme);
         if is_material_theme(new_theme) && (switching_to_material || weight_changed) {
             // Force CSS reload by resetting the flag
             *self.css_loaded.borrow_mut() = false;
             self.ensure_material_css();
         }
 
-        if switching_to_material {
-            // When switching to Material, defer the icon rebuild to an idle callback.
-            // This gives GTK/Pango time to process the CSS provider and font registration
-            // before we set label text that relies on ligature rendering.
-            gtk4::glib::idle_add_local_once(|| {
-                let service = IconsService::global();
-                service.reapply_all_icons();
-            });
-        } else {
-            // For other transitions (Material->GTK, GTK->GTK, weight change), apply immediately
-            self.reapply_all_icons();
-        }
+        // Rebuild all icons with the new theme/weight.
+        // With Pango's add_font_file(), fonts are immediately available,
+        // so we no longer need to defer this with idle_add_local_once.
+        self.reapply_all_icons();
     }
 
     /// Check if we're using the Material Symbols theme.
@@ -1482,7 +1367,7 @@ impl IconsService {
         let font_path = Self::find_font_path();
         let font_registered = if let Some(ref path) = font_path {
             debug!("Found Material Symbols font at: {}", path.display());
-            register_font_with_fontconfig(path)
+            register_font_with_pango(path)
         } else {
             warn!(
                 "Material Symbols font not found (searched for {}); icons will render as text",
@@ -1495,7 +1380,7 @@ impl IconsService {
             // Font not registered - icons will render as text
             // Still mark as ready so we at least try to use the font CSS
             // (in case the font is installed system-wide)
-            debug!("Font not registered via fontconfig, will try system fonts");
+            debug!("Font not registered with Pango, will try system fonts");
         }
 
         // Get the current weight setting

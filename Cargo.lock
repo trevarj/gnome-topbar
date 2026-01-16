@@ -870,16 +870,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 
 [[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link",
-]
-
-[[package]]
 name = "libpulse-binding"
 version = "2.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1626,7 +1616,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibepanel"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "cargo-husky",
@@ -1636,10 +1626,10 @@ dependencies = [
  "gtk4",
  "gtk4-layer-shell",
  "libc",
- "libloading",
  "libpulse-binding",
  "notify",
  "notify-debouncer-mini",
+ "pango",
  "parking_lot",
  "serde",
  "serde_json",
@@ -1657,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "vibepanel-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "thiserror",

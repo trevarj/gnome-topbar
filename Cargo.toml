@@ -33,15 +33,13 @@ chrono = "0.4"
 
 # GTK4 and Wayland
 gtk4 = { version = "0.10", features = ["v4_12"] }
+pango = { version = "0.21", features = ["v1_56"] }
 gtk4-layer-shell = "0.7"
 gdk4-wayland = "0.10"
 wayland-client = "0.31"
 wayland-backend = "0.3"
 wayland-protocols = { version = "0.32", features = ["client"] }
 wayland-scanner = "0.31"
-
-# Dynamic library loading
-libloading = "0.8"
 
 # File watching
 notify = "6.1"
