@@ -19,7 +19,7 @@
 //! switching via `reconfigure()`.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
@@ -1037,8 +1037,10 @@ struct IconHandleInner {
     /// The last logical icon name set via `set_icon`.
     /// Stored so we can reapply after a theme change.
     logical_name: RefCell<String>,
-    /// CSS classes to reapply when recreating the backend widget.
+    /// CSS classes passed at creation time, reapplied when recreating the backend widget.
     css_classes: RefCell<Vec<String>>,
+    /// CSS classes added dynamically via `add_css_class()`, also reapplied on rebuild.
+    dynamic_classes: RefCell<HashSet<String>>,
 }
 
 impl IconHandleInner {
@@ -1091,6 +1093,11 @@ impl IconHandleInner {
         let css_refs: Vec<&str> = css_classes.iter().map(|s| s.as_str()).collect();
         let new_backend = create_backend_widget(new_kind, &css_refs);
 
+        // Reapply dynamic CSS classes added via add_css_class()
+        for class in self.dynamic_classes.borrow().iter() {
+            new_backend.widget().add_css_class(class);
+        }
+
         // Add the new child to the root container
         self.root.append(&new_backend.widget());
 
@@ -1132,16 +1139,26 @@ impl IconHandle {
         self.inner.root.clone().upcast()
     }
 
-    /// Get a reference to the actual backend widget (Label or Image).
+    /// Add a CSS class to the backend widget.
     ///
-    /// Unlike `widget()`, this returns the inner content widget directly.
-    /// Use this when you need to apply CSS classes that affect the icon's
-    /// appearance (e.g., color) rather than the container.
+    /// Unlike calling `backend_widget().add_css_class()` directly, this method
+    /// tracks the class so it survives theme switches (when the backend widget
+    /// is recreated).
+    pub fn add_css_class(&self, class: &str) {
+        self.inner.backend.borrow().widget().add_css_class(class);
+        self.inner
+            .dynamic_classes
+            .borrow_mut()
+            .insert(class.to_string());
+    }
+
+    /// Remove a CSS class from the backend widget.
     ///
-    /// Note: The returned widget may change when the icon theme is
-    /// reconfigured. Prefer using `widget()` for structural operations.
-    pub fn backend_widget(&self) -> gtk4::Widget {
-        self.inner.backend.borrow().widget()
+    /// This removes the class from both the current widget and the tracked
+    /// set, so it won't be reapplied on theme switches.
+    pub fn remove_css_class(&self, class: &str) {
+        self.inner.backend.borrow().widget().remove_css_class(class);
+        self.inner.dynamic_classes.borrow_mut().remove(class);
     }
 
     /// Update the displayed icon by logical name.
@@ -1404,6 +1421,7 @@ impl IconsService {
             backend: RefCell::new(backend),
             logical_name: RefCell::new(String::new()),
             css_classes: RefCell::new(css_classes.iter().map(|s| s.to_string()).collect()),
+            dynamic_classes: RefCell::new(HashSet::new()),
         });
 
         // Register for live reload

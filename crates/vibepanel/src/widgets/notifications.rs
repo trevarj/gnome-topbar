@@ -89,28 +89,21 @@ impl NotificationsWidgetInner {
             .any(|n| n.urgency == URGENCY_CRITICAL);
 
         if has_critical {
-            self.icon_handle
-                .backend_widget()
-                .add_css_class(widget::HAS_CRITICAL);
+            self.icon_handle.add_css_class(widget::HAS_CRITICAL);
         } else {
-            self.icon_handle
-                .backend_widget()
-                .remove_css_class(widget::HAS_CRITICAL);
+            self.icon_handle.remove_css_class(widget::HAS_CRITICAL);
         }
 
         // Update backend availability visual state
         let tooltip_manager = TooltipManager::global();
         if !service.backend_available() {
-            self.icon_handle
-                .backend_widget()
-                .add_css_class(widget::BACKEND_UNAVAILABLE);
+            self.icon_handle.add_css_class(widget::BACKEND_UNAVAILABLE);
             tooltip_manager.set_styled_tooltip(
                 &self.container,
                 "Notification daemon unavailable (another daemon is running)",
             );
         } else {
             self.icon_handle
-                .backend_widget()
                 .remove_css_class(widget::BACKEND_UNAVAILABLE);
 
             // Update icon based on mute state

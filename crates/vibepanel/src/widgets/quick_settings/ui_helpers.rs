@@ -54,17 +54,15 @@ pub trait ExpandableCard {
 /// When active, applies `qs-icon-active` and removes `vp-primary`.
 /// When inactive, removes `qs-icon-active` and adds `vp-primary`.
 ///
-/// This should be called on the `backend_widget()` of an IconHandle, not
-/// the container `widget()`, because `vp-primary` is applied directly to
-/// the backend (Label/Image) during icon creation.
+/// This uses IconHandle's tracked CSS class methods so the state survives
+/// theme switches (when the backend widget is recreated).
 pub fn set_icon_active(icon_handle: &IconHandle, active: bool) {
-    let backend = icon_handle.backend_widget();
     if active {
-        backend.add_css_class(state::ICON_ACTIVE);
-        backend.remove_css_class(color::PRIMARY);
+        icon_handle.add_css_class(state::ICON_ACTIVE);
+        icon_handle.remove_css_class(color::PRIMARY);
     } else {
-        backend.remove_css_class(state::ICON_ACTIVE);
-        backend.add_css_class(color::PRIMARY);
+        icon_handle.remove_css_class(state::ICON_ACTIVE);
+        icon_handle.add_css_class(color::PRIMARY);
     }
 }
 

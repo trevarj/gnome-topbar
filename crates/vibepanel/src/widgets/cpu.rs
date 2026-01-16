@@ -169,13 +169,12 @@ fn update_cpu_widget(
         return;
     }
 
-    let backend_widget = icon_handle.backend_widget();
     if snapshot.is_cpu_high() {
         container.add_css_class(widget::CPU_HIGH);
-        backend_widget.add_css_class(widget::CPU_HIGH);
+        icon_handle.add_css_class(widget::CPU_HIGH);
     } else {
         container.remove_css_class(widget::CPU_HIGH);
-        backend_widget.remove_css_class(widget::CPU_HIGH);
+        icon_handle.remove_css_class(widget::CPU_HIGH);
     }
 
     if show_icon {

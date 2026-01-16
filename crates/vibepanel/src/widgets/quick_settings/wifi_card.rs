@@ -939,11 +939,10 @@ pub fn on_network_changed(
         set_icon_active(icon_handle, icon_active);
 
         // Additional disabled styling for Wi-Fi
-        let backend = icon_handle.backend_widget();
         if !enabled {
-            backend.add_css_class(qs::WIFI_DISABLED_ICON);
+            icon_handle.add_css_class(qs::WIFI_DISABLED_ICON);
         } else {
-            backend.remove_css_class(qs::WIFI_DISABLED_ICON);
+            icon_handle.remove_css_class(qs::WIFI_DISABLED_ICON);
         }
     }
 

@@ -146,8 +146,6 @@ fn update_widget_from_snapshot(
     count_label: &Label,
     snapshot: &UpdatesSnapshot,
 ) {
-    let backend_widget = icon_handle.backend_widget();
-
     // Handle unavailable state (no package manager)
     if !snapshot.available {
         container.set_visible(false);
@@ -165,11 +163,11 @@ fn update_widget_from_snapshot(
     // Update CSS classes
     container.remove_css_class(widget::UPDATES_ERROR);
     container.remove_css_class(widget::UPDATES_CHECKING);
-    backend_widget.remove_css_class(widget::UPDATES_ERROR);
+    icon_handle.remove_css_class(widget::UPDATES_ERROR);
 
     if snapshot.error.is_some() {
         container.add_css_class(widget::UPDATES_ERROR);
-        backend_widget.add_css_class(widget::UPDATES_ERROR);
+        icon_handle.add_css_class(widget::UPDATES_ERROR);
     } else if snapshot.checking {
         container.add_css_class(widget::UPDATES_CHECKING);
     }

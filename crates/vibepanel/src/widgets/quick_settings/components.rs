@@ -738,9 +738,8 @@ impl ToggleCard {
             &[icon::TEXT, qs::TOGGLE_ICON, color::PRIMARY],
         );
         if self.icon_active {
-            let backend = icon_handle.backend_widget();
-            backend.add_css_class(crate::styles::state::ICON_ACTIVE);
-            backend.remove_css_class(color::PRIMARY);
+            icon_handle.add_css_class(crate::styles::state::ICON_ACTIVE);
+            icon_handle.remove_css_class(color::PRIMARY);
         }
         content.append(&icon_handle.widget());
 

@@ -217,13 +217,11 @@ fn update_widgets_from_state_impl(
     percent: Option<f64>,
     state: Option<u32>,
 ) {
-    let backend_widget = icon_handle.backend_widget();
-
     // Handle service unavailability (UPower not running)
     if !available {
         container.add_css_class(state::SERVICE_UNAVAILABLE);
-        backend_widget.remove_css_class(widget::BATTERY_CHARGING);
-        backend_widget.remove_css_class(widget::BATTERY_LOW);
+        icon_handle.remove_css_class(widget::BATTERY_CHARGING);
+        icon_handle.remove_css_class(widget::BATTERY_LOW);
 
         if show_icon {
             icon_handle.set_icon("battery-missing");
@@ -253,17 +251,14 @@ fn update_widgets_from_state_impl(
     let plugged_in = matches!(state, Some(STATE_CHARGING) | Some(STATE_FULLY_CHARGED));
     let low = matches!(rounded_opt, Some(p) if p <= 20);
 
-    // Update CSS state classes on the backend widget (Label/Image) directly.
-    // This ensures the color CSS applies regardless of the icon theme backend.
-    // We apply to backend_widget() (the actual Label/Image) because GTK4 CSS
-    // color doesn't reliably inherit through Box containers.
-    backend_widget.remove_css_class(widget::BATTERY_CHARGING);
-    backend_widget.remove_css_class(widget::BATTERY_LOW);
+    // Update CSS state classes via IconHandle methods (survives theme switches).
+    icon_handle.remove_css_class(widget::BATTERY_CHARGING);
+    icon_handle.remove_css_class(widget::BATTERY_LOW);
 
     if plugged_in {
-        backend_widget.add_css_class(widget::BATTERY_CHARGING);
+        icon_handle.add_css_class(widget::BATTERY_CHARGING);
     } else if low {
-        backend_widget.add_css_class(widget::BATTERY_LOW);
+        icon_handle.add_css_class(widget::BATTERY_LOW);
     }
 
     // Icon - update via IconHandle (theme mapping handled internally)
