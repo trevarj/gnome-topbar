@@ -159,3 +159,58 @@ jobs:
             release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-aur:
+    name: Publish to AUR
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate PKGBUILD
+        run: |
+          TAG="${{ inputs.tag_name || github.ref_name }}"
+          VERSION="${TAG#v}"
+          
+          curl -sL "https://github.com/prankstr/vibepanel/releases/download/${TAG}/vibepanel-x86_64-unknown-linux-gnu" -o vibepanel
+          curl -sL "https://raw.githubusercontent.com/prankstr/vibepanel/${TAG}/LICENSE" -o LICENSE
+          
+          SHA256_BIN=$(sha256sum vibepanel | cut -d' ' -f1)
+          SHA256_LICENSE=$(sha256sum LICENSE | cut -d' ' -f1)
+          
+          sed -e "s/\${VERSION}/${VERSION}/g" \
+              -e "s/\${SHA256_BIN}/${SHA256_BIN}/g" \
+              -e "s/\${SHA256_LICENSE}/${SHA256_LICENSE}/g" \
+              .github/aur/vibepanel-bin/PKGBUILD.template > PKGBUILD
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        with:
+          pkgname: vibepanel-bin
+          pkgbuild: ./PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ inputs.tag_name || github.ref_name }}"
+
+  publish-copr:
+    name: Publish to Copr
+    needs: release
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install copr-cli
+        run: dnf install -y copr-cli
+
+      - name: Configure copr-cli
+        run: |
+          mkdir -p ~/.config
+          echo "${{ secrets.COPR_API_TOKEN_CONFIG }}" > ~/.config/copr
+
+      - name: Trigger Copr build
+        run: |
+          TAG="${{ inputs.tag_name || github.ref_name }}"
+          copr-cli build-package prankstr/vibepanel --name vibepanel --committish "$TAG"
