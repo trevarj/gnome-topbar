@@ -60,9 +60,22 @@ Config options and defaults may change between minor releases, check the changel
 
 ## Quickstart
 
-1. Install [runtime dependencies](https://github.com/prankstr/vibepanel/wiki/Installation#runtime-dependencies) for your distro.
+1. Install VibePanel:
 
-2. Install VibePanel:
+   **Arch Linux (AUR):**
+
+   ```sh
+   yay -S vibepanel-bin
+   ```
+
+   **Fedora (COPR):**
+
+   ```sh
+   sudo dnf copr enable prankstr/vibepanel
+   sudo dnf install vibepanel
+   ```
+
+   **Other distros:** Install [runtime dependencies](https://github.com/prankstr/vibepanel/wiki/Installation#runtime-dependencies), then:
 
    ```sh
    curl -LO https://github.com/prankstr/vibepanel/releases/latest/download/vibepanel-x86_64-unknown-linux-gnu
@@ -71,13 +84,13 @@ Config options and defaults may change between minor releases, check the changel
 
    Or [build from source](https://github.com/prankstr/vibepanel/wiki/Installation#from-source).
 
-3. Run it:
+2. Run it:
 
    ```sh
    vibepanel
    ```
 
-See [Installation](https://github.com/prankstr/vibepanel/wiki/Installation) for auto-start setup.
+See the [Installation wiki](https://github.com/prankstr/vibepanel/wiki/Installation) for more information.
 
 ## Configuration
 
