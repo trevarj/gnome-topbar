@@ -1,5 +1,7 @@
 Name:           vibepanel
-Version:        0.5.2 # x-release-please-version
+# x-release-please-start-version
+Version:        0.5.2
+# x-release-please-end
 Release:        1%{?dist}
 Summary:        A GTK4 panel for Wayland with notifications, OSD, and quick settings
 

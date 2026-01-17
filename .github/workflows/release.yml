@@ -215,6 +215,6 @@ jobs:
           TAG="${{ inputs.tag_name || github.ref_name }}"
           copr-cli buildscm prankstr/vibepanel \
             --clone-url https://github.com/prankstr/vibepanel \
-            --committish "$TAG" \
+            --commit "$TAG" \
             --method make_srpm \
             --subdir .copr

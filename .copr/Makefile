@@ -1,7 +1,7 @@
 srpm:
 	dnf -y install rpm-build rpmdevtools cargo rust
 	# Download source tarball
-	spectool -g -C . .copr/vibepanel.spec
+	spectool -g -C . vibepanel.spec
 	# Extract, vendor dependencies, and repack
 	tar xzf vibepanel-*.tar.gz
 	cd vibepanel-*/ && \
@@ -10,4 +10,4 @@ srpm:
 	tar czf vibepanel-*.tar.gz vibepanel-*/
 	rm -rf vibepanel-*/
 	# Build SRPM
-	rpmbuild -bs .copr/vibepanel.spec --define "_sourcedir $(PWD)" --define "_srcrpmdir $(outdir)"
+	rpmbuild -bs vibepanel.spec --define "_sourcedir $(PWD)" --define "_srcrpmdir $(outdir)"
