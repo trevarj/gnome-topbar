@@ -24,6 +24,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use gtk4::glib::SignalHandlerId;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow};
 use tracing::{debug, info};
@@ -147,7 +148,6 @@ impl BarManager {
         };
 
         self.bars.borrow_mut().insert(key.clone(), instance);
-        window.present();
 
         info!(
             "Created bar for monitor key={} connector={:?}",
@@ -268,5 +268,151 @@ impl BarManager {
     #[allow(dead_code)]
     pub fn active_monitors(&self) -> Vec<String> {
         self.bars.borrow().keys().cloned().collect()
+    }
+
+    /// Hide all bars immediately.
+    ///
+    /// This is used during monitor hotplug to prevent bars from briefly
+    /// appearing on the wrong monitor when the compositor reassigns surfaces.
+    /// Call this immediately when a monitor change signal is received, before
+    /// the delayed sync runs.
+    pub fn hide_all(&self) {
+        for instance in self.bars.borrow().values() {
+            instance.window.set_opacity(0.0);
+        }
+        debug!("All bars hidden for monitor change");
+    }
+
+    /// Show all bars.
+    ///
+    /// Called after sync_monitors to reveal bars that weren't removed.
+    pub fn show_all(&self) {
+        for instance in self.bars.borrow().values() {
+            instance.window.set_opacity(1.0);
+        }
+        debug!("All bars shown after monitor sync");
+    }
+}
+
+/// Check if a monitor is fully ready (has connector and valid geometry).
+fn monitor_is_ready(monitor: &gtk4::gdk::Monitor) -> bool {
+    monitor.connector().is_some() && monitor.geometry().width() > 0
+}
+
+/// Get a unique identifier for a GDK monitor based on its pointer address.
+///
+/// This is used to track monitor identity when waiting for monitors to become ready,
+/// ensuring we don't double-count a monitor if multiple signals fire for it.
+fn monitor_id(monitor: &gtk4::gdk::Monitor) -> usize {
+    monitor.as_ptr() as usize
+}
+
+/// Synchronize bars after monitor change, waiting for monitors to be ready.
+///
+/// When GDK first reports a new monitor, it may not have the connector name
+/// or valid geometry yet. This function waits for all monitors to be fully
+/// initialized before syncing, avoiding the need for arbitrary delays.
+pub fn sync_monitors_when_ready(display: &gtk4::gdk::Display, config: &vibepanel_core::Config) {
+    let monitors = display.monitors();
+
+    // Find monitors that aren't fully ready yet, tracking them by identity
+    let mut pending_monitors: Vec<gtk4::gdk::Monitor> = Vec::new();
+    let mut pending_set: HashSet<usize> = HashSet::new();
+    for i in 0..monitors.n_items() {
+        let Some(obj) = monitors.item(i) else {
+            continue;
+        };
+        let Ok(monitor) = obj.downcast::<gtk4::gdk::Monitor>() else {
+            continue;
+        };
+        if !monitor_is_ready(&monitor) {
+            pending_set.insert(monitor_id(&monitor));
+            pending_monitors.push(monitor);
+        }
+    }
+
+    if pending_monitors.is_empty() {
+        // All monitors are ready, sync immediately
+        info!("All monitors ready, syncing bars...");
+        let manager = BarManager::global();
+        manager.sync_monitors(display, config);
+        manager.show_all();
+    } else {
+        // Wait for pending monitors to become ready
+        debug!(
+            "Waiting for {} monitor(s) to be fully initialized...",
+            pending_monitors.len()
+        );
+
+        let display = display.clone();
+        let config = config.clone();
+        let pending_set = Rc::new(RefCell::new(pending_set));
+        let signal_handlers: Rc<RefCell<Vec<(gtk4::gdk::Monitor, SignalHandlerId)>>> =
+            Rc::new(RefCell::new(Vec::new()));
+
+        for monitor in pending_monitors {
+            let display = display.clone();
+            let config = config.clone();
+            let pending_set = pending_set.clone();
+            let signal_handlers = signal_handlers.clone();
+
+            // Closure to check if this monitor is now ready and trigger sync if all are done.
+            // Using a HashSet ensures that even if multiple signals fire for the same monitor,
+            // we only mark it as ready once (removing from a set is idempotent).
+            let check_ready = {
+                let display = display.clone();
+                let config = config.clone();
+                let pending_set = pending_set.clone();
+                let signal_handlers = signal_handlers.clone();
+                move |mon: &gtk4::gdk::Monitor| {
+                    if monitor_is_ready(mon) {
+                        let mut pending = pending_set.borrow_mut();
+                        let id = monitor_id(mon);
+
+                        // Only act if this monitor was still pending (idempotent removal)
+                        if pending.remove(&id) {
+                            debug!(
+                                "Monitor ready: {:?} ({}x{}), {} remaining",
+                                mon.connector(),
+                                mon.geometry().width(),
+                                mon.geometry().height(),
+                                pending.len()
+                            );
+
+                            if pending.is_empty() {
+                                // All monitors ready, sync now
+                                drop(pending); // Release borrow before calling sync
+                                info!("All monitors ready, syncing bars...");
+                                let manager = BarManager::global();
+                                manager.sync_monitors(&display, &config);
+                                manager.show_all();
+
+                                // Disconnect all signal handlers to avoid reference cycles
+                                for (mon, handler) in signal_handlers.borrow_mut().drain(..) {
+                                    mon.disconnect(handler);
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Listen to both connector and geometry changes.
+            // Both handlers share the same check_ready logic which uses HashSet
+            // for idempotent tracking - multiple signals for the same monitor are safe.
+            let check_ready_connector = check_ready.clone();
+            let handler_connector = monitor.connect_connector_notify(move |mon| {
+                check_ready_connector(mon);
+            });
+
+            let check_ready_geometry = check_ready;
+            let handler_geometry = monitor.connect_geometry_notify(move |mon| {
+                check_ready_geometry(mon);
+            });
+
+            let mut handlers = signal_handlers.borrow_mut();
+            handlers.push((monitor.clone(), handler_connector));
+            handlers.push((monitor.clone(), handler_geometry));
+        }
     }
 }

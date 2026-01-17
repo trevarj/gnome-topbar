@@ -17,6 +17,7 @@ use gtk4::Application;
 use gtk4::prelude::*;
 use tracing::{debug, error, info, warn};
 
+use services::bar_manager;
 use vibepanel_core::{Config, ThemePalette, logging};
 
 use crate::services::bar_manager::BarManager;
@@ -504,24 +505,19 @@ fn run_gtk_app(config: Config, config_source: Option<PathBuf>) -> ExitCode {
         //
         // We connect to both `items_changed` and `notify::n-items` because some
         // Wayland compositors/GTK4 versions don't reliably emit `items_changed`.
-        //
-        // We use glib::timeout_add_local_once with a short delay because GDK may not
-        // have fully initialized the monitor's connector name when the signal fires.
         {
             let config_for_hotplug = config_for_activate.clone();
             let display_for_hotplug = display.clone();
             display
                 .monitors()
                 .connect_items_changed(move |_monitors, _pos, _removed, _added| {
-                    info!("Monitor configuration changed (items_changed), scheduling sync...");
-                    let display = display_for_hotplug.clone();
-                    let config = config_for_hotplug.clone();
-                    gtk4::glib::timeout_add_local_once(
-                        std::time::Duration::from_millis(100),
-                        move || {
-                            info!("Syncing bars after monitor change...");
-                            BarManager::global().sync_monitors(&display, &config);
-                        },
+                    info!("Monitor configuration changed (items_changed), syncing...");
+                    // Hide all bars immediately to prevent them from appearing
+                    // on the wrong monitor during compositor surface reassignment.
+                    BarManager::global().hide_all();
+                    bar_manager::sync_monitors_when_ready(
+                        &display_for_hotplug,
+                        &config_for_hotplug,
                     );
                 });
         }
@@ -531,15 +527,13 @@ fn run_gtk_app(config: Config, config_source: Option<PathBuf>) -> ExitCode {
             display
                 .monitors()
                 .connect_notify_local(Some("n-items"), move |_monitors, _| {
-                    info!("Monitor count changed (notify::n-items), scheduling sync...");
-                    let display = display_for_hotplug.clone();
-                    let config = config_for_hotplug.clone();
-                    gtk4::glib::timeout_add_local_once(
-                        std::time::Duration::from_millis(100),
-                        move || {
-                            info!("Syncing bars after monitor count change...");
-                            BarManager::global().sync_monitors(&display, &config);
-                        },
+                    info!("Monitor count changed (notify::n-items), syncing...");
+                    // Hide all bars immediately to prevent them from appearing
+                    // on the wrong monitor during compositor surface reassignment.
+                    BarManager::global().hide_all();
+                    bar_manager::sync_monitors_when_ready(
+                        &display_for_hotplug,
+                        &config_for_hotplug,
                     );
                 });
         }

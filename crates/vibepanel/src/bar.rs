@@ -144,6 +144,7 @@ pub fn create_bar_window(
     // because the surface might not be on the correct monitor yet at map time.
     let target_geometry = monitor.geometry();
     let target_width = target_geometry.width();
+
     window.connect_map(move |win| {
         win.set_default_size(target_width, bar_height);
         debug!(
@@ -151,6 +152,8 @@ pub fn create_bar_window(
             target_width
         );
     });
+
+    window.set_visible(true);
 
     info!(
         "Bar window created: size={}px, margin={}px, monitor={:?}, widgets={}",
