@@ -371,7 +371,7 @@ impl Config {
         if self.bar.notch_enabled {
             lines.push(format!(
                 "  center: notch spacer ({}px)",
-                self.bar.effective_notch_width()
+                self.bar.notch_width
             ));
         } else {
             lines.push(format!(
@@ -460,7 +460,7 @@ pub struct BarConfig {
     pub notch_enabled: bool,
 
     /// Width of the notch spacer in pixels.
-    /// Set to 0 or omit to auto-detect (falls back to default if detection fails).
+    /// Default: 200
     pub notch_width: u32,
 
     /// Border radius (percentage of bar height).
@@ -493,36 +493,13 @@ impl Default for BarConfig {
             screen_margin: 4,
             inset: 8,
             notch_enabled: false,
-            notch_width: 0,
+            notch_width: 200,
             border_radius: 30,
             popover_offset: 1,
             outputs: Vec::new(),
             background_color: None,
             background_opacity: 0.0,
         }
-    }
-}
-
-/// Default notch width when auto-detection is not available.
-const DEFAULT_NOTCH_WIDTH: u32 = 200;
-
-impl BarConfig {
-    /// Get the effective notch width.
-    ///
-    /// If `notch_width` is 0 (auto), attempts to detect the notch width.
-    /// Falls back to `DEFAULT_NOTCH_WIDTH` if detection is not available.
-    pub fn effective_notch_width(&self) -> u32 {
-        if self.notch_width > 0 {
-            return self.notch_width;
-        }
-
-        // TODO: Implement actual notch detection
-        // - Compositor-specific protocols (wlr-output-configuration, etc.)
-        // - Display EDID data
-        // - Monitor model lookup table
-        //
-        // For now, fall back to default
-        DEFAULT_NOTCH_WIDTH
     }
 }
 
@@ -1560,24 +1537,6 @@ mod tests {
 
         config.bar.notch_enabled = true;
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_effective_notch_width_explicit() {
-        let config = BarConfig {
-            notch_width: 300,
-            ..Default::default()
-        };
-
-        assert_eq!(config.effective_notch_width(), 300);
-    }
-
-    #[test]
-    fn test_effective_notch_width_auto() {
-        let config = BarConfig::default();
-        // Default is 0 (auto), should fall back to DEFAULT_NOTCH_WIDTH
-        assert_eq!(config.notch_width, 0);
-        assert_eq!(config.effective_notch_width(), 200); // DEFAULT_NOTCH_WIDTH
     }
 
     #[test]

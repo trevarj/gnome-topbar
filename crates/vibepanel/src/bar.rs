@@ -286,18 +286,10 @@ fn create_center_section(
     if config.bar.notch_enabled {
         // Notch mode: center section is just a fixed-width empty spacer for the notch.
         // Users place widgets adjacent to the notch using the spacer widget in left/right sections.
-        let notch_width = config.bar.effective_notch_width();
+        let notch_width = config.bar.notch_width;
         section.set_size_request(notch_width as i32, -1);
 
-        debug!(
-            "Notch mode: {}px center spacer{}",
-            notch_width,
-            if config.bar.notch_width == 0 {
-                " (auto)"
-            } else {
-                ""
-            }
-        );
+        debug!("Notch mode: {}px center spacer", notch_width);
     } else {
         // Non-notch mode: simple centered section with widgets
         let mut widget_count = 0;
