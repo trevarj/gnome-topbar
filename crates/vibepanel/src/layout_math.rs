@@ -145,7 +145,7 @@ pub struct LinearAllocation {
 /// Calculate linear layout allocations (when no center section exists).
 ///
 /// Left anchors to start, right anchors to end. When space is constrained,
-/// they compete proportionally.
+/// right gets priority and left shrinks.
 ///
 /// # Arguments
 ///
@@ -165,21 +165,14 @@ pub fn compute_linear_allocation(
     let (left_width, right_width) = match (left.is_some(), right.is_some()) {
         (true, true) => {
             let available = (interior - spacing).max(0);
-
-            let mut lw = left_nat.min(available);
-            let mut rw = (available - lw).max(right_min);
-
-            if rw > right_nat {
-                rw = right_nat;
-                lw = available - rw;
+            let total_natural = left_nat + right_nat;
+            if total_natural <= available {
+                (left_nat, right_nat)
+            } else {
+                let rw = right_nat.min(available);
+                let lw = (available - rw).max(0);
+                (lw, rw)
             }
-
-            if lw < left_min {
-                lw = left_min;
-                rw = (available - lw).max(right_min);
-            }
-
-            (lw, rw)
         }
         (true, false) => {
             let lw = clamp_width(interior, left_min, left_nat);
@@ -409,11 +402,6 @@ mod tests {
 
     #[test]
     fn test_linear_both_fit() {
-        // 400px interior, both want 100px, spacing 8px
-        // available = 400 - 8 = 392
-        // Linear gives left its natural, then right gets remainder
-        // But since remainder (292) > right_nat (100), right gets 100
-        // and left expands to fill: 392 - 100 = 292
         let alloc = compute_linear_allocation(
             400,
             8,
@@ -427,11 +415,31 @@ mod tests {
             }),
         );
 
-        // Left expands to fill available space after right gets its natural
-        assert_eq!(alloc.left_width, 292);
-        assert_eq!(alloc.left_x, 0);
         assert_eq!(alloc.right_width, 100);
-        assert_eq!(alloc.right_x, 300); // 400 - 100
+        assert_eq!(alloc.right_x, 300);
+        assert_eq!(alloc.left_width, 100);
+        assert_eq!(alloc.left_x, 0);
+    }
+
+    #[test]
+    fn test_linear_right_priority_left_truncates() {
+        let alloc = compute_linear_allocation(
+            200,
+            8,
+            Some(SectionSizes {
+                min: 50,
+                natural: 300,
+            }),
+            Some(SectionSizes {
+                min: 50,
+                natural: 100,
+            }),
+        );
+
+        assert_eq!(alloc.right_width, 100);
+        assert_eq!(alloc.right_x, 100);
+        assert_eq!(alloc.left_width, 92);
+        assert_eq!(alloc.left_x, 0);
     }
 
     #[test]
@@ -470,10 +478,6 @@ mod tests {
 
     #[test]
     fn test_linear_constrained() {
-        // Only 150px available, both want 100px with 8px gap
-        // Available = 150 - 8 = 142px
-        // Left gets natural (100)
-        // Right gets max(142 - 100, right_min) = max(42, 50) = 50
         let alloc = compute_linear_allocation(
             150,
             8,
@@ -487,9 +491,8 @@ mod tests {
             }),
         );
 
-        // Left gets natural (100), right gets its minimum (50)
-        assert_eq!(alloc.left_width, 100);
-        assert_eq!(alloc.right_width, 50);
+        assert_eq!(alloc.right_width, 100);
+        assert_eq!(alloc.left_width, 42);
     }
 
     #[test]
