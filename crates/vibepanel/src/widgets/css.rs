@@ -582,6 +582,11 @@ window.quick-settings-window {{
     font-size: var(--font-size-sm);
 }}
 
+.qs-row-action-label:hover {{
+    background: var(--color-card-overlay-hover);
+    border-radius: var(--radius-widget);
+}}
+
 /* Subtitles - secondary info, color via vp-muted */
 .qs-toggle-subtitle,
 .qs-row-subtitle {{
