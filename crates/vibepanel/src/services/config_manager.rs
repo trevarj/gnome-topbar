@@ -12,11 +12,10 @@
 //!
 //! ## Supported Live Reload
 //!
-//! Currently supports:
-//! - `icons.theme`: Switches icon backend (Material ↔ GTK themes)
+//! - `icons.*`: Switches icon backend (Material ↔ GTK themes) and weight
 //! - `theme.*`: Updates colors, palette, CSS variables
-//!
-//! Structural changes (widget list, layout, bar count) are logged but require restart.
+//! - Structural changes (widget list, layout, bar size, margins, notch settings)
+//!   trigger a full bar rebuild with a brief visual flicker.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
