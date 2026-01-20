@@ -132,37 +132,18 @@ impl Config {
         // Rule: if a config file exists but fails to load, that's an error (no silent fallback).
         // Only use defaults when no config files exist at all.
         let search_paths = Self::config_search_paths();
-        let mut first_error: Option<(PathBuf, Error)> = None;
 
         for path in &search_paths {
             if path.exists() {
-                match Self::load(path) {
-                    Ok(config) => {
-                        return Ok(ConfigLoadResult {
-                            config,
-                            source: Some(path.clone()),
-                            used_defaults: false,
-                        });
-                    }
-                    Err(e) => {
-                        // Record the first error we encounter - we'll return it if no config loads
-                        if first_error.is_none() {
-                            first_error = Some((path.clone(), e));
-                        }
-                    }
-                }
+                // Found a config file - try to load it
+                // If it fails to parse, return the error immediately (no fallback to other paths)
+                let config = Self::load(path)?;
+                return Ok(ConfigLoadResult {
+                    config,
+                    source: Some(path.clone()),
+                    used_defaults: false,
+                });
             }
-        }
-
-        // If we found at least one config file that failed to load, return that error
-        // instead of silently falling back to defaults
-        if let Some((path, error)) = first_error {
-            tracing::error!(
-                "Config file {:?} exists but failed to load: {}",
-                path,
-                error
-            );
-            return Err(error);
         }
 
         // No config files exist anywhere - use embedded default TOML
@@ -278,18 +259,6 @@ impl Config {
             ));
         }
 
-        // Validate center widget configuration based on notch mode
-        let has_center = !self.widgets.center.is_empty();
-
-        if self.bar.notch_enabled && has_center {
-            // In notch mode, center section is reserved for the notch spacer
-            errors.push(
-                "widgets.center: cannot be used when notch_enabled=true; \
-                 use spacer widget in left/right sections to place widgets near the notch"
-                    .to_string(),
-            );
-        }
-
         if errors.is_empty() {
             Ok(())
         } else {
@@ -340,15 +309,6 @@ impl Config {
         lines.push(format!("  spacing: {}px", self.bar.spacing));
         lines.push(format!("  screen_margin: {}px", self.bar.screen_margin));
         lines.push(format!(
-            "  notch: {} (width: {}px)",
-            if self.bar.notch_enabled {
-                "enabled"
-            } else {
-                "disabled"
-            },
-            self.bar.notch_width
-        ));
-        lines.push(format!(
             "  background_opacity: {}",
             self.bar.background_opacity
         ));
@@ -368,19 +328,12 @@ impl Config {
             lines.push(format!("    - {}", name));
         }
 
-        if self.bar.notch_enabled {
-            lines.push(format!(
-                "  center: notch spacer ({}px)",
-                self.bar.notch_width
-            ));
-        } else {
-            lines.push(format!(
-                "  center: {} widget(s)",
-                count_widgets(&self.widgets.center)
-            ));
-            for name in format_widget_section(&self.widgets.center) {
-                lines.push(format!("    - {}", name));
-            }
+        lines.push(format!(
+            "  center: {} widget(s)",
+            count_widgets(&self.widgets.center)
+        ));
+        for name in format_widget_section(&self.widgets.center) {
+            lines.push(format!("    - {}", name));
         }
 
         lines.push(format!(
@@ -456,13 +409,6 @@ pub struct BarConfig {
     /// Distance from bar edge to first/last section in pixels.
     pub inset: u32,
 
-    /// Whether notch mode is enabled.
-    pub notch_enabled: bool,
-
-    /// Width of the notch spacer in pixels.
-    /// Default: 200
-    pub notch_width: u32,
-
     /// Border radius (percentage of bar height).
     pub border_radius: u32,
 
@@ -492,8 +438,6 @@ impl Default for BarConfig {
             spacing: 8,
             screen_margin: 4,
             inset: 8,
-            notch_enabled: false,
-            notch_width: 200,
             border_radius: 30,
             popover_offset: 1,
             outputs: Vec::new(),
@@ -534,7 +478,6 @@ pub struct WidgetsConfig {
 
     /// Widgets in the center section.
     /// Each entry is a widget name string or a group of widget names.
-    /// Note: Cannot be used when notch_enabled = true (center is reserved for notch spacer).
     pub center: Vec<WidgetPlacement>,
 
     /// Widgets in the right section.
@@ -1485,9 +1428,8 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_center_without_notch_ok() {
+    fn test_validate_center_widgets_ok() {
         let mut config = Config::default();
-        config.bar.notch_enabled = false;
         config
             .widgets
             .center
@@ -1497,45 +1439,9 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_center_with_notch_error() {
-        let mut config = Config::default();
-        config.bar.notch_enabled = true;
-        config
-            .widgets
-            .center
-            .push(WidgetPlacement::Single("clock".to_string()));
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("widgets.center"));
-        assert!(msg.contains("notch_enabled=true"));
-    }
-
-    #[test]
-    fn test_validate_notch_mode_empty_center_ok() {
-        // Notch mode with empty center section is valid
-        let mut config = Config::default();
-        config.bar.notch_enabled = true;
-        // No widgets in center - this is correct for notch mode
-        config
-            .widgets
-            .left
-            .push(WidgetPlacement::Single("clock".to_string()));
-
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_empty_center_sections_ok() {
-        // Empty center sections should be valid in either mode
-        let mut config = Config::default();
-        config.bar.notch_enabled = false;
-        assert!(config.validate().is_ok());
-
-        config.bar.notch_enabled = true;
+    fn test_validate_empty_center_ok() {
+        // Empty center section should be valid
+        let config = Config::default();
         assert!(config.validate().is_ok());
     }
 
