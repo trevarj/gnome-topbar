@@ -227,7 +227,7 @@ sectioned-bar.bar {{
 .widget {{
     background-color: var(--color-background-widget);
     border-radius: var(--radius-widget);
-    padding: 0px 10px;
+    padding: var(--widget-padding-y) 10px;
     min-height: var(--widget-height);
 }}
 
@@ -254,7 +254,7 @@ sectioned-bar.bar {{
     padding: 0 4px;
     min-width: 1em;
     min-height: 0.2em;
-    border-radius: calc(var(--radius-pill) * 1.2);
+    border-radius: var(--radius-pill);
     color: var(--color-foreground-muted);
     opacity: 0.5;
 }}

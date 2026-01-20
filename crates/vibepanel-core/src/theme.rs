@@ -755,11 +755,10 @@ impl ThemePalette {
         self.bar_border_radius =
             (bar_rendered_height * self.bar_radius_percent / 100).min(bar_max_radius);
 
-        // Widget radius: use rendered height (widget + 2px vertical padding each side)
-        let widget_rendered_height = widget_height + 4;
-        let widget_max_radius = widget_rendered_height / 2;
+        // Widget radius: percentage of bar height (widgets expand to fill bar height)
+        let widget_max_radius = bar_size / 2;
         self.widget_border_radius =
-            (widget_rendered_height * self.widget_radius_percent / 100).min(widget_max_radius);
+            (bar_size * self.widget_radius_percent / 100).min(widget_max_radius);
 
         self.radius_pill = (self.widget_border_radius / 2).max(1);
 

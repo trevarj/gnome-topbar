@@ -564,7 +564,7 @@ impl Default for WidgetsConfig {
             left: Vec::new(),
             center: Vec::new(),
             right: Vec::new(),
-            border_radius: 40,
+            border_radius: 30,
             background_color: None,
             background_opacity: 1.0,
             widget_configs: HashMap::new(),
