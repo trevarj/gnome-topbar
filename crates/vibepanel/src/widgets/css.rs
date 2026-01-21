@@ -14,6 +14,19 @@ pub fn utility_css() -> String {
     r#"
 /* ===== SHARED UTILITY CSS ===== */
 
+/* 
+ * Icon sizing strategy:
+ * - .material-symbol uses font-size: inherit (set in icons.rs)
+ * - .icon-root gets the default icon size
+ * - Specific components can override with their own font-size on .icon-root or parents
+ * - This allows users to style icons by setting font-size on parent elements
+ */
+
+/* Default icon size - applied to icon root containers */
+.icon-root {
+    font-size: var(--icon-size);
+}
+
 /* Color utilities - applies to both text and icons */
 .vp-primary { color: var(--color-foreground-primary); }
 .vp-muted { color: var(--color-foreground-muted); }
@@ -45,6 +58,7 @@ label link:active {
     margin-top: -8px;
     border-radius: 50%;
     color: var(--color-foreground-primary);
+    font-size: calc(var(--icon-size) * 1.15);
 }
 
 .vp-popover-icon-btn:hover {
@@ -118,6 +132,7 @@ popover.widget-menu.background > contents {
     padding: 0;
     border-radius: 50%;
     transition: background 150ms ease-out;
+    font-size: calc(var(--icon-size) * 1.15);
 }
 .slider-row .slider-icon-btn:hover {
     background: var(--color-card-overlay-hover);
@@ -502,12 +517,14 @@ window.quick-settings-window {{
 .qs-toggle-icon {{
     margin-left: 2px;
     margin-right: 4px;
+    font-size: calc(var(--icon-size) * 1.15);
 }}
 
 /* Row icon spacing */
 .qs-row-icon {{
     margin-left: 1px;
     margin-right: 3px;
+    font-size: calc(var(--icon-size) * 0.9);
 }}
 
 /* Wi-Fi disabled state override */
@@ -618,8 +635,8 @@ window.quick-settings-window {{
 /* Chevron animation */
 .qs-toggle-more-icon {{
     transition: transform 200ms ease;
-    font-size: 1.25em;
-    font-weight: bold;
+    font-size: calc(var(--icon-size) * 1.1);
+    font-variation-settings: 'wght' 500;
     -gtk-icon-style: symbolic;
     margin-top: 2px;
 }}
@@ -800,6 +817,11 @@ window.quick-settings-window {{
         .notification-header {{
             padding: 0 0 8px 0;
             margin: 0;
+        }}
+
+        /* Header icon sizing */
+        .notification-header-icon {{
+            font-size: calc(var(--icon-size) * 1.15);
         }}
 
         .notification-clear-btn {{

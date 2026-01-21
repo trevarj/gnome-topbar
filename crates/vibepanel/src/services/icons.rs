@@ -1394,29 +1394,7 @@ impl IconsService {
     font-family: '{}', 'Material Symbols Rounded', sans-serif;
     font-feature-settings: 'liga' 1;
     font-variation-settings: 'wght' {};
-    font-size: var(--icon-size);
-}}
-
-/* Larger icons for toggle cards and slider rows */
-.material-symbol.qs-toggle-icon,
-.material-symbol.qs-slider-icon {{
-    font-size: calc(var(--icon-size) * 1.15);
-}}
-
-/* Smaller icons for list rows */
-.material-symbol.qs-row-icon {{
-    font-size: calc(var(--icon-size) * 0.9);
-}}
-
-/* Larger chevron icons for expanders */
-.material-symbol.qs-toggle-more-icon {{
-    font-size: calc(var(--icon-size) * 1.1);
-    font-variation-settings: 'wght' 500;
-}}
-
-/* Larger icons for notification header buttons */
-.material-symbol.notification-header-icon {{
-    font-size: calc(var(--icon-size) * 1.15);
+    font-size: inherit;
 }}
 "#,
             MATERIAL_FONT_FAMILY, weight
