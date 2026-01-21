@@ -106,10 +106,10 @@ impl BatteryService {
 
         for entry in entries.flatten() {
             let type_path = entry.path().join("type");
-            if let Ok(content) = fs::read_to_string(&type_path) {
-                if content.trim().eq_ignore_ascii_case("battery") {
-                    return true;
-                }
+            if fs::read_to_string(&type_path)
+                .is_ok_and(|content| content.trim().eq_ignore_ascii_case("battery"))
+            {
+                return true;
             }
         }
 
