@@ -70,13 +70,27 @@ pub struct BatteryService {
 
 impl BatteryService {
     fn new() -> Rc<Self> {
+        let has_battery = Self::has_battery_device();
+
+        // Set available = true immediately if we detected a battery device, so
+        // that synchronous checks (e.g., widget factory) see the correct state
+        // before the async D-Bus initialization completes.
+        let initial_snapshot = if has_battery {
+            BatterySnapshot {
+                available: true,
+                ..BatterySnapshot::unknown()
+            }
+        } else {
+            BatterySnapshot::unknown()
+        };
+
         let service = Rc::new(Self {
             proxy: RefCell::new(None),
-            snapshot: RefCell::new(BatterySnapshot::unknown()),
+            snapshot: RefCell::new(initial_snapshot),
             callbacks: Callbacks::new(),
         });
 
-        if Self::has_battery_device() {
+        if has_battery {
             Self::init_dbus(&service);
         } else {
             warn!("BatteryService: no battery device found; service disabled");
