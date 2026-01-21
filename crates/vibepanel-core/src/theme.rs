@@ -357,7 +357,7 @@ impl ThemePalette {
     /* ===== Radii ===== */
     --radius-bar: {radius_bar}px;
     --radius-surface: {radius_surface}px;
-    --radius-widget: {radius_widget}px;
+    --radius-widget: {radius_widget};
     --radius-pill: {radius_pill}px;
 
     /* ===== Sizes & Spacing ===== */
@@ -430,7 +430,11 @@ impl ThemePalette {
             toast_critical_bg = self.toast_critical_background,
             radius_bar = self.bar_border_radius,
             radius_surface = self.surface_border_radius,
-            radius_widget = self.widget_border_radius,
+            radius_widget = if self.widget_radius_percent >= 50 {
+                "9999px".to_string()
+            } else {
+                format!("{}px", self.widget_border_radius)
+            },
             radius_pill = self.radius_pill,
             bar_height = self.sizes.bar_height,
             bar_padding = self.sizes.bar_padding,
