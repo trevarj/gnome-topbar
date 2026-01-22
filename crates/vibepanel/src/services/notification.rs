@@ -299,9 +299,18 @@ impl NotificationService {
     pub fn close_all(&self) {
         debug!("NotificationService: close_all() called");
         let ids: Vec<u32> = self.notifications.borrow().keys().cloned().collect();
-        for id in ids {
-            self.close_internal(id, CLOSE_REASON_DISMISSED);
+        if ids.is_empty() {
+            return;
         }
+
+        for id in ids {
+            if self.notifications.borrow_mut().remove(&id).is_some() {
+                self.emit_notification_closed(id, CLOSE_REASON_DISMISSED);
+            }
+        }
+
+        self.save_state();
+        self.notify_listeners();
     }
 
     /// Invoke an action on a notification.
