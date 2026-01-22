@@ -16,7 +16,7 @@ VibePanel is something between a simple status bar and a full desktop shell:
   - **OSD** – Built-in on-screen display for volume and brightness
   - **Quick settings** – Native panel for Wi‑Fi, Bluetooth, audio, power profiles and more
 - **Modern aesthetics** – Defaults to a floating “island” style with instant hot‑reloading for layouts and themes.
-- **Integrated CLI** – Small CLI for controlling volume, brightness and idle inhibition.
+- **Integrated CLI** – Small CLI for controlling volume, brightness, media controls and idle inhibition.
 - **Center anchoring** – Custom GTK4 layout keeps center widgets centered even when left/right sections grow.
 
 ## Screenshots
@@ -47,6 +47,7 @@ These examples use roughly ~10–35 lines of TOML to get completely different vi
 - Notifications - notification center with Do Not Disturb
 - Updates - package update indicator (dnf and pacman/paru support right now)
 - CPU & Memory - system resource monitors
+- Media - MPRIS media player controls with album art
 
 ## Status
 
@@ -112,6 +113,7 @@ size = 32
 
 [widgets]
 left = ["workspaces", "window_title"]
+center = ["media"]
 right = ["quick_settings", "battery", "clock", "notifications"]
 
 [theme]
