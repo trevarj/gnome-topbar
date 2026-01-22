@@ -95,6 +95,9 @@ struct WidgetState {
     buttons: HashMap<String, Button>,
     pixmap_cache: HashMap<String, gdk::Texture>,
     menu: Option<MenuState>,
+    /// Track the current button order to avoid unnecessary rebuilds.
+    /// This prevents menu flickering when animated icons update rapidly.
+    button_order: Vec<String>,
 }
 
 /// System tray widget displaying StatusNotifierItem icons.
@@ -113,6 +116,7 @@ impl TrayWidget {
             buttons: HashMap::new(),
             pixmap_cache: HashMap::new(),
             menu: None,
+            button_order: Vec::new(),
         }));
 
         let widget = Self { base, state };
@@ -239,6 +243,7 @@ fn sync_items(state: &Rc<RefCell<WidgetState>>, container: &GtkBox, root: &GtkBo
 fn create_button(state: &Rc<RefCell<WidgetState>>, identifier: &str) -> Button {
     let button = Button::new();
     button.set_has_frame(false);
+    button.set_focusable(false);
     button.set_focus_on_click(false);
     button.add_css_class(widget::TRAY_ITEM);
     button.add_css_class(btn::COMPACT); // Remove default button padding
@@ -355,18 +360,29 @@ fn update_button(state: &Rc<RefCell<WidgetState>>, button: &Button, snapshot: &T
 }
 
 fn rebuild_icon_order(state: &Rc<RefCell<WidgetState>>, container: &GtkBox, order: &[String]) {
+    // Check if the order has actually changed to avoid unnecessary rebuilds.
+    // This is important for animated icons (e.g., spinners) that update rapidly -
+    // rebuilding the container disrupts popover menus parented to buttons.
+    {
+        let st = state.borrow();
+        if st.button_order == order {
+            return;
+        }
+    }
+
     // Remove all children
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
 
-    // Re-add in order
-    let st = state.borrow();
+    // Re-add in order and update tracked order
+    let mut st = state.borrow_mut();
     for identifier in order {
         if let Some(button) = st.buttons.get(identifier) {
             container.append(button);
         }
     }
+    st.button_order = order.to_vec();
 }
 
 fn get_cached_texture(
@@ -565,6 +581,7 @@ fn toggle_menu(state: &Rc<RefCell<WidgetState>>, identifier: &str, parent: &Widg
         // Create the popover now that we have entries
         let popover = Popover::new();
         popover.set_parent(&parent_clone);
+        popover.set_can_focus(false);
         configure_popover(&popover);
 
         let container = GtkBox::new(Orientation::Vertical, 2);
