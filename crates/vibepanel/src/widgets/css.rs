@@ -78,7 +78,7 @@ label link:active {
     min-height: 28px;
     padding: 4px;
     margin-top: -8px;
-    border-radius: 50%;
+    border-radius: var(--radius-widget);
     color: var(--color-foreground-primary);
     font-size: calc(var(--icon-size) * 1.15);
 }
@@ -152,7 +152,7 @@ popover.widget-menu.background > contents {
     min-width: 32px;
     min-height: 32px;
     padding: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-widget);
     transition: background 150ms ease-out;
     font-size: calc(var(--icon-size) * 1.15);
 }
@@ -168,7 +168,7 @@ popover.widget-menu.background > contents {
 
 .slider-row scale trough {
     min-height: var(--slider-height);
-    border-radius: calc(var(--slider-height) / 2);
+    border-radius: calc(var(--radius-pill) / 2.5);
     background-color: var(--color-slider-track);
 }
 
@@ -177,7 +177,7 @@ popover.widget-menu.background > contents {
     background-color: var(--color-accent-slider, var(--color-accent-primary));
     border: none;
     min-height: var(--slider-height);
-    border-radius: calc(var(--slider-height) / 2);
+    border-radius: calc(var(--radius-pill) / 2.5);
 }
 
 .slider-row scale slider {
@@ -186,7 +186,7 @@ popover.widget-menu.background > contents {
     margin: -5px;
     padding: 0;
     background-color: var(--color-accent-primary);
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     border: none;
     box-shadow: none;
     transition: transform 100ms ease-out;
@@ -215,7 +215,7 @@ popover.widget-menu.background > contents {
     min-width: 32px;
     min-height: 32px;
     padding: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-widget);
 }
 .slider-row .qs-toggle-more:hover {
     background: var(--color-card-overlay-hover);
@@ -569,7 +569,7 @@ window.quick-settings-window {{
     min-width: 32px;
     min-height: 32px;
     padding: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-widget);
 }}
 
 .qs-toggle-more:hover {{
@@ -605,7 +605,7 @@ window.quick-settings-window {{
     min-width: 32px;
     min-height: 32px;
     padding: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-widget);
 }}
 
 .qs-row-menu-button:hover {{
@@ -963,14 +963,14 @@ window.quick-settings-window {{
         /* Slider styling - slightly thicker for better visual weight */
         .osd-slider trough {{
             background-color: var(--color-slider-track);
-            border-radius: var(--radius-pill);
+            border-radius: calc(var(--radius-pill) * 0.75);
             min-height: 10px;
             min-width: 10px;
         }}
 
         .osd-slider trough highlight {{
             background-color: var(--color-accent-slider, var(--color-accent-primary));
-            border-radius: var(--radius-pill);
+            border-radius: calc(var(--radius-pill) * 0.75);
             min-height: 10px;
             min-width: 10px;
         }}
@@ -1057,7 +1057,7 @@ window.quick-settings-window {{
         .media-control-btn {{
             min-width: 24px;
             min-height: 24px;
-            border-radius: 50%;
+            border-radius: var(--radius-widget);
             color: var(--color-foreground-primary);
         }}
 
@@ -1175,7 +1175,7 @@ window.quick-settings-window {{
             min-width: 32px;
             min-height: 32px;
             padding: 0;
-            border-radius: 50%;
+            border-radius: var(--radius-widget);
             color: var(--color-foreground-primary);
         }}
 
@@ -1211,7 +1211,7 @@ window.quick-settings-window {{
 
         .media-seek-slider trough {{
             min-height: var(--slider-height);
-            border-radius: calc(var(--slider-height) / 2);
+            border-radius: calc(var(--radius-pill) / 2.5);
             background-color: var(--color-slider-track);
         }}
 
@@ -1220,7 +1220,7 @@ window.quick-settings-window {{
             background-color: var(--color-accent-slider, var(--color-accent-primary));
             border: none;
             min-height: var(--slider-height);
-            border-radius: calc(var(--slider-height) / 2);
+            border-radius: calc(var(--radius-pill) / 2.5);
         }}
 
         .media-seek-slider slider {{
@@ -1229,7 +1229,7 @@ window.quick-settings-window {{
             margin: -5px;
             padding: 0;
             background-color: var(--color-accent-primary);
-            border-radius: 50%;
+            border-radius: var(--radius-pill);
             border: none;
             box-shadow: none;
             transition: transform 100ms ease-out;
@@ -1255,7 +1255,7 @@ window.quick-settings-window {{
 
         .media-volume-slider trough {{
             min-height: var(--slider-height);
-            border-radius: calc(var(--slider-height) / 2);
+            border-radius: calc(var(--radius-pill) / 2.5);
             background-color: var(--color-slider-track);
         }}
 
@@ -1264,7 +1264,7 @@ window.quick-settings-window {{
             background-color: var(--color-accent-slider, var(--color-accent-primary));
             border: none;
             min-height: var(--slider-height);
-            border-radius: calc(var(--slider-height) / 2);
+            border-radius: calc(var(--radius-pill) / 2.5);
         }}
 
         .media-volume-slider slider {{
@@ -1273,7 +1273,7 @@ window.quick-settings-window {{
             margin: -5px;
             padding: 0;
             background-color: var(--color-accent-primary);
-            border-radius: 50%;
+            border-radius: var(--radius-pill);
             border: none;
             box-shadow: none;
             transition: transform 100ms ease-out;
@@ -1289,7 +1289,7 @@ window.quick-settings-window {{
             min-width: 28px;
             min-height: 28px;
             padding: 0;
-            border-radius: 50%;
+            border-radius: var(--radius-widget);
             background: transparent;
             border: none;
             box-shadow: none;
