@@ -355,6 +355,7 @@ fn is_popout_open() -> bool {
 pub struct MediaWidget {
     base: BaseWidget,
     media_callback_id: CallbackId,
+    theme_callback_id: Option<CallbackId>,
 }
 
 #[derive(Clone)]
@@ -744,9 +745,24 @@ impl MediaWidget {
             }
         });
 
+        // Subscribe to theme changes to update album art corner radius
+        let theme_callback_id = if let Some(picture) = art_picture {
+            let picture_for_theme = picture.clone();
+            Some(ConfigManager::global().on_theme_change(move || {
+                let config_mgr = ConfigManager::global();
+                let art_size = (config_mgr.bar_size() as f64 * ART_DISPLAY_SCALE) as i32;
+                let radius_percent = (config_mgr.widget_radius_percent() as f32 / 100.0).min(0.5);
+                let corner_radius = art_size as f32 * radius_percent;
+                picture_for_theme.set_corner_radius(corner_radius);
+            }))
+        } else {
+            None
+        };
+
         Self {
             base,
             media_callback_id,
+            theme_callback_id,
         }
     }
 
@@ -758,6 +774,9 @@ impl MediaWidget {
 impl Drop for MediaWidget {
     fn drop(&mut self) {
         MediaService::global().disconnect(self.media_callback_id);
+        if let Some(id) = self.theme_callback_id {
+            ConfigManager::global().disconnect_theme_callback(id);
+        }
     }
 }
 

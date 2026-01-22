@@ -31,6 +31,8 @@ use tracing::{debug, error, info, warn};
 
 use vibepanel_core::{Config, ThemePalette, ThemeSizes};
 
+use super::callbacks::{CallbackId, Callbacks};
+
 /// Debounce interval (in ms) for file change events. Editors often trigger
 /// multiple events for a single save; this batches them into one reload.
 const FILE_CHANGE_DEBOUNCE_MS: u64 = 300;
@@ -72,6 +74,9 @@ pub struct ConfigManager {
     config_path: RefCell<Option<PathBuf>>,
     /// Shutdown flag for the file watcher thread.
     shutdown_flag: Arc<AtomicBool>,
+    /// Callbacks for theme/style changes (border radius, colors, etc.)
+    /// that don't trigger a full bar rebuild.
+    theme_callbacks: Callbacks<()>,
 }
 
 // Thread-local singleton storage
@@ -86,6 +91,7 @@ impl ConfigManager {
             config: RefCell::new(config),
             config_path: RefCell::new(config_path),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
+            theme_callbacks: Callbacks::new(),
         })
     }
 
@@ -182,6 +188,25 @@ impl ConfigManager {
             .widgets
             .get_options(widget_name)
             .and_then(|opts| opts.options.get(option_name).cloned())
+    }
+
+    /// Register a callback to be called when theme/style configuration changes.
+    ///
+    /// This is called for changes like border radius, colors, opacity etc. that
+    /// don't trigger a full bar rebuild but may require widgets to update
+    /// programmatic styling (e.g., RoundedPicture corner radius).
+    ///
+    /// Returns a `CallbackId` that can be used to unregister the callback.
+    pub fn on_theme_change<F>(&self, callback: F) -> CallbackId
+    where
+        F: Fn() + 'static,
+    {
+        self.theme_callbacks.register(move |_: &()| callback())
+    }
+
+    /// Unregister a theme change callback.
+    pub fn disconnect_theme_callback(&self, id: CallbackId) -> bool {
+        self.theme_callbacks.unregister(id)
     }
 
     /// Start watching the config file for changes.
@@ -361,8 +386,12 @@ impl ConfigManager {
                 .reconfigure(&new_config.theme.icons.theme, new_config.theme.icons.weight);
         }
 
+        // Determine what changed
+        let theme_changed = config_theme_changed(&old_config, &new_config);
+        let structure_changed = config_structure_changed(&old_config, &new_config);
+
         // Update theme/palette if theme config changed
-        if config_theme_changed(&old_config, &new_config) {
+        if theme_changed {
             info!("Theme configuration changed, updating styles...");
 
             // Regenerate palette and update services
@@ -381,25 +410,25 @@ impl ConfigManager {
             // Reload CSS with new theme values
             bar::load_css(&new_config);
 
-            // Note: QuickSettingsWindow doesn't need explicit reload_styles() anymore.
-            // It's destroyed on close and recreated with fresh styles on next open.
-
             debug!("Theme styles updated");
         }
 
-        // Store the new config BEFORE rebuilding the bar, so widgets created
-        // during rebuild will see the new config values (e.g., theme_sizes())
+        // Store the new config BEFORE rebuilding/notifying, so widgets see new values
         *self.config.borrow_mut() = new_config.clone();
 
-        // Check for structural changes that require bar rebuild
-        if config_structure_changed(&old_config, &new_config) {
+        if structure_changed {
+            // Structural changes require full bar rebuild
             info!("Structural configuration changed, rebuilding bar...");
-            // Reload CSS first (in case theme also changed)
-            bar::load_css(&new_config);
-            // Rebuild the bar with new config
+            if !theme_changed {
+                // Reload CSS if we didn't already above
+                bar::load_css(&new_config);
+            }
             if let Some(display) = gtk4::gdk::Display::default() {
                 BarManager::global().reconfigure_all(&display, &new_config);
             }
+        } else if theme_changed {
+            // Theme-only changes: notify callbacks for programmatic styling updates
+            self.theme_callbacks.notify(&());
         }
 
         info!("Configuration applied successfully");
