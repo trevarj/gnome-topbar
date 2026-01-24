@@ -304,7 +304,7 @@ pub fn build_wifi_details(
     // Store ethernet row reference for dynamic updates
     *state.ethernet_row.borrow_mut() = Some(ethernet_row);
 
-    // Wi-Fi switch row: "Wi-Fi" label + switch (only visible when ethernet device present)
+    // Wi-Fi switch row: "Wi-Fi" label + switch + scan button (only visible when ethernet device present)
     let wifi_switch_row = GtkBox::new(Orientation::Horizontal, 8);
     wifi_switch_row.add_css_class(qs::WIFI_SWITCH_ROW);
     // Disable baseline alignment to prevent GTK baseline issues with Switch widget
@@ -316,32 +316,26 @@ pub fn build_wifi_details(
     let wifi_label = Label::new(Some("Wi-Fi"));
     wifi_label.add_css_class(color::PRIMARY);
     wifi_label.add_css_class(qs::WIFI_SWITCH_LABEL);
-    wifi_label.set_valign(gtk4::Align::End);
+    wifi_label.set_valign(gtk4::Align::Center);
     wifi_switch_row.append(&wifi_label);
 
     let wifi_switch = Switch::new();
-    wifi_switch.set_valign(gtk4::Align::End);
+    wifi_switch.set_valign(gtk4::Align::Center);
     wifi_switch.set_active(snapshot.wifi_enabled.unwrap_or(false));
     wifi_switch_row.append(&wifi_switch);
-
-    container.append(&wifi_switch_row);
-
-    // Controls row: Scan button (right-aligned)
-    let controls_row = GtkBox::new(Orientation::Horizontal, 8);
-    controls_row.add_css_class(qs::BT_CONTROLS_ROW); // Reuse BT controls row styling
 
     // Spacer to push scan button to the right
     let spacer = GtkBox::new(Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
-    controls_row.append(&spacer);
+    wifi_switch_row.append(&spacer);
 
-    // Scan button
+    // Scan button (on same row as Wi-Fi switch)
     let scan_button = ScanButton::new(|| {
         NetworkService::global().scan_networks();
     });
+    wifi_switch_row.append(scan_button.widget());
 
-    controls_row.append(scan_button.widget());
-    container.append(&controls_row);
+    container.append(&wifi_switch_row);
 
     // Network list
     let list_box = create_qs_list_box();

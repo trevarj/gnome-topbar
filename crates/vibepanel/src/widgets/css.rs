@@ -564,7 +564,7 @@ window.quick-settings-window {{
 
 .qs-ethernet-section .qs-ethernet-connection-row {{
     /* Override .qs-row margin, keep horizontal margin for alignment */
-    margin-top: 4px;
+    margin-top: 8px;
     margin-bottom: 0;
     margin-left: 0;
     margin-right: 0;
@@ -579,13 +579,12 @@ window.quick-settings-window {{
 
 .qs-wifi-switch-label {{
     font-size: var(--font-size);
-    margin-bottom: 6px;
 }}
 
 /* Wi-Fi switch styling - accent colored track when on */
 .qs-wifi-switch-row switch {{
     border-radius: calc(var(--radius-pill) * 1.2);
-    margin-bottom: 8px;
+    margin-top: 2px;
 }}
 
 .qs-wifi-switch-row switch:checked {{
@@ -598,7 +597,7 @@ window.quick-settings-window {{
 }}
 
 .qs-wifi-switch-row switch slider {{
-    border-radius: var(--radius-pill);
+    border-radius: calc(var(--radius-pill) * 0.75);
     min-width: 12px;
     min-height: 12px;
 }}
