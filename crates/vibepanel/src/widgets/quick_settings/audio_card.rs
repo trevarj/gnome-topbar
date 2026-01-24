@@ -11,7 +11,7 @@ use std::cell::{Cell, RefCell};
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Revealer,
+    Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Overlay, Revealer,
     RevealerTransitionType, Scale,
 };
 
@@ -212,17 +212,30 @@ pub fn create_sink_row(
     hbox.append(&label);
 
     // Selection indicator
-    let icons = IconsService::global();
-    let indicator_icon = if is_default {
-        "object-select-symbolic" // Checkmark for selected
+    if is_default {
+        // Overlay: background box + checkmark icon floating on top
+        let overlay = Overlay::new();
+        overlay.set_valign(Align::Center);
+
+        // Background box (same size as unselected indicator)
+        let bg = GtkBox::new(Orientation::Horizontal, 0);
+        bg.add_css_class(row::QS_INDICATOR_BG);
+        overlay.set_child(Some(&bg));
+
+        // Checkmark icon (larger, overflows the background)
+        let icons = IconsService::global();
+        let indicator = icons.create_icon("object-select-symbolic", &[row::QS_INDICATOR]);
+        indicator.widget().set_halign(Align::Center);
+        indicator.widget().set_valign(Align::Center);
+        overlay.add_overlay(&indicator.widget());
+
+        hbox.append(&overlay);
     } else {
-        "radio-symbolic" // Empty radio for unselected
-    };
-    let indicator = icons.create_icon(indicator_icon, &[row::QS_INDICATOR, color::PRIMARY]);
-    if !is_default {
-        indicator.widget().set_opacity(0.3); // Dim unselected indicator
+        // CSS-styled box for unselected (respects --radius-pill)
+        let indicator = GtkBox::new(Orientation::Horizontal, 0);
+        indicator.add_css_class(row::QS_RADIO_INDICATOR);
+        hbox.append(&indicator);
     }
-    hbox.append(&indicator.widget());
 
     list_row.set_child(Some(&hbox));
 

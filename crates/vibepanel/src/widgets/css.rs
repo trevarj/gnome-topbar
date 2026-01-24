@@ -738,6 +738,32 @@ window.quick-settings-window {{
     color: var(--color-accent-primary);
 }}
 
+/* Radio indicator for unselected audio/mic device rows.
+ * Replaces the radio-symbolic icon so the shape scales with --radius-pill
+ * (square at border_radius: 0, circular at border_radius: 50). */
+.qs-radio-indicator {{
+    min-width: 12px;
+    min-height: 12px;
+    border: 1.5px solid var(--color-foreground-primary);
+    border-radius: calc(var(--radius-pill) * 0.9);
+    opacity: 0.6;
+    margin: 2px 0;
+}}
+
+/* Checkmark indicator background for selected audio/mic device rows */
+.qs-row-indicator-bg {{
+    border-radius: var(--radius-pill);
+    min-width: 16px;
+    min-height: 16px;
+}}
+
+/* Checkmark icon for selected state - floats above background */
+.qs-row-indicator {{
+    color: var(--color-accent-primary);
+    font-variation-settings: 'wght' 600;
+    font-size: 20px;
+}}
+
 .qs-scan-button {{
     padding: 2px 8px;
     margin-bottom: 4px;

@@ -151,6 +151,18 @@ pub mod row {
 
     /// Row indicator icon (`.qs-row-indicator`).
     pub const QS_INDICATOR: &str = "qs-row-indicator";
+
+    /// Row indicator background box (`.qs-row-indicator-bg`).
+    ///
+    /// Background box behind the checkmark icon for selected state.
+    pub const QS_INDICATOR_BG: &str = "qs-row-indicator-bg";
+
+    /// Radio indicator box for unselected state (`.qs-radio-indicator`).
+    ///
+    /// A CSS-styled box that respects `--radius-pill` for configurable corner radius.
+    /// Used instead of the `radio-symbolic` icon so the shape scales with the user's
+    /// border radius setting (square at 0%, circular at 50%).
+    pub const QS_RADIO_INDICATOR: &str = "qs-radio-indicator";
 }
 
 /// State/toggle classes for dynamic styling.
