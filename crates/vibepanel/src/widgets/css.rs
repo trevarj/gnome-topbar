@@ -722,7 +722,7 @@ window.quick-settings-window {{
     padding: 2px 8px;
     margin-bottom: 4px;
     min-height: 0;
-    border-radius: calc(var(--radius-pill) * 1.3);
+    border-radius: var(--radius-pill);
 }}
 
 .qs-scan-button:hover {{

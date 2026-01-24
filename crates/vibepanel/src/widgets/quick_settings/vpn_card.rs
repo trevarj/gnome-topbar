@@ -13,8 +13,8 @@ use gtk4::{Box as GtkBox, GestureClick, ListBox, Orientation, ScrolledWindow};
 
 use super::components::ListRow;
 use super::ui_helpers::{
-    ExpandableCard, ExpandableCardBase, add_placeholder_row, clear_list_box, create_qs_list_box,
-    create_row_action_label, set_icon_active, set_subtitle_active,
+    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_accent_subtitle, clear_list_box,
+    create_qs_list_box, create_row_action_label, set_icon_active, set_subtitle_active,
 };
 use crate::services::icons::IconsService;
 use crate::services::surfaces::SurfaceStyleManager;
@@ -110,36 +110,47 @@ pub fn populate_vpn_list(_state: &VpnCardState, list_box: &ListBox, snapshot: &V
     let icons = IconsService::global();
 
     for conn in &snapshot.connections {
-        let mut subtitle_parts = Vec::new();
-        if conn.active {
-            subtitle_parts.push("Active".to_string());
-        } else {
-            subtitle_parts.push("Inactive".to_string());
-        }
+        // Build extra parts (Autoconnect, VPN type)
+        let mut extra_parts = Vec::new();
         if conn.autoconnect {
-            subtitle_parts.push("Autoconnect".to_string());
+            extra_parts.push("Autoconnect");
         }
         // Show VPN type
         if conn.vpn_type == "wireguard" {
-            subtitle_parts.push("WireGuard".to_string());
+            extra_parts.push("WireGuard");
         } else if conn.vpn_type == "vpn" {
-            subtitle_parts.push("OpenVPN".to_string());
+            extra_parts.push("OpenVPN");
         }
-        let subtitle = subtitle_parts.join(" \u{2022} ");
 
-        let icon_handle =
-            icons.create_icon("network-vpn", &[icon::TEXT, row::QS_ICON, color::PRIMARY]);
+        let icon_color = if conn.active {
+            color::ACCENT
+        } else {
+            color::PRIMARY
+        };
+        let icon_handle = icons.create_icon("network-vpn", &[icon::TEXT, row::QS_ICON, icon_color]);
         let leading_icon = icon_handle.widget();
 
         let right_widget = create_vpn_action_widget(conn);
 
-        let row_result = ListRow::builder()
+        let mut row_builder = ListRow::builder()
             .title(&conn.name)
-            .subtitle(&subtitle)
             .leading_widget(leading_icon)
             .trailing_widget(right_widget)
-            .css_class(qs::VPN_ROW)
-            .build();
+            .css_class(qs::VPN_ROW);
+
+        if conn.active {
+            // Active: accent "Active" + muted extras
+            let subtitle_widget = build_accent_subtitle("Active", &extra_parts);
+            row_builder = row_builder.subtitle_widget(subtitle_widget.upcast());
+        } else {
+            // Inactive: plain muted subtitle
+            let mut parts = vec!["Inactive"];
+            parts.extend(extra_parts);
+            let subtitle = parts.join(" \u{2022} ");
+            row_builder = row_builder.subtitle(&subtitle);
+        }
+
+        let row_result = row_builder.build();
 
         {
             let uuid = conn.uuid.clone();

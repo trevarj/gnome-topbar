@@ -20,7 +20,7 @@ use tracing::debug;
 
 use super::components::ListRow;
 use super::ui_helpers::{
-    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_connected_subtitle,
+    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_accent_subtitle,
     build_scan_button, clear_list_box, create_qs_list_box, create_row_action_label,
     create_row_menu_action, create_row_menu_button, set_icon_active,
 };
@@ -586,7 +586,7 @@ fn build_ethernet_row(snapshot: &NetworkSnapshot) -> GtkBox {
 
     // Build connected subtitle widget with accent "Connected" and muted extra parts
     let extra_refs: Vec<&str> = extra_parts.iter().map(|s| s.as_str()).collect();
-    let subtitle_widget = build_connected_subtitle(&extra_refs);
+    let subtitle_widget = build_accent_subtitle("Connected", &extra_refs);
 
     // Connection details row with connection name as title
     let row_result = ListRow::builder()
@@ -755,7 +755,7 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
         if net.active && !is_connecting {
             // Active network: accent "Connected" + muted extras
             let extra_refs: Vec<&str> = extra_parts.iter().map(|s| s.as_str()).collect();
-            let subtitle_widget = build_connected_subtitle(&extra_refs);
+            let subtitle_widget = build_accent_subtitle("Connected", &extra_refs);
             row_builder = row_builder.subtitle_widget(subtitle_widget.upcast());
         } else {
             // Not connected: plain subtitle

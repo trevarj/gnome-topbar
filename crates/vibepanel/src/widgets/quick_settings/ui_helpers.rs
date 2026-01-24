@@ -78,23 +78,23 @@ pub fn set_subtitle_active(label: &Label, active: bool) {
     }
 }
 
-/// Build a subtitle widget with "Connected" in accent color followed by muted parts.
+/// Build a subtitle widget with an accent-colored primary word followed by muted parts.
 ///
 /// Creates an HBox containing:
-/// - "Connected" label with accent color
+/// - Primary word label with accent color (e.g., "Connected", "Active")
 /// - " · part1 · part2 · ..." label with muted color
 ///
-/// Used for Wi-Fi, Ethernet, Bluetooth, and VPN connected rows.
-pub fn build_connected_subtitle(extra_parts: &[&str]) -> GtkBox {
+/// Used for Wi-Fi, Ethernet, Bluetooth, and VPN rows.
+pub fn build_accent_subtitle(accent_word: &str, extra_parts: &[&str]) -> GtkBox {
     use gtk4::pango::EllipsizeMode;
 
     let hbox = GtkBox::new(Orientation::Horizontal, 0);
 
-    // "Connected" label in accent color
-    let connected_label = Label::new(Some("Connected"));
-    connected_label.add_css_class(color::ACCENT);
-    connected_label.add_css_class(row::QS_SUBTITLE);
-    hbox.append(&connected_label);
+    // Primary word in accent color
+    let accent_label = Label::new(Some(accent_word));
+    accent_label.add_css_class(color::ACCENT);
+    accent_label.add_css_class(row::QS_SUBTITLE);
+    hbox.append(&accent_label);
 
     // Remaining parts in muted color
     if !extra_parts.is_empty() {

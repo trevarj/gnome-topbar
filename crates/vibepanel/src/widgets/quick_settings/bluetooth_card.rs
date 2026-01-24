@@ -17,9 +17,9 @@ use tracing::debug;
 
 use super::components::ListRow;
 use super::ui_helpers::{
-    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_scan_button, clear_list_box,
-    create_qs_list_box, create_row_action_label, create_row_menu_action, create_row_menu_button,
-    set_icon_active, set_subtitle_active,
+    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_accent_subtitle,
+    build_scan_button, clear_list_box, create_qs_list_box, create_row_action_label,
+    create_row_menu_action, create_row_menu_button, set_icon_active, set_subtitle_active,
 };
 use crate::services::bluetooth::{BluetoothDevice, BluetoothService, BluetoothSnapshot};
 use crate::services::icons::IconsService;
@@ -150,19 +150,6 @@ pub fn populate_bluetooth_list(
     let icons = IconsService::global();
 
     for dev in &snapshot.devices {
-        let mut subtitle_parts = Vec::new();
-        if dev.connected {
-            subtitle_parts.push("Connected".to_string());
-        }
-        if dev.paired {
-            subtitle_parts.push("Paired".to_string());
-        }
-        let subtitle = if subtitle_parts.is_empty() {
-            None
-        } else {
-            Some(subtitle_parts.join(" \u{2022} "))
-        };
-
         let title = if !dev.name.is_empty() {
             dev.name.clone()
         } else if !dev.address.is_empty() {
@@ -176,18 +163,34 @@ pub fn populate_bluetooth_list(
         } else {
             "bluetooth-symbolic"
         });
-        let icon_handle = icons.create_icon(icon_name, &[icon::TEXT, row::QS_ICON, color::PRIMARY]);
+        let icon_color = if dev.connected {
+            color::ACCENT
+        } else {
+            color::PRIMARY
+        };
+        let icon_handle = icons.create_icon(icon_name, &[icon::TEXT, row::QS_ICON, icon_color]);
         let leading_icon = icon_handle.widget();
 
         let right_widget = create_bluetooth_action_widget(dev);
 
-        let row_result = ListRow::builder()
+        let mut row_builder = ListRow::builder()
             .title(&title)
-            .subtitle_opt(subtitle.as_deref())
             .leading_widget(leading_icon)
             .trailing_widget(right_widget)
-            .css_class(qs::BT_ROW)
-            .build();
+            .css_class(qs::BT_ROW);
+
+        if dev.connected {
+            // Connected: accent "Connected" + optional "Paired"
+            let extra_parts: Vec<&str> = if dev.paired { vec!["Paired"] } else { vec![] };
+            let subtitle_widget = build_accent_subtitle("Connected", &extra_parts);
+            row_builder = row_builder.subtitle_widget(subtitle_widget.upcast());
+        } else if dev.paired {
+            // Paired only: plain muted subtitle
+            row_builder = row_builder.subtitle("Paired");
+        }
+        // Neither connected nor paired: no subtitle
+
+        let row_result = row_builder.build();
 
         {
             let path = dev.path.clone();
