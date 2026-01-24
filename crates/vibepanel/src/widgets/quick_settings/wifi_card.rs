@@ -224,9 +224,12 @@ pub struct WifiCardState {
     /// This prevents feedback loops when the service notifies us of state changes.
     pub updating_toggle: Cell<bool>,
     /// The Wi-Fi switch row container (label + switch + scan button).
-    /// Only visible when ethernet device is present (otherwise card toggle controls Wi-Fi).
     pub wifi_switch_row: RefCell<Option<GtkBox>>,
+    /// The Wi-Fi label in the expanded details section.
+    /// Only visible when ethernet device is present.
+    pub wifi_label: RefCell<Option<Label>>,
     /// The Wi-Fi switch in the expanded details section.
+    /// Only visible when ethernet device is present.
     pub wifi_switch: RefCell<Option<Switch>>,
     /// Ethernet row container (shown above Wi-Fi controls when connected).
     pub ethernet_row: RefCell<Option<GtkBox>>,
@@ -250,6 +253,7 @@ impl WifiCardState {
             connect_anim_step: Cell::new(0),
             updating_toggle: Cell::new(false),
             wifi_switch_row: RefCell::new(None),
+            wifi_label: RefCell::new(None),
             wifi_switch: RefCell::new(None),
             ethernet_row: RefCell::new(None),
         }
@@ -304,24 +308,25 @@ pub fn build_wifi_details(
     // Store ethernet row reference for dynamic updates
     *state.ethernet_row.borrow_mut() = Some(ethernet_row);
 
-    // Wi-Fi switch row: "Wi-Fi" label + switch + scan button (only visible when ethernet device present)
+    // Wi-Fi switch row: "Wi-Fi" label + switch + scan button
+    // The label+switch are only visible when ethernet device present, but scan button always visible
     let wifi_switch_row = GtkBox::new(Orientation::Horizontal, 8);
     wifi_switch_row.add_css_class(qs::WIFI_SWITCH_ROW);
     // Disable baseline alignment to prevent GTK baseline issues with Switch widget
     wifi_switch_row.set_baseline_position(gtk4::BaselinePosition::Center);
-    // Only show when ethernet device is present (otherwise card toggle controls Wi-Fi)
-    wifi_switch_row.set_visible(snapshot.has_ethernet_device);
 
-    // Wi-Fi label + switch
+    // Wi-Fi label + switch (only visible when ethernet device present)
     let wifi_label = Label::new(Some("Wi-Fi"));
     wifi_label.add_css_class(color::PRIMARY);
     wifi_label.add_css_class(qs::WIFI_SWITCH_LABEL);
     wifi_label.set_valign(gtk4::Align::Center);
+    wifi_label.set_visible(snapshot.has_ethernet_device);
     wifi_switch_row.append(&wifi_label);
 
     let wifi_switch = Switch::new();
     wifi_switch.set_valign(gtk4::Align::Center);
     wifi_switch.set_active(snapshot.wifi_enabled.unwrap_or(false));
+    wifi_switch.set_visible(snapshot.has_ethernet_device);
     wifi_switch_row.append(&wifi_switch);
 
     // Spacer to push scan button to the right
@@ -329,7 +334,7 @@ pub fn build_wifi_details(
     spacer.set_hexpand(true);
     wifi_switch_row.append(&spacer);
 
-    // Scan button (on same row as Wi-Fi switch)
+    // Scan button (always visible)
     let scan_button = ScanButton::new(|| {
         NetworkService::global().scan_networks();
     });
@@ -435,6 +440,7 @@ pub fn build_wifi_details(
 
     // Store switch references
     *state.wifi_switch_row.borrow_mut() = Some(wifi_switch_row);
+    *state.wifi_label.borrow_mut() = Some(wifi_label);
     *state.wifi_switch.borrow_mut() = Some(wifi_switch.clone());
 
     // Populate with current network state
@@ -1174,13 +1180,12 @@ pub fn on_network_changed(
         toggle.set_sensitive(snapshot.has_wifi_device && !snapshot.has_ethernet_device);
     }
 
-    // Update Wi-Fi switch row visibility (only show when ethernet device present)
-    if let Some(wifi_switch_row) = state.wifi_switch_row.borrow().as_ref() {
-        wifi_switch_row.set_visible(snapshot.has_ethernet_device);
+    // Update Wi-Fi label and switch visibility (only show when ethernet device present)
+    if let Some(wifi_label) = state.wifi_label.borrow().as_ref() {
+        wifi_label.set_visible(snapshot.has_ethernet_device);
     }
-
-    // Update Wi-Fi switch in expanded details
     if let Some(wifi_switch) = state.wifi_switch.borrow().as_ref() {
+        wifi_switch.set_visible(snapshot.has_ethernet_device);
         if wifi_switch.is_active() != enabled {
             wifi_switch.set_active(enabled);
         }
