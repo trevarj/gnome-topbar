@@ -201,16 +201,6 @@ impl VpnService {
         self.snapshot.borrow().clone()
     }
 
-    /// Toggle the specified VPN connection.
-    pub fn toggle_connection(&self, uuid: &str) {
-        let snapshot = self.snapshot.borrow();
-        if let Some(conn) = snapshot.connections.iter().find(|c| c.uuid == uuid) {
-            let new_state = !conn.active;
-            drop(snapshot);
-            self.set_connection_state(uuid, new_state);
-        }
-    }
-
     /// Set the state of a VPN connection (connect or disconnect).
     pub fn set_connection_state(&self, uuid: &str, active: bool) {
         let uuid = uuid.to_string();

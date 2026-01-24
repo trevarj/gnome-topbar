@@ -6,13 +6,11 @@
 //! - Device list population
 //! - Device action handling
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{
-    Box as GtkBox, Button, GestureClick, Label, ListBox, Orientation, Popover, ScrolledWindow,
-};
+use gtk4::{Box as GtkBox, Button, Label, ListBox, Orientation, Popover, ScrolledWindow};
 use tracing::debug;
 
 use super::components::ListRow;
@@ -52,6 +50,8 @@ pub struct BluetoothCardState {
     pub scan_button: RefCell<Option<Button>>,
     /// Bluetooth scan label.
     pub scan_label: RefCell<Option<Label>>,
+    /// Guard to prevent feedback loop when programmatically updating toggle.
+    pub updating_toggle: Cell<bool>,
 }
 
 impl BluetoothCardState {
@@ -60,6 +60,7 @@ impl BluetoothCardState {
             base: ExpandableCardBase::new(),
             scan_button: RefCell::new(None),
             scan_label: RefCell::new(None),
+            updating_toggle: Cell::new(false),
         }
     }
 }
@@ -202,9 +203,8 @@ pub fn populate_bluetooth_list(
                     bt.disconnect_device(&path);
                 } else if paired {
                     bt.connect_device(&path);
-                } else {
-                    bt.pair_device(&path);
                 }
+                // Unpaired devices: handled by the "Pair" button gesture
             });
         }
 
@@ -222,13 +222,10 @@ fn create_bluetooth_action_widget(dev: &BluetoothDevice) -> gtk4::Widget {
     if !paired {
         let label = create_row_action_label("Pair");
         let path_clone = path.clone();
-        let gesture = GestureClick::new();
-        gesture.set_button(1);
-        gesture.connect_pressed(move |_, _, _, _| {
+        label.connect_clicked(move |_| {
             let bt = BluetoothService::global();
             bt.pair_device(&path_clone);
         });
-        label.add_controller(gesture);
         return label.upcast();
     }
 
@@ -292,7 +289,9 @@ pub fn on_bluetooth_changed(state: &BluetoothCardState, snapshot: &BluetoothSnap
     if let Some(toggle) = state.base.toggle.borrow().as_ref() {
         let should_be_active = snapshot.powered && snapshot.has_adapter;
         if toggle.is_active() != should_be_active {
+            state.updating_toggle.set(true);
             toggle.set_active(should_be_active);
+            state.updating_toggle.set(false);
         }
         toggle.set_sensitive(snapshot.has_adapter);
     }

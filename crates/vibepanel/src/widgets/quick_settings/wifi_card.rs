@@ -13,8 +13,8 @@ use std::rc::{Rc, Weak};
 use gtk4::glib::{self, WeakRef};
 use gtk4::prelude::*;
 use gtk4::{
-    ApplicationWindow, Box as GtkBox, Button, Entry, GestureClick, Label, ListBox, ListBoxRow,
-    Orientation, Overlay, Popover, ScrolledWindow, Switch,
+    ApplicationWindow, Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, Orientation,
+    Overlay, Popover, ScrolledWindow, Switch,
 };
 use tracing::debug;
 
@@ -783,18 +783,8 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
                     service.disconnect();
                 } else if security == "open" || known {
                     service.connect_to_ssid(&ssid, None);
-                } else {
-                    // Secured, unknown network: show password prompt
-                    let snapshot = service.snapshot();
-                    if snapshot
-                        .networks
-                        .iter()
-                        .any(|n| n.ssid == ssid && !n.known && n.security != "open")
-                        && let Some(qs) = find_quick_settings_window()
-                    {
-                        qs.show_wifi_password_dialog(&ssid);
-                    }
                 }
+                // Secured, unknown networks: handled by the "Connect" button gesture
             });
         }
 
@@ -845,9 +835,7 @@ fn create_network_action_widget(net: &WifiNetwork) -> gtk4::Widget {
         let action_label = create_row_action_label("Connect");
         let ssid_clone = ssid.clone();
         let is_secured = net.security != "open";
-        let gesture = GestureClick::new();
-        gesture.set_button(1);
-        gesture.connect_pressed(move |_, _, _, _| {
+        action_label.connect_clicked(move |_| {
             if is_secured {
                 // Secured, unknown network: show password prompt
                 if let Some(qs) = find_quick_settings_window() {
@@ -859,7 +847,6 @@ fn create_network_action_widget(net: &WifiNetwork) -> gtk4::Widget {
                 network.connect_to_ssid(&ssid_clone, None);
             }
         });
-        action_label.add_controller(gesture);
         return action_label.upcast();
     }
 

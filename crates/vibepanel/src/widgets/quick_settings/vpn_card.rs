@@ -6,10 +6,11 @@
 //! - Connection list population
 //! - Connection action handling
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, GestureClick, ListBox, Orientation, ScrolledWindow};
+use gtk4::{Box as GtkBox, ListBox, Orientation, ScrolledWindow};
 
 use super::components::ListRow;
 use super::ui_helpers::{
@@ -33,16 +34,18 @@ pub fn vpn_icon_name(_any_active: bool) -> &'static str {
 /// State for the VPN card in the Quick Settings panel.
 ///
 /// Uses `ExpandableCardBase` for common expandable card fields.
-/// VPN has no additional card-specific state beyond the base.
 pub struct VpnCardState {
     /// Common expandable card state (toggle, icon, subtitle, list_box, revealer, arrow).
     pub base: ExpandableCardBase,
+    /// Guard flag to prevent feedback loops when programmatically updating toggle.
+    pub updating_toggle: Cell<bool>,
 }
 
 impl VpnCardState {
     pub fn new() -> Self {
         Self {
             base: ExpandableCardBase::new(),
+            updating_toggle: Cell::new(false),
         }
     }
 }
@@ -152,13 +155,8 @@ pub fn populate_vpn_list(_state: &VpnCardState, list_box: &ListBox, snapshot: &V
 
         let row_result = row_builder.build();
 
-        {
-            let uuid = conn.uuid.clone();
-            row_result.row.connect_activate(move |_| {
-                let vpn = VpnService::global();
-                vpn.toggle_connection(&uuid);
-            });
-        }
+        // Note: Click handling is done by the action widget's gesture,
+        // not by row activation, to avoid double-triggering.
 
         list_box.append(&row_result.row);
     }
@@ -173,15 +171,10 @@ fn create_vpn_action_widget(conn: &VpnConnection) -> gtk4::Widget {
     let action_text = if is_active { "Disconnect" } else { "Connect" };
     let action_label = create_row_action_label(action_text);
 
-    let gesture = GestureClick::new();
-    gesture.set_button(1);
-    gesture.connect_pressed(move |gesture, _, _, _| {
-        // Stop propagation to prevent row activation
-        gesture.set_state(gtk4::EventSequenceState::Claimed);
+    action_label.connect_clicked(move |_| {
         let vpn = VpnService::global();
         vpn.set_connection_state(&uuid, !is_active);
     });
-    action_label.add_controller(gesture);
 
     action_label.upcast()
 }
@@ -195,7 +188,9 @@ pub fn on_vpn_changed(state: &VpnCardState, snapshot: &VpnSnapshot) {
     if let Some(toggle) = state.base.toggle.borrow().as_ref() {
         let should_be_active = primary.map(|p| p.active).unwrap_or(false);
         if toggle.is_active() != should_be_active {
+            state.updating_toggle.set(true);
             toggle.set_active(should_be_active);
+            state.updating_toggle.set(false);
         }
         toggle.set_sensitive(has_connections);
     }

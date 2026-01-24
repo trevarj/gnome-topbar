@@ -692,7 +692,12 @@ impl QuickSettingsWindow {
 
         {
             let toggle = bt_card.toggle.clone();
+            let bt_state = Rc::clone(&qs.bluetooth);
             toggle.connect_toggled(move |toggle| {
+                // Skip if this is a programmatic update (prevents feedback loops)
+                if bt_state.updating_toggle.get() {
+                    return;
+                }
                 BluetoothService::global().set_powered(toggle.is_active());
             });
         }
@@ -762,7 +767,12 @@ impl QuickSettingsWindow {
 
         {
             let toggle = vpn_card.toggle.clone();
+            let vpn_state = Rc::clone(&qs.vpn);
             toggle.connect_toggled(move |toggle| {
+                // Skip if this is a programmatic update (prevents feedback loops)
+                if vpn_state.updating_toggle.get() {
+                    return;
+                }
                 let vpn = VpnService::global();
                 let snapshot = vpn.snapshot();
                 if let Some(primary) = snapshot.primary() {
