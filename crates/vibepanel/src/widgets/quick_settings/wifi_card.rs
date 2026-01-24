@@ -14,15 +14,15 @@ use gtk4::glib::{self, WeakRef};
 use gtk4::prelude::*;
 use gtk4::{
     ApplicationWindow, Box as GtkBox, Button, Entry, GestureClick, Label, ListBox, ListBoxRow,
-    Orientation, Overlay, Popover, ScrolledWindow,
+    Orientation, Overlay, Popover, ScrolledWindow, Switch,
 };
 use tracing::debug;
 
 use super::components::ListRow;
 use super::ui_helpers::{
-    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_scan_button, clear_list_box,
-    create_qs_list_box, create_row_action_label, create_row_menu_action, create_row_menu_button,
-    set_icon_active, set_subtitle_active,
+    ExpandableCard, ExpandableCardBase, add_placeholder_row, build_connected_subtitle,
+    build_scan_button, clear_list_box, create_qs_list_box, create_row_action_label,
+    create_row_menu_action, create_row_menu_button, set_icon_active,
 };
 use crate::services::icons::IconsService;
 use crate::services::network::{NetworkService, NetworkSnapshot, WifiNetwork};
@@ -35,8 +35,18 @@ use crate::widgets::base::configure_popover;
 /// The main card widget uses this for a stable "connected" icon,
 /// while the per-network list rows use `wifi_strength_icon` for
 /// detailed signal levels.
-pub fn wifi_icon_name(connected: bool, wifi_enabled: bool) -> &'static str {
-    if !wifi_enabled {
+pub fn wifi_icon_name(
+    connected: bool,
+    wifi_enabled: bool,
+    wired_connected: bool,
+    has_wifi_device: bool,
+) -> &'static str {
+    if wired_connected {
+        "network-wired-symbolic"
+    } else if !has_wifi_device {
+        // Ethernet-only system, not connected - show lan icon (will be grayed out)
+        "network-wired-symbolic"
+    } else if !wifi_enabled {
         "network-wireless-offline-symbolic"
     } else if connected {
         "network-wireless-signal-excellent-symbolic"
@@ -60,6 +70,100 @@ pub fn wifi_strength_icon(level: i32) -> &'static str {
         "network-wireless-signal-weak-symbolic"
     } else {
         "network-wireless-signal-none-symbolic"
+    }
+}
+
+/// Result of building the network card subtitle widget.
+pub struct NetworkSubtitleResult {
+    /// The container widget holding the label.
+    pub container: GtkBox,
+    /// Label for text (SSID or status).
+    pub label: Label,
+}
+
+/// Build the subtitle widget for the network card.
+///
+/// Creates a label that shows connection status text like:
+/// - "Ethernet • SSID" (both connected)
+/// - "Ethernet" (wired only)
+/// - "SSID" (Wi-Fi only)
+/// - "Disconnected" / "Off"
+pub fn build_network_subtitle(snapshot: &NetworkSnapshot) -> NetworkSubtitleResult {
+    use gtk4::pango::EllipsizeMode;
+
+    let container = GtkBox::new(Orientation::Horizontal, 4);
+    container.add_css_class(qs::TOGGLE_SUBTITLE);
+
+    let label = Label::new(None);
+    label.set_xalign(0.0);
+    label.set_ellipsize(EllipsizeMode::End);
+    label.set_single_line_mode(true);
+    label.add_css_class(color::MUTED);
+    container.append(&label);
+
+    // Set initial state
+    update_network_subtitle(&label, snapshot);
+
+    NetworkSubtitleResult { container, label }
+}
+
+/// Generate the subtitle text for the network card based on connection state.
+///
+/// Returns a string describing the current network status:
+/// - Wired + connecting: "Ethernet · Connecting to {ssid}"
+/// - Wired + Wi-Fi connected: "Ethernet · {ssid}"
+/// - Wired only: "Ethernet"
+/// - Wi-Fi connecting: "Connecting to {ssid}"
+/// - Wi-Fi connected: "{ssid}"
+/// - Disconnected (has Wi-Fi): "Disconnected"
+/// - Wi-Fi disabled: "Off"
+/// - Ethernet-only system, disconnected: "Disconnected"
+pub fn get_network_subtitle_text(snapshot: &NetworkSnapshot) -> String {
+    let wifi_enabled = snapshot.wifi_enabled.unwrap_or(false);
+    let is_connecting = snapshot.connecting_ssid.is_some();
+
+    match (snapshot.wired_connected, is_connecting, &snapshot.ssid) {
+        // Wired connected cases
+        (true, true, _) => format!(
+            "Ethernet \u{2022} Connecting to {}",
+            snapshot.connecting_ssid.as_ref().unwrap()
+        ),
+        (true, false, Some(ssid)) => format!("Ethernet \u{2022} {}", ssid),
+        (true, false, None) => "Ethernet".to_string(),
+
+        // Wi-Fi only cases
+        (false, true, _) => format!(
+            "Connecting to {}",
+            snapshot.connecting_ssid.as_ref().unwrap()
+        ),
+        (false, false, Some(ssid)) => ssid.clone(),
+        (false, false, None) if !snapshot.has_wifi_device => "Disconnected".to_string(),
+        (false, false, None) if wifi_enabled => "Disconnected".to_string(),
+        (false, false, None) => "Off".to_string(),
+    }
+}
+
+/// Determine if the network subtitle should be styled as "active" (connected).
+///
+/// Returns true when any network is connected and not in a connecting state.
+pub fn is_network_subtitle_active(snapshot: &NetworkSnapshot) -> bool {
+    let wifi_connected = snapshot.ssid.is_some();
+    let is_connecting = snapshot.connecting_ssid.is_some();
+    let any_connected = snapshot.wired_connected || wifi_connected;
+
+    any_connected && !is_connecting
+}
+
+/// Update the network subtitle label based on connection state.
+pub fn update_network_subtitle(label: &Label, snapshot: &NetworkSnapshot) {
+    label.set_label(&get_network_subtitle_text(snapshot));
+
+    if is_network_subtitle_active(snapshot) {
+        label.remove_css_class(color::MUTED);
+        label.add_css_class(state::SUBTITLE_ACTIVE);
+    } else {
+        label.remove_css_class(state::SUBTITLE_ACTIVE);
+        label.add_css_class(color::MUTED);
     }
 }
 
@@ -93,6 +197,10 @@ fn find_quick_settings_window() -> Option<Rc<super::window::QuickSettingsWindow>
 pub struct WifiCardState {
     /// Common expandable card state (toggle, icon, subtitle, list_box, revealer, arrow).
     pub base: ExpandableCardBase,
+    /// Card title label (for updating between "Wi-Fi" and "Network").
+    pub title_label: RefCell<Option<Label>>,
+    /// Text label in the subtitle (SSID or status).
+    pub subtitle_label: RefCell<Option<Label>>,
     /// The Wi-Fi scan button.
     pub scan_button: RefCell<Option<Button>>,
     /// The Wi-Fi scan button label.
@@ -122,12 +230,18 @@ pub struct WifiCardState {
     /// Flag to prevent toggle signal handler from firing during programmatic updates.
     /// This prevents feedback loops when the service notifies us of state changes.
     pub updating_toggle: Cell<bool>,
+    /// The Wi-Fi switch in the expanded details section.
+    pub wifi_switch: RefCell<Option<Switch>>,
+    /// Ethernet row container (shown above Wi-Fi controls when connected).
+    pub ethernet_row: RefCell<Option<GtkBox>>,
 }
 
 impl WifiCardState {
     pub fn new() -> Self {
         Self {
             base: ExpandableCardBase::new(),
+            title_label: RefCell::new(None),
+            subtitle_label: RefCell::new(None),
             scan_button: RefCell::new(None),
             scan_label: RefCell::new(None),
             password_box: RefCell::new(None),
@@ -142,6 +256,8 @@ impl WifiCardState {
             connect_anim_source: RefCell::new(None),
             connect_anim_step: Cell::new(0),
             updating_toggle: Cell::new(false),
+            wifi_switch: RefCell::new(None),
+            ethernet_row: RefCell::new(None),
         }
     }
 }
@@ -179,6 +295,7 @@ pub struct WifiDetailsResult {
     pub list_box: ListBox,
     pub scan_button: Button,
     pub scan_label: Label,
+    pub wifi_switch: Switch,
 }
 
 /// Build the Wi-Fi details section with scan button, network list, and
@@ -189,10 +306,44 @@ pub fn build_wifi_details(
 ) -> WifiDetailsResult {
     let container = GtkBox::new(Orientation::Vertical, 0);
 
+    // Get current network state for initial values
+    let snapshot = NetworkService::global().snapshot();
+
+    // Ethernet row (above Wi-Fi controls, shown only when connected)
+    let ethernet_row = build_ethernet_row(&snapshot);
+    container.append(&ethernet_row);
+
+    // Store ethernet row reference for dynamic updates
+    *state.ethernet_row.borrow_mut() = Some(ethernet_row);
+
+    // Wi-Fi controls row: Wi-Fi switch + Scan button
+    let wifi_row = GtkBox::new(Orientation::Horizontal, 8);
+    wifi_row.add_css_class(qs::WIFI_SWITCH_ROW);
+    // Disable baseline alignment to prevent GTK baseline issues with Switch widget
+    wifi_row.set_baseline_position(gtk4::BaselinePosition::Center);
+
+    // Wi-Fi label + switch
+    let wifi_label = Label::new(Some("Wi-Fi"));
+    wifi_label.add_css_class(color::PRIMARY);
+    wifi_label.add_css_class(qs::WIFI_SWITCH_LABEL);
+    wifi_label.set_valign(gtk4::Align::End);
+    wifi_row.append(&wifi_label);
+
+    let wifi_switch = Switch::new();
+    wifi_switch.set_valign(gtk4::Align::End);
+    wifi_switch.set_active(snapshot.wifi_enabled.unwrap_or(false));
+    wifi_row.append(&wifi_switch);
+
+    // Spacer to push scan button to the right
+    let spacer = GtkBox::new(Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    wifi_row.append(&spacer);
+
     // Scan button
     let scan_result = build_scan_button("Scan");
     let scan_button = scan_result.button;
     let scan_label = scan_result.label;
+    scan_button.set_valign(gtk4::Align::End);
 
     {
         scan_button.connect_clicked(move |_| {
@@ -200,7 +351,8 @@ pub fn build_wifi_details(
         });
     }
 
-    container.append(&scan_button);
+    wifi_row.append(&scan_button);
+    container.append(&wifi_row);
 
     // Network list
     let list_box = create_qs_list_box();
@@ -298,8 +450,10 @@ pub fn build_wifi_details(
     *state.password_cancel_button.borrow_mut() = Some(btn_cancel.clone());
     *state.password_connect_button.borrow_mut() = Some(btn_ok.clone());
 
+    // Store switch reference
+    *state.wifi_switch.borrow_mut() = Some(wifi_switch.clone());
+
     // Populate with current network state
-    let snapshot = NetworkService::global().snapshot();
     populate_wifi_list(state, &list_box, &snapshot);
 
     WifiDetailsResult {
@@ -307,6 +461,168 @@ pub fn build_wifi_details(
         list_box,
         scan_button,
         scan_label,
+        wifi_switch,
+    }
+}
+
+/// Add "No network connections" empty state with icon.
+fn add_no_connections_state(list_box: &ListBox) {
+    let icons = IconsService::global();
+
+    let container = GtkBox::new(Orientation::Vertical, 8);
+    container.add_css_class(qs::NO_CONNECTIONS_STATE);
+    container.set_valign(gtk4::Align::Center);
+    container.set_halign(gtk4::Align::Center);
+    container.set_hexpand(true);
+
+    // Icon - use IconsService for proper Material icon mapping
+    // GTK: network-offline-symbolic, Material: settings_ethernet (grayed out)
+    let icon_handle = icons.create_icon(
+        "network-offline-symbolic",
+        &[qs::NO_CONNECTIONS_ICON, color::MUTED],
+    );
+    let icon_widget = icon_handle.widget();
+    icon_widget.set_halign(gtk4::Align::Center);
+    container.append(&icon_widget);
+
+    // Message - centered like notifications empty state
+    let label = Label::new(Some("No network connections"));
+    label.add_css_class(qs::NO_CONNECTIONS_LABEL);
+    label.add_css_class(color::MUTED);
+    label.set_halign(gtk4::Align::Center);
+    label.set_justify(gtk4::Justification::Center);
+    container.append(&label);
+
+    let row = ListBoxRow::new();
+    row.set_child(Some(&container));
+    row.set_activatable(false);
+    list_box.append(&row);
+}
+
+fn add_wifi_disabled_placeholder(list_box: &ListBox) {
+    let icons = IconsService::global();
+
+    let container = GtkBox::new(Orientation::Vertical, 6);
+    container.add_css_class(qs::WIFI_DISABLED_STATE);
+    container.set_valign(gtk4::Align::Center);
+    container.set_halign(gtk4::Align::Center);
+    container.set_hexpand(true);
+
+    // Icon - disabled Wi-Fi icon, grayed out
+    let icon_handle = icons.create_icon(
+        "network-wireless-offline-symbolic",
+        &[qs::WIFI_DISABLED_STATE_ICON, color::MUTED],
+    );
+    let icon_widget = icon_handle.widget();
+    icon_widget.set_halign(gtk4::Align::Center);
+    container.append(&icon_widget);
+
+    // Message
+    let label = Label::new(Some("Wi-Fi is disabled"));
+    label.add_css_class(qs::WIFI_DISABLED_LABEL);
+    label.add_css_class(color::MUTED);
+    label.set_halign(gtk4::Align::Center);
+    label.set_justify(gtk4::Justification::Center);
+    container.append(&label);
+
+    let row = ListBoxRow::new();
+    row.set_child(Some(&container));
+    row.set_activatable(false);
+    list_box.append(&row);
+}
+
+/// Build a standalone Ethernet section widget (not in a ListBox).
+/// Includes a header label and connection details row.
+/// Returns a GtkBox that can be shown/hidden based on connection state.
+fn build_ethernet_row(snapshot: &NetworkSnapshot) -> GtkBox {
+    let icons = IconsService::global();
+
+    // Main container for the entire Ethernet section
+    let container = GtkBox::new(Orientation::Vertical, 0);
+    container.add_css_class(qs::ETHERNET_ROW_CONTAINER);
+
+    // Header row with "Ethernet" label (matches Wi-Fi header style)
+    let header_row = GtkBox::new(Orientation::Horizontal, 8);
+    header_row.add_css_class(qs::WIFI_SWITCH_ROW);
+
+    let header_label = Label::new(Some("Ethernet"));
+    header_label.add_css_class(color::PRIMARY);
+    header_label.add_css_class(qs::WIFI_SWITCH_LABEL);
+    header_label.set_valign(gtk4::Align::Center);
+    header_row.append(&header_label);
+
+    container.append(&header_row);
+
+    // Create ethernet icon with accent color (always connected when shown)
+    let icon_handle = icons.create_icon(
+        "network-wired-symbolic",
+        &[icon::TEXT, row::QS_ICON, color::ACCENT],
+    );
+
+    // Get connection name for title, fallback to interface name, then generic
+    let title = snapshot
+        .wired_name
+        .as_deref()
+        .or(snapshot.wired_iface.as_deref())
+        .unwrap_or("Wired Connection");
+
+    // Build subtitle extra parts: interface name, speed
+    let mut extra_parts: Vec<String> = Vec::new();
+    if let Some(ref iface) = snapshot.wired_iface {
+        extra_parts.push(iface.clone());
+    }
+    if let Some(speed) = snapshot.wired_speed {
+        if speed >= 1000 {
+            let gbps = speed as f64 / 1000.0;
+            if gbps.fract() == 0.0 {
+                extra_parts.push(format!("{} Gbps", speed / 1000));
+            } else {
+                extra_parts.push(format!("{:.1} Gbps", gbps));
+            }
+        } else {
+            extra_parts.push(format!("{} Mbps", speed));
+        }
+    }
+
+    // Build connected subtitle widget with accent "Connected" and muted extra parts
+    let extra_refs: Vec<&str> = extra_parts.iter().map(|s| s.as_str()).collect();
+    let subtitle_widget = build_connected_subtitle(&extra_refs);
+
+    // Connection details row with connection name as title
+    let row_result = ListRow::builder()
+        .title(title)
+        .subtitle_widget(subtitle_widget.upcast())
+        .leading_widget(icon_handle.widget())
+        .css_class(qs::WIFI_ROW)
+        .build();
+
+    // Connection row container with background styling
+    let connection_row = GtkBox::new(Orientation::Vertical, 0);
+    connection_row.add_css_class(row::QS);
+    connection_row.add_css_class(qs::ETHERNET_CONNECTION_ROW);
+
+    // Extract the row's child and put it in our container
+    if let Some(child) = row_result.row.child() {
+        row_result.row.set_child(None::<&gtk4::Widget>);
+        connection_row.append(&child);
+    }
+
+    container.append(&connection_row);
+
+    // Initially visible only if wired is connected
+    container.set_visible(snapshot.wired_connected);
+
+    container
+}
+
+/// Update the Ethernet row visibility and content based on connection state.
+pub fn update_ethernet_row(state: &WifiCardState, snapshot: &NetworkSnapshot) {
+    if let Some(ethernet_row) = state.ethernet_row.borrow().as_ref() {
+        ethernet_row.set_visible(snapshot.wired_connected);
+
+        // If connected and row is visible, we might want to update the subtitle
+        // For now, the subtitle is static after creation. If we need dynamic updates,
+        // we'd need to store subtitle label reference and update it here.
     }
 }
 
@@ -324,6 +640,23 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
     }
 
     clear_list_box(list_box);
+
+    // Check if Wi-Fi is disabled (or no Wi-Fi device exists)
+    let wifi_enabled = snapshot.wifi_enabled.unwrap_or(false);
+    let has_wifi = snapshot.has_wifi_device;
+
+    if !wifi_enabled || !has_wifi {
+        // Wi-Fi is off or unavailable
+        if has_wifi && !wifi_enabled {
+            // Device has Wi-Fi but it's disabled - show "Wi-Fi is disabled"
+            add_wifi_disabled_placeholder(list_box);
+        } else if !snapshot.wired_connected {
+            // No Wi-Fi device and no Ethernet - show "No network connections"
+            add_no_connections_state(list_box);
+        }
+        // If no Wi-Fi device but Ethernet is connected, nothing to show in Wi-Fi list
+        return;
+    }
 
     if !snapshot.is_ready {
         add_placeholder_row(list_box, "Scanning for networks...");
@@ -344,22 +677,19 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
         // Check if this network is currently being connected to
         let is_connecting = connecting_ssid.as_ref() == Some(&net.ssid);
 
-        // Build subtitle
-        let mut subtitle_parts = Vec::new();
+        // Build subtitle parts (excluding "Connected" which gets special treatment)
+        let mut extra_parts: Vec<String> = Vec::new();
         if is_connecting {
-            subtitle_parts.push("Connecting...".to_string());
-        } else if net.active {
-            subtitle_parts.push("Connected".to_string());
+            extra_parts.push("Connecting...".to_string());
         }
         if net.security != "open" {
-            subtitle_parts.push("Secured".to_string());
+            extra_parts.push("Secured".to_string());
         }
         // Don't show "Saved" while connecting (nmcli creates profile before auth completes)
         if net.known && !is_connecting {
-            subtitle_parts.push("Saved".to_string());
+            extra_parts.push("Saved".to_string());
         }
-        subtitle_parts.push(format!("{}%", net.strength));
-        let subtitle = subtitle_parts.join(" \u{2022} ");
+        extra_parts.push(format!("{}%", net.strength));
 
         // Create signal strength icon
         let strength_icon_name = wifi_strength_icon(net.strength);
@@ -373,6 +703,13 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
                 | "network-wireless-signal-good-symbolic"
         );
 
+        // Use accent color for active network icons
+        let icon_color = if net.active {
+            color::ACCENT
+        } else {
+            color::PRIMARY
+        };
+
         let leading_icon: gtk4::Widget = if icons.uses_material() && needs_overlay {
             // Create base icon (full signal, dimmed)
             let base_handle = icons.create_icon(
@@ -383,7 +720,7 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
             // Create overlay icon (actual signal level, highlighted)
             let overlay_handle = icons.create_icon(
                 strength_icon_name,
-                &[icon::TEXT, row::QS_ICON, qs::WIFI_OVERLAY, color::PRIMARY],
+                &[icon::TEXT, row::QS_ICON, qs::WIFI_OVERLAY, icon_color],
             );
 
             // Stack them using Overlay
@@ -393,10 +730,8 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
             overlay.upcast()
         } else {
             // Simple single icon for full signal or non-Material themes
-            let icon_handle = icons.create_icon(
-                strength_icon_name,
-                &[icon::TEXT, row::QS_ICON, color::PRIMARY],
-            );
+            let icon_handle =
+                icons.create_icon(strength_icon_name, &[icon::TEXT, row::QS_ICON, icon_color]);
             icon_handle.widget()
         };
 
@@ -410,13 +745,25 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
             create_network_action_widget(net)
         };
 
-        let row_result = ListRow::builder()
+        // Build row with either connected subtitle widget or plain text
+        let mut row_builder = ListRow::builder()
             .title(&net.ssid)
-            .subtitle(&subtitle)
             .leading_widget(leading_icon)
             .trailing_widget(right_widget)
-            .css_class(qs::WIFI_ROW)
-            .build();
+            .css_class(qs::WIFI_ROW);
+
+        if net.active && !is_connecting {
+            // Active network: accent "Connected" + muted extras
+            let extra_refs: Vec<&str> = extra_parts.iter().map(|s| s.as_str()).collect();
+            let subtitle_widget = build_connected_subtitle(&extra_refs);
+            row_builder = row_builder.subtitle_widget(subtitle_widget.upcast());
+        } else {
+            // Not connected: plain subtitle
+            let subtitle = extra_parts.join(" \u{2022} ");
+            row_builder = row_builder.subtitle(&subtitle);
+        }
+
+        let row_result = row_builder.build();
 
         // Disable row activation if this network is currently connecting
         if is_connecting {
@@ -778,30 +1125,9 @@ fn set_password_connecting_state(
 
 /// Update the Wi-Fi subtitle based on connection state.
 pub fn update_subtitle(state: &WifiCardState, snapshot: &NetworkSnapshot) {
-    let subtitle_ref = state.base.subtitle.borrow();
-    let Some(label) = subtitle_ref.as_ref() else {
-        return;
-    };
-
-    let enabled = snapshot.wifi_enabled.unwrap_or(false);
-    let is_connecting = snapshot.connecting_ssid.is_some();
-
-    let subtitle = if is_connecting {
-        format!(
-            "Connecting to {}",
-            snapshot.connecting_ssid.as_ref().unwrap()
-        )
-    } else if let Some(ref ssid) = snapshot.ssid {
-        ssid.clone()
-    } else if enabled {
-        "Enabled".to_string()
-    } else {
-        "Disabled".to_string()
-    };
-
-    let connected = snapshot.ssid.is_some() && !is_connecting;
-    label.set_label(&subtitle);
-    set_subtitle_active(label, enabled && connected);
+    if let Some(label) = state.subtitle_label.borrow().as_ref() {
+        update_network_subtitle(label, snapshot);
+    }
 }
 
 /// Update the scan button UI and animate while scanning.
@@ -811,6 +1137,7 @@ pub fn update_scan_ui(
     window: &ApplicationWindow,
 ) {
     let scanning = snapshot.scanning;
+    let wifi_enabled = snapshot.wifi_enabled.unwrap_or(false);
 
     // Update label text and CSS
     if let Some(label) = state.scan_label.borrow().as_ref() {
@@ -822,8 +1149,9 @@ pub fn update_scan_ui(
         }
     }
 
-    // Update button sensitivity
+    // Hide button completely when Wi-Fi is off, disable when scanning
     if let Some(button) = state.scan_button.borrow().as_ref() {
+        button.set_visible(wifi_enabled);
         button.set_sensitive(!scanning);
     }
 
@@ -918,28 +1246,59 @@ pub fn on_network_changed(
         }
     }
 
-    // Update Wi-Fi toggle state (with signal blocking to prevent feedback loop)
+    // Update Wi-Fi toggle and switch state (with signal blocking to prevent feedback loop)
+    let enabled = snapshot.wifi_enabled.unwrap_or(false);
+    state.updating_toggle.set(true);
+
+    // Update card toggle
     if let Some(toggle) = state.base.toggle.borrow().as_ref() {
-        let enabled = snapshot.wifi_enabled.unwrap_or(false);
         if toggle.is_active() != enabled {
-            // Set the flag to block the toggle signal handler
-            state.updating_toggle.set(true);
             toggle.set_active(enabled);
-            state.updating_toggle.set(false);
+        }
+        // Card toggle is only sensitive on WiFi-only devices (no ethernet port)
+        // When ethernet is present, users must use the switch in expanded view
+        toggle.set_sensitive(snapshot.has_wifi_device && !snapshot.has_ethernet_device);
+    }
+
+    // Update Wi-Fi switch in expanded details
+    if let Some(wifi_switch) = state.wifi_switch.borrow().as_ref() {
+        if wifi_switch.is_active() != enabled {
+            wifi_switch.set_active(enabled);
+        }
+        // Switch should only be sensitive if Wi-Fi device exists
+        wifi_switch.set_sensitive(snapshot.has_wifi_device);
+    }
+
+    state.updating_toggle.set(false);
+
+    // Update card title based on whether ethernet device exists
+    if let Some(title_label) = state.title_label.borrow().as_ref() {
+        let expected_title = if snapshot.has_ethernet_device {
+            "Network"
+        } else {
+            "Wi-Fi"
+        };
+        if title_label.label() != expected_title {
+            title_label.set_label(expected_title);
         }
     }
 
     // Update Wi-Fi card icon and its active state class
     if let Some(icon_handle) = state.base.card_icon.borrow().as_ref() {
         let enabled = snapshot.wifi_enabled.unwrap_or(false);
-        let icon_name = wifi_icon_name(snapshot.connected, enabled);
+        let icon_name = wifi_icon_name(
+            snapshot.connected,
+            enabled,
+            snapshot.wired_connected,
+            snapshot.has_wifi_device,
+        );
         icon_handle.set_icon(icon_name);
 
-        let icon_active = enabled && snapshot.connected;
+        let icon_active = (enabled && snapshot.connected) || snapshot.wired_connected;
         set_icon_active(icon_handle, icon_active);
 
         // Additional disabled styling for Wi-Fi
-        if !enabled {
+        if !enabled && !snapshot.wired_connected {
             icon_handle.add_css_class(qs::WIFI_DISABLED_ICON);
         } else {
             icon_handle.remove_css_class(qs::WIFI_DISABLED_ICON);
@@ -948,6 +1307,9 @@ pub fn on_network_changed(
 
     // Update Wi-Fi subtitle
     update_subtitle(state, snapshot);
+
+    // Update Ethernet row visibility
+    update_ethernet_row(state, snapshot);
 
     // Update scan button UI (label + animation)
     update_scan_ui(state, snapshot, window);
@@ -972,7 +1334,7 @@ mod tests {
     #[test]
     fn test_wifi_icon_name_connected() {
         assert_eq!(
-            wifi_icon_name(true, true),
+            wifi_icon_name(true, true, false, true),
             "network-wireless-signal-excellent-symbolic"
         );
     }
@@ -980,7 +1342,7 @@ mod tests {
     #[test]
     fn test_wifi_icon_name_disconnected() {
         assert_eq!(
-            wifi_icon_name(false, true),
+            wifi_icon_name(false, true, false, true),
             "network-wireless-offline-symbolic"
         );
     }
@@ -988,12 +1350,38 @@ mod tests {
     #[test]
     fn test_wifi_icon_name_disabled() {
         assert_eq!(
-            wifi_icon_name(true, false),
+            wifi_icon_name(true, false, false, true),
             "network-wireless-offline-symbolic"
         );
         assert_eq!(
-            wifi_icon_name(false, false),
+            wifi_icon_name(false, false, false, true),
             "network-wireless-offline-symbolic"
+        );
+    }
+
+    #[test]
+    fn test_wifi_icon_name_wired_connected() {
+        // Wired connected takes precedence regardless of Wi-Fi state
+        assert_eq!(
+            wifi_icon_name(false, false, true, true),
+            "network-wired-symbolic"
+        );
+        assert_eq!(
+            wifi_icon_name(true, true, true, true),
+            "network-wired-symbolic"
+        );
+        assert_eq!(
+            wifi_icon_name(false, false, true, false),
+            "network-wired-symbolic"
+        );
+    }
+
+    #[test]
+    fn test_wifi_icon_name_ethernet_only_disconnected() {
+        // Ethernet-only system (no Wi-Fi device), not connected - shows lan icon (grayed)
+        assert_eq!(
+            wifi_icon_name(false, false, false, false),
+            "network-wired-symbolic"
         );
     }
 
@@ -1059,5 +1447,145 @@ mod tests {
             wifi_strength_icon(0),
             "network-wireless-signal-none-symbolic"
         );
+    }
+
+    // Helper to create a base snapshot for testing
+    fn test_snapshot() -> NetworkSnapshot {
+        NetworkSnapshot {
+            available: true,
+            wifi_enabled: Some(true),
+            connected: false,
+            wired_connected: false,
+            has_wifi_device: true,
+            has_ethernet_device: false,
+            primary_connection_type: None,
+            wired_iface: None,
+            wired_name: None,
+            wired_speed: None,
+            ssid: None,
+            strength: 0,
+            scanning: false,
+            is_ready: true,
+            networks: Vec::new(),
+            connecting_ssid: None,
+            failed_ssid: None,
+        }
+    }
+
+    // Tests for get_network_subtitle_text()
+
+    #[test]
+    fn test_subtitle_wired_only() {
+        let mut snapshot = test_snapshot();
+        snapshot.wired_connected = true;
+        assert_eq!(get_network_subtitle_text(&snapshot), "Ethernet");
+    }
+
+    #[test]
+    fn test_subtitle_wired_and_wifi_connected() {
+        let mut snapshot = test_snapshot();
+        snapshot.wired_connected = true;
+        snapshot.ssid = Some("MyNetwork".to_string());
+        assert_eq!(
+            get_network_subtitle_text(&snapshot),
+            "Ethernet \u{2022} MyNetwork"
+        );
+    }
+
+    #[test]
+    fn test_subtitle_wired_and_wifi_connecting() {
+        let mut snapshot = test_snapshot();
+        snapshot.wired_connected = true;
+        snapshot.connecting_ssid = Some("MyNetwork".to_string());
+        assert_eq!(
+            get_network_subtitle_text(&snapshot),
+            "Ethernet \u{2022} Connecting to MyNetwork"
+        );
+    }
+
+    #[test]
+    fn test_subtitle_wifi_connected() {
+        let mut snapshot = test_snapshot();
+        snapshot.ssid = Some("HomeWifi".to_string());
+        assert_eq!(get_network_subtitle_text(&snapshot), "HomeWifi");
+    }
+
+    #[test]
+    fn test_subtitle_wifi_connecting() {
+        let mut snapshot = test_snapshot();
+        snapshot.connecting_ssid = Some("HomeWifi".to_string());
+        assert_eq!(
+            get_network_subtitle_text(&snapshot),
+            "Connecting to HomeWifi"
+        );
+    }
+
+    #[test]
+    fn test_subtitle_wifi_disconnected() {
+        let snapshot = test_snapshot();
+        assert_eq!(get_network_subtitle_text(&snapshot), "Disconnected");
+    }
+
+    #[test]
+    fn test_subtitle_wifi_disabled() {
+        let mut snapshot = test_snapshot();
+        snapshot.wifi_enabled = Some(false);
+        assert_eq!(get_network_subtitle_text(&snapshot), "Off");
+    }
+
+    #[test]
+    fn test_subtitle_ethernet_only_system_disconnected() {
+        let mut snapshot = test_snapshot();
+        snapshot.has_wifi_device = false;
+        snapshot.has_ethernet_device = true;
+        snapshot.wifi_enabled = None;
+        assert_eq!(get_network_subtitle_text(&snapshot), "Disconnected");
+    }
+
+    // Tests for is_network_subtitle_active()
+
+    #[test]
+    fn test_subtitle_active_when_wired_connected() {
+        let mut snapshot = test_snapshot();
+        snapshot.wired_connected = true;
+        assert!(is_network_subtitle_active(&snapshot));
+    }
+
+    #[test]
+    fn test_subtitle_active_when_wifi_connected() {
+        let mut snapshot = test_snapshot();
+        snapshot.ssid = Some("Network".to_string());
+        assert!(is_network_subtitle_active(&snapshot));
+    }
+
+    #[test]
+    fn test_subtitle_active_when_both_connected() {
+        let mut snapshot = test_snapshot();
+        snapshot.wired_connected = true;
+        snapshot.ssid = Some("Network".to_string());
+        assert!(is_network_subtitle_active(&snapshot));
+    }
+
+    #[test]
+    fn test_subtitle_not_active_when_connecting() {
+        let mut snapshot = test_snapshot();
+        snapshot.connecting_ssid = Some("Network".to_string());
+        assert!(!is_network_subtitle_active(&snapshot));
+    }
+
+    #[test]
+    fn test_subtitle_not_active_when_disconnected() {
+        let snapshot = test_snapshot();
+        assert!(!is_network_subtitle_active(&snapshot));
+    }
+
+    #[test]
+    fn test_subtitle_not_active_wired_but_wifi_connecting() {
+        let mut snapshot = test_snapshot();
+        snapshot.wired_connected = true;
+        snapshot.connecting_ssid = Some("Network".to_string());
+        // Even though wired is connected, we're in a "connecting" state for Wi-Fi
+        // so subtitle should not be fully active (shows connecting animation)
+        assert!(!is_network_subtitle_active(&snapshot));
     }
 }

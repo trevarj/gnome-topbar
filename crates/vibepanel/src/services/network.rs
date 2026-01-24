@@ -38,9 +38,15 @@ const NM_IFACE: &str = "org.freedesktop.NetworkManager";
 const IFACE_DEV: &str = "org.freedesktop.NetworkManager.Device";
 /// Wireless device interface.
 const IFACE_WIFI: &str = "org.freedesktop.NetworkManager.Device.Wireless";
+/// Wired/Ethernet device interface.
+const IFACE_WIRED: &str = "org.freedesktop.NetworkManager.Device.Wired";
 /// Access point interface.
 const IFACE_AP: &str = "org.freedesktop.NetworkManager.AccessPoint";
+/// Active connection interface (for connection name/Id).
+const IFACE_ACTIVE_CONN: &str = "org.freedesktop.NetworkManager.Connection.Active";
 
+/// NetworkManager device type for Ethernet (NM_DEVICE_TYPE_ETHERNET = 1).
+const ETHERNET_DEVICE_TYPE: u32 = 1;
 /// NetworkManager device type for Wi-Fi (NM_DEVICE_TYPE_WIFI = 2).
 const WIFI_DEVICE_TYPE: u32 = 2;
 
@@ -68,6 +74,22 @@ pub struct NetworkSnapshot {
     pub wifi_enabled: Option<bool>,
     /// Whether connected to a Wi-Fi network.
     pub connected: bool,
+    /// Whether a non-Wi-Fi (e.g., Ethernet) connection is active as the primary link.
+    pub wired_connected: bool,
+    /// Whether the system has a Wi-Fi device.
+    /// Used to determine whether to enable the Wi-Fi toggle.
+    pub has_wifi_device: bool,
+    /// Whether the system has an Ethernet device (regardless of connection state).
+    /// Used to determine whether to show "Network" or "Wi-Fi" as the card title.
+    pub has_ethernet_device: bool,
+    /// NetworkManager primary connection type (e.g., "802-11-wireless", "802-3-ethernet").
+    pub primary_connection_type: Option<String>,
+    /// Wired interface name (e.g., "enp3s0") when connected via Ethernet.
+    pub wired_iface: Option<String>,
+    /// Wired connection name from NetworkManager (e.g., "Wired connection 1").
+    pub wired_name: Option<String>,
+    /// Wired link speed in Mb/s (e.g., 1000 for gigabit) when connected via Ethernet.
+    pub wired_speed: Option<u32>,
     /// Current SSID if connected.
     pub ssid: Option<String>,
     /// Current signal strength if connected (0-100).
@@ -91,6 +113,13 @@ impl NetworkSnapshot {
             available: false,
             wifi_enabled: None,
             connected: false,
+            wired_connected: false,
+            has_wifi_device: false,
+            has_ethernet_device: false,
+            primary_connection_type: None,
+            wired_iface: None,
+            wired_name: None,
+            wired_speed: None,
             ssid: None,
             strength: 0,
             scanning: false,
@@ -110,6 +139,8 @@ enum NetworkUpdate {
         path: String,
         iface_name: Option<String>,
     },
+    /// Ethernet device exists on this system (detected during device discovery).
+    EthernetDeviceExists,
     /// Active access point details.
     ApDetails { ssid: Option<String>, strength: i32 },
     /// Failed to get AP details - set disconnected.
@@ -127,6 +158,15 @@ enum NetworkUpdate {
         ssid: String,
         /// Whether the connection succeeded.
         success: bool,
+    },
+    /// Wired device info fetched.
+    WiredDeviceInfo {
+        /// Interface name (e.g., "enp3s0").
+        iface_name: Option<String>,
+        /// Connection name from NetworkManager (e.g., "Wired connection 1").
+        conn_name: Option<String>,
+        /// Link speed in Mb/s (e.g., 1000 for gigabit).
+        speed: Option<u32>,
     },
 }
 
@@ -212,7 +252,26 @@ impl NetworkService {
         match update {
             NetworkUpdate::WifiDeviceFound { path, iface_name } => {
                 *self.iface_name.borrow_mut() = iface_name;
+                // Mark that we have a Wi-Fi device
+                {
+                    let mut snapshot = self.snapshot.borrow_mut();
+                    if !snapshot.has_wifi_device {
+                        snapshot.has_wifi_device = true;
+                        let snapshot_clone = snapshot.clone();
+                        drop(snapshot);
+                        self.callbacks.notify(&snapshot_clone);
+                    }
+                }
                 Self::create_wifi_proxy_from_self(self, &path);
+            }
+            NetworkUpdate::EthernetDeviceExists => {
+                let mut snapshot = self.snapshot.borrow_mut();
+                if !snapshot.has_ethernet_device {
+                    snapshot.has_ethernet_device = true;
+                    let snapshot_clone = snapshot.clone();
+                    drop(snapshot);
+                    self.callbacks.notify(&snapshot_clone);
+                }
             }
             NetworkUpdate::ApDetails { ssid, strength } => {
                 let mut snapshot = self.snapshot.borrow_mut();
@@ -296,6 +355,24 @@ impl NetworkService {
 
                 self.refresh_networks_async();
             }
+            NetworkUpdate::WiredDeviceInfo {
+                iface_name,
+                conn_name,
+                speed,
+            } => {
+                let mut snapshot = self.snapshot.borrow_mut();
+                let changed = snapshot.wired_iface != iface_name
+                    || snapshot.wired_name != conn_name
+                    || snapshot.wired_speed != speed;
+                if changed {
+                    snapshot.wired_iface = iface_name;
+                    snapshot.wired_name = conn_name;
+                    snapshot.wired_speed = speed;
+                    let snapshot_clone = snapshot.clone();
+                    drop(snapshot);
+                    self.callbacks.notify(&snapshot_clone);
+                }
+            }
         }
     }
 
@@ -353,6 +430,23 @@ impl NetworkService {
                         proxy.connect_local("g-properties-changed", false, move |_| {
                             if let Some(this) = this_weak.upgrade() {
                                 this.update_nm_flags();
+                            }
+                            None
+                        });
+
+                        // Monitor for device added (e.g., USB ethernet adapter plugged in)
+                        proxy.connect_local("g-signal", false, move |values| {
+                            let signal_name = values
+                                .get(2)
+                                .and_then(|v| v.get::<&str>().ok())
+                                .unwrap_or("");
+                            if signal_name == "DeviceAdded"
+                                && let Some(params) =
+                                    values.get(3).and_then(|v| v.get::<Variant>().ok())
+                                && let Some(device_path) = params.child_value(0).get::<String>()
+                            {
+                                // Check if the new device is an ethernet adapter
+                                Self::check_device_type_for_ethernet(&device_path);
                             }
                             None
                         });
@@ -424,23 +518,30 @@ impl NetworkService {
                 }
             };
 
-            // Find Wi-Fi device
+            // Find Wi-Fi device and check for Ethernet devices
             let mut wifi_path: Option<String> = None;
             let mut iface_name: Option<String> = None;
+            let mut has_ethernet = false;
 
             for path in device_paths {
                 match Self::get_device_type_sync(&path) {
                     Ok((dtype, iface)) => {
-                        if dtype == WIFI_DEVICE_TYPE {
+                        if dtype == WIFI_DEVICE_TYPE && wifi_path.is_none() {
                             wifi_path = Some(path);
                             iface_name = iface;
-                            break;
+                        } else if dtype == ETHERNET_DEVICE_TYPE {
+                            has_ethernet = true;
                         }
                     }
                     Err(e) => {
                         debug!("Failed to get device type for {}: {}", path, e);
                     }
                 }
+            }
+
+            // Notify if ethernet device exists (for adaptive card title)
+            if has_ethernet {
+                send_network_update(NetworkUpdate::EthernetDeviceExists);
             }
 
             let Some(path) = wifi_path else {
@@ -512,6 +613,167 @@ impl NetworkService {
         Ok((dtype, iface))
     }
 
+    /// Check if a newly added device is an ethernet adapter and notify if so.
+    /// Called when NetworkManager emits DeviceAdded signal.
+    fn check_device_type_for_ethernet(device_path: &str) {
+        let path = device_path.to_string();
+        thread::spawn(move || match Self::get_device_type_sync(&path) {
+            Ok((dtype, _)) if dtype == ETHERNET_DEVICE_TYPE => {
+                debug!("New ethernet device detected: {}", path);
+                send_network_update(NetworkUpdate::EthernetDeviceExists);
+            }
+            _ => {}
+        });
+    }
+
+    /// Get wired device info (interface name and speed) synchronously.
+    fn get_wired_device_info_sync(path: &str) -> Result<(String, u32), String> {
+        // Get interface name from Device interface
+        let dev_proxy = gio::DBusProxy::for_bus_sync(
+            gio::BusType::System,
+            gio::DBusProxyFlags::NONE,
+            None::<&gio::DBusInterfaceInfo>,
+            NM_SERVICE,
+            path,
+            IFACE_DEV,
+            None::<&gio::Cancellable>,
+        )
+        .map_err(|e| format!("Failed to create device proxy: {}", e))?;
+
+        let iface_name = dev_proxy
+            .cached_property("Interface")
+            .and_then(|v| v.get::<String>())
+            .ok_or_else(|| "No Interface property".to_string())?;
+
+        // Get speed from Wired interface
+        let wired_proxy = gio::DBusProxy::for_bus_sync(
+            gio::BusType::System,
+            gio::DBusProxyFlags::NONE,
+            None::<&gio::DBusInterfaceInfo>,
+            NM_SERVICE,
+            path,
+            IFACE_WIRED,
+            None::<&gio::Cancellable>,
+        )
+        .map_err(|e| format!("Failed to create wired proxy: {}", e))?;
+
+        let speed = wired_proxy
+            .cached_property("Speed")
+            .and_then(|v| v.get::<u32>())
+            .unwrap_or(0);
+
+        Ok((iface_name, speed))
+    }
+
+    /// Get the primary connection name (Id) from NetworkManager.
+    /// Returns None if no primary connection or on error.
+    fn get_primary_connection_name_sync() -> Option<String> {
+        // Get NM proxy to read PrimaryConnection path
+        let nm_proxy = gio::DBusProxy::for_bus_sync(
+            gio::BusType::System,
+            gio::DBusProxyFlags::NONE,
+            None::<&gio::DBusInterfaceInfo>,
+            NM_SERVICE,
+            NM_PATH,
+            NM_IFACE,
+            None::<&gio::Cancellable>,
+        )
+        .ok()?;
+
+        // Get PrimaryConnection object path
+        let primary_conn_path = nm_proxy
+            .cached_property("PrimaryConnection")
+            .and_then(|v| v.get::<glib::variant::ObjectPath>())?;
+
+        let path_str = primary_conn_path.as_str();
+        if path_str == "/" {
+            return None; // No primary connection
+        }
+
+        // Get the connection name (Id) from the ActiveConnection
+        let conn_proxy = gio::DBusProxy::for_bus_sync(
+            gio::BusType::System,
+            gio::DBusProxyFlags::NONE,
+            None::<&gio::DBusInterfaceInfo>,
+            NM_SERVICE,
+            path_str,
+            IFACE_ACTIVE_CONN,
+            None::<&gio::Cancellable>,
+        )
+        .ok()?;
+
+        conn_proxy
+            .cached_property("Id")
+            .and_then(|v| v.get::<String>())
+    }
+
+    /// Discover wired device and fetch its info in a background thread.
+    fn fetch_wired_device_info() {
+        thread::spawn(move || {
+            // In debug builds, return mock data if the debug file exists
+            #[cfg(debug_assertions)]
+            if std::path::Path::new("/tmp/vibepanel-debug-wired").exists() {
+                debug!("Using mock wired device info (debug mode)");
+                // Also send EthernetDeviceExists so card shows "Network" title
+                send_network_update(NetworkUpdate::EthernetDeviceExists);
+                send_network_update(NetworkUpdate::WiredDeviceInfo {
+                    iface_name: Some("enp0s31f6".to_string()),
+                    conn_name: Some("Wired connection 1".to_string()),
+                    speed: Some(1000),
+                });
+                return;
+            }
+
+            let device_paths = match Self::get_device_paths_sync() {
+                Ok(paths) => paths,
+                Err(e) => {
+                    warn!("Failed to get device paths for wired lookup: {}", e);
+                    send_network_update(NetworkUpdate::WiredDeviceInfo {
+                        iface_name: None,
+                        conn_name: None,
+                        speed: None,
+                    });
+                    return;
+                }
+            };
+
+            // Find first Ethernet device
+            for path in device_paths {
+                match Self::get_device_type_sync(&path) {
+                    Ok((dtype, _)) if dtype == ETHERNET_DEVICE_TYPE => {
+                        match Self::get_wired_device_info_sync(&path) {
+                            Ok((iface_name, speed)) => {
+                                // Also get the connection name from the primary connection
+                                let conn_name = Self::get_primary_connection_name_sync();
+                                debug!(
+                                    "Found wired device: {} ({} Mb/s), connection: {:?}",
+                                    iface_name, speed, conn_name
+                                );
+                                send_network_update(NetworkUpdate::WiredDeviceInfo {
+                                    iface_name: Some(iface_name),
+                                    conn_name,
+                                    speed: if speed > 0 { Some(speed) } else { None },
+                                });
+                                return;
+                            }
+                            Err(e) => {
+                                debug!("Failed to get wired device info for {}: {}", path, e);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // No wired device found
+            send_network_update(NetworkUpdate::WiredDeviceInfo {
+                iface_name: None,
+                conn_name: None,
+                speed: None,
+            });
+        });
+    }
+
     /// Create wifi proxy - called from apply_update on main thread.
     fn create_wifi_proxy_from_self(&self, path: &str) {
         // Get a strong Rc to self for the callback.
@@ -579,9 +841,17 @@ impl NetworkService {
             .cached_property("WirelessEnabled")
             .and_then(|v| v.get::<bool>());
 
+        let primary_connection_type = nm
+            .cached_property("PrimaryConnectionType")
+            .and_then(|v| v.get::<String>());
+
+        let wired_connected = is_wired_connected(primary_connection_type.as_deref());
+
         let mut snapshot = self.snapshot.borrow_mut();
+        let mut changed = false;
         if snapshot.wifi_enabled != wifi_enabled {
             snapshot.wifi_enabled = wifi_enabled;
+            changed = true;
 
             // When WiFi is disabled, clear connection state and mark all networks as inactive
             if wifi_enabled == Some(false) {
@@ -593,10 +863,35 @@ impl NetworkService {
                     net.active = false;
                 }
             }
+        }
 
+        if snapshot.primary_connection_type != primary_connection_type {
+            snapshot.primary_connection_type = primary_connection_type;
+            changed = true;
+        }
+
+        let wired_changed = snapshot.wired_connected != wired_connected;
+        if wired_changed {
+            snapshot.wired_connected = wired_connected;
+            changed = true;
+
+            // Clear wired info when disconnecting
+            if !wired_connected {
+                snapshot.wired_iface = None;
+                snapshot.wired_name = None;
+                snapshot.wired_speed = None;
+            }
+        }
+
+        if changed {
             let snapshot_clone = snapshot.clone();
             drop(snapshot);
             self.callbacks.notify(&snapshot_clone);
+
+            // Fetch wired device info in background when newly connected
+            if wired_changed && wired_connected {
+                Self::fetch_wired_device_info();
+            }
         }
     }
 
@@ -1078,4 +1373,19 @@ fn send_network_update(update: NetworkUpdate) {
     glib::idle_add_once(move || {
         NetworkService::global().apply_update(update);
     });
+}
+
+/// Check if a wired (Ethernet) connection is active.
+///
+/// In debug builds, this can be overridden by creating `/tmp/vibepanel-debug-wired`
+/// for testing without physical hardware. Toggle at runtime with:
+/// - Enable: `touch /tmp/vibepanel-debug-wired`
+/// - Disable: `rm /tmp/vibepanel-debug-wired`
+fn is_wired_connected(primary_type: Option<&str>) -> bool {
+    #[cfg(debug_assertions)]
+    if std::path::Path::new("/tmp/vibepanel-debug-wired").exists() {
+        return true;
+    }
+
+    primary_type.is_some_and(|t| t == "802-3-ethernet")
 }

@@ -40,7 +40,9 @@ use super::power_card::{self, PowerCardBuildResult};
 use super::ui_helpers::{AccordionManager, ExpandableCard};
 use super::updates_card::{self, UpdatesCardState, build_updates_card};
 use super::vpn_card::{self, VpnCardState, build_vpn_details, vpn_icon_name};
-use super::wifi_card::{self, WifiCardState, build_wifi_details, wifi_icon_name};
+use super::wifi_card::{
+    self, WifiCardState, build_network_subtitle, build_wifi_details, wifi_icon_name,
+};
 
 /// Full Quick Settings window.
 ///
@@ -538,22 +540,31 @@ impl QuickSettingsWindow {
 
         let wifi_enabled = snapshot.wifi_enabled.unwrap_or(false);
         let wifi_connected = snapshot.connected;
+        let wired_connected = snapshot.wired_connected;
+        let has_wifi_device = snapshot.has_wifi_device;
 
-        let subtitle_text = if let Some(ref ssid) = snapshot.ssid {
-            ssid.clone()
-        } else if wifi_enabled {
-            "Enabled".to_string()
+        // Build custom subtitle widget with connection status icons
+        let subtitle_result = build_network_subtitle(&snapshot);
+
+        let icon_name = wifi_icon_name(
+            wifi_connected,
+            wifi_enabled,
+            wired_connected,
+            has_wifi_device,
+        );
+        let icon_active = (wifi_enabled && wifi_connected) || wired_connected;
+
+        // Card title: "Network" if ethernet device exists, "Wi-Fi" otherwise
+        let card_title = if snapshot.has_ethernet_device {
+            "Network"
         } else {
-            "Disabled".to_string()
+            "Wi-Fi"
         };
-
-        let icon_name = wifi_icon_name(wifi_connected, wifi_enabled);
-        let icon_active = wifi_enabled && wifi_connected;
 
         let wifi_card = ToggleCard::builder()
             .icon(icon_name)
-            .label("Wi-Fi")
-            .subtitle(&subtitle_text)
+            .label(card_title)
+            .subtitle_widget(subtitle_result.container.upcast())
             .active(wifi_enabled)
             .sensitive(true)
             .icon_active(icon_active)
@@ -563,7 +574,12 @@ impl QuickSettingsWindow {
         // Add card identifier for CSS targeting
         wifi_card.card.add_css_class(qs::WIFI);
 
-        if !wifi_enabled {
+        // Disable toggle if no Wi-Fi device (toggle controls Wi-Fi, not ethernet)
+        if !snapshot.has_wifi_device {
+            wifi_card.toggle.set_sensitive(false);
+        }
+
+        if !wifi_enabled && !wired_connected {
             wifi_card
                 .icon_handle
                 .widget()
@@ -585,8 +601,13 @@ impl QuickSettingsWindow {
         // Store references (use base fields)
         *qs.wifi.base.toggle.borrow_mut() = Some(wifi_card.toggle.clone());
         *qs.wifi.base.card_icon.borrow_mut() = Some(wifi_card.icon_handle.clone());
-        *qs.wifi.base.subtitle.borrow_mut() = wifi_card.subtitle.clone();
         *qs.wifi.base.arrow.borrow_mut() = wifi_card.expander_icon.clone();
+
+        // Store title label for dynamic updates
+        *qs.wifi.title_label.borrow_mut() = Some(wifi_card.title.clone());
+
+        // Store subtitle label reference
+        *qs.wifi.subtitle_label.borrow_mut() = Some(subtitle_result.label);
 
         // Build revealer
         let wifi_revealer = Revealer::new();
@@ -601,6 +622,21 @@ impl QuickSettingsWindow {
         *qs.wifi.base.revealer.borrow_mut() = Some(wifi_revealer.clone());
         *qs.wifi.scan_button.borrow_mut() = Some(wifi_details.scan_button);
         *qs.wifi.scan_label.borrow_mut() = Some(wifi_details.scan_label);
+
+        // Connect Wi-Fi switch to toggle Wi-Fi enabled state
+        {
+            let wifi_state = Rc::clone(&qs.wifi);
+            wifi_details
+                .wifi_switch
+                .connect_state_set(move |_, enabled| {
+                    // Skip if this is a programmatic update (prevents feedback loops)
+                    if wifi_state.updating_toggle.get() {
+                        return glib::Propagation::Proceed;
+                    }
+                    NetworkService::global().set_wifi_enabled(enabled);
+                    glib::Propagation::Proceed
+                });
+        }
 
         (wifi_card.card, wifi_revealer, wifi_card.expander_button)
     }

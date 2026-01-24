@@ -556,6 +556,80 @@ window.quick-settings-window {{
     opacity: 0.5;
 }}
 
+/* Ethernet section in expanded details (above Wi-Fi controls) */
+.qs-ethernet-section {{
+    /* Container for header + connection row */
+    padding-top: 6px;
+}}
+
+.qs-ethernet-section .qs-ethernet-connection-row {{
+    /* Override .qs-row margin, keep horizontal margin for alignment */
+    margin-top: 4px;
+    margin-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+}}
+
+/* Wi-Fi switch row in expanded details */
+.qs-wifi-switch-row {{
+    padding: 0 8px;
+    margin-top: 8px;
+    margin-bottom: -4px;
+}}
+
+.qs-wifi-switch-label {{
+    font-size: var(--font-size);
+    margin-bottom: 6px;
+}}
+
+/* Wi-Fi switch styling - accent colored track when on */
+.qs-wifi-switch-row switch {{
+    border-radius: calc(var(--radius-pill) * 1.3);
+    margin-bottom: 8px;
+}}
+
+.qs-wifi-switch-row switch:checked {{
+    background-color: var(--color-accent-primary);
+    background-image: none;
+}}
+
+.qs-wifi-switch-row switch:checked:backdrop {{
+    background-color: var(--color-accent-primary);
+}}
+
+.qs-wifi-switch-row switch slider {{
+    border-radius: var(--radius-pill);
+    min-width: 12px;
+    min-height: 12px;
+}}
+
+/* Network empty state (no connections) */
+.qs-no-connections-state {{
+    padding: 24px 16px;
+}}
+
+.qs-no-connections-icon {{
+    font-size: 32px;
+    opacity: 0.5;
+}}
+
+.qs-no-connections-label {{
+    font-size: var(--font-size-sm);
+}}
+
+.qs-wifi-disabled-state {{
+    padding: 16px;
+}}
+
+.qs-wifi-disabled-state-icon {{
+    font-size: 28px;
+    opacity: 0.4;
+}}
+
+.qs-wifi-disabled-label {{
+    font-size: var(--font-size-sm);
+}}
+
 /* Reset styling for QS buttons - extends vp-btn-reset */
 .qs-toggle-more,
 .qs-scan-button {{
@@ -644,15 +718,15 @@ window.quick-settings-window {{
     color: var(--color-accent-primary);
 }}
 
-.qs-scan-button:hover {{
-    background: var(--color-card-overlay-hover);
-    border-radius: var(--radius-pill);
+.qs-scan-button {{
+    padding: 2px 8px;
+    margin-bottom: 4px;
+    min-height: 0;
+    border-radius: calc(var(--radius-pill) * 1.3);
 }}
 
-/* Scan label */
-.qs-scan-label {{
-    margin-top: 4px;
-    margin-bottom: 2px;
+.qs-scan-button:hover {{
+    background: var(--color-card-overlay-hover);
 }}
 
 /* Scanning state - state override */
