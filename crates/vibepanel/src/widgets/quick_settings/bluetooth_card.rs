@@ -192,23 +192,27 @@ pub fn populate_bluetooth_list(list_box: &ListBox, snapshot: &BluetoothSnapshot)
         } else if dev.paired {
             // Paired only: plain muted subtitle
             row_builder = row_builder.subtitle("Paired");
+        } else if dev.trusted {
+            // Trusted only (known device): plain muted subtitle
+            row_builder = row_builder.subtitle("Saved");
         }
-        // Neither connected nor paired: no subtitle
+        // Neither connected, paired, nor trusted: no subtitle
 
         let row_result = row_builder.build();
 
         {
             let path = dev.path.clone();
             let paired = dev.paired;
+            let trusted = dev.trusted;
             let connected = dev.connected;
             row_result.row.connect_activate(move |_| {
                 let bt = BluetoothService::global();
                 if connected {
                     bt.disconnect_device(&path);
-                } else if paired {
+                } else if paired || trusted {
                     bt.connect_device(&path);
                 }
-                // Unpaired devices: handled by the "Pair" button gesture
+                // Unpaired/untrusted devices: handled by the "Pair" button gesture
             });
         }
 
@@ -220,10 +224,11 @@ pub fn populate_bluetooth_list(list_box: &ListBox, snapshot: &BluetoothSnapshot)
 fn create_bluetooth_action_widget(dev: &BluetoothDevice) -> gtk4::Widget {
     let path = dev.path.clone();
     let paired = dev.paired;
+    let trusted = dev.trusted;
     let connected = dev.connected;
 
-    // Unpaired devices: single "Pair" label (same style as Wi-Fi "Connect")
-    if !paired {
+    // Unpaired/untrusted devices: single "Pair" label (same style as Wi-Fi "Connect")
+    if !paired && !trusted {
         let label = create_row_action_label("Pair");
         let path_clone = path.clone();
         label.connect_clicked(move |_| {
@@ -233,7 +238,7 @@ fn create_bluetooth_action_widget(dev: &BluetoothDevice) -> gtk4::Widget {
         return label.upcast();
     }
 
-    // Paired devices: hamburger menu (Connect/Disconnect/Forget)
+    // Paired or trusted devices: hamburger menu (Connect/Disconnect/Forget)
     let menu_btn = create_row_menu_button();
 
     let path_for_connect = path.clone();

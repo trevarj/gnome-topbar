@@ -31,6 +31,17 @@ const DEVICE_UPDATE_DEBOUNCE_MS: u64 = 100;
 /// BlueZ uses reference counting, so we must stop what we started.
 const SCAN_DURATION_SECS: u32 = 10;
 
+/// Check if a device name looks like a MAC address (fallback name).
+/// MAC format: XX-XX-XX-XX-XX-XX or XX:XX:XX:XX:XX:XX (17 chars).
+fn is_mac_like_name(name: &str) -> bool {
+    name.len() == 17
+        && name
+            .chars()
+            .nth(2)
+            .map(|c| c == '-' || c == ':')
+            .unwrap_or(false)
+}
+
 /// A single Bluetooth device exposed by BlueZ.
 #[derive(Debug, Clone)]
 pub struct BluetoothDevice {
@@ -39,6 +50,7 @@ pub struct BluetoothDevice {
     pub address: String,
     pub connected: bool,
     pub paired: bool,
+    pub trusted: bool,
     pub icon: Option<String>,
 }
 
@@ -422,8 +434,20 @@ impl BluetoothService {
                 }
             }
             devices.sort_by(|a, b| {
-                let key_a = (!a.connected, !a.paired, a.name.to_lowercase());
-                let key_b = (!b.connected, !b.paired, b.name.to_lowercase());
+                let key_a = (
+                    !a.connected,
+                    !a.paired,
+                    !a.trusted,
+                    is_mac_like_name(&a.name),
+                    a.name.to_lowercase(),
+                );
+                let key_b = (
+                    !b.connected,
+                    !b.paired,
+                    !b.trusted,
+                    is_mac_like_name(&b.name),
+                    b.name.to_lowercase(),
+                );
                 key_a.cmp(&key_b)
             });
             return devices;
@@ -442,10 +466,22 @@ impl BluetoothService {
             }
         }
 
-        // Sort: connected first, then paired, then by name
+        // Sort: connected first, then paired, then trusted, then readable names before MAC-like, then by name
         devices.sort_by(|a, b| {
-            let key_a = (!a.connected, !a.paired, a.name.to_lowercase());
-            let key_b = (!b.connected, !b.paired, b.name.to_lowercase());
+            let key_a = (
+                !a.connected,
+                !a.paired,
+                !a.trusted,
+                is_mac_like_name(&a.name),
+                a.name.to_lowercase(),
+            );
+            let key_b = (
+                !b.connected,
+                !b.paired,
+                !b.trusted,
+                is_mac_like_name(&b.name),
+                b.name.to_lowercase(),
+            );
             key_a.cmp(&key_b)
         });
 
@@ -484,6 +520,7 @@ impl BluetoothService {
         let mut name = String::new();
         let mut connected = false;
         let mut paired = false;
+        let mut trusted = false;
         let mut icon: Option<String> = None;
 
         let n = props.n_children();
@@ -501,6 +538,7 @@ impl BluetoothService {
                 "Name" => name = inner.get::<String>().unwrap_or_default(),
                 "Connected" => connected = inner.get::<bool>().unwrap_or(false),
                 "Paired" => paired = inner.get::<bool>().unwrap_or(false),
+                "Trusted" => trusted = inner.get::<bool>().unwrap_or(false),
                 "Icon" => icon = inner.get::<String>(),
                 _ => {}
             }
@@ -520,6 +558,7 @@ impl BluetoothService {
             address,
             connected,
             paired,
+            trusted,
             icon,
         }
     }
@@ -704,16 +743,70 @@ impl BluetoothService {
             move |res| {
                 match res {
                     Ok(proxy) => {
+                        let proxy_for_trust = proxy.clone();
+                        let proxy_for_connect = proxy.clone();
+
                         proxy.call(
                             "Pair",
                             None,
                             DBusCallFlags::NONE,
                             30000, // Pairing can take time
                             None::<&gio::Cancellable>,
-                            |res| {
-                                if let Err(e) = res {
-                                    error!("BluetoothService: Pair failed: {}", e);
+                            move |res| {
+                                let pair_err = res.err();
+                                let allow_connect = match pair_err.as_ref() {
+                                    None => true,
+                                    Some(err) => gio::DBusError::remote_error(err)
+                                        .map(|e| e == "org.bluez.Error.AlreadyExists")
+                                        .unwrap_or(false),
+                                };
+
+                                if let Some(err) = pair_err.as_ref() {
+                                    // Reduce noise: AlreadyExists just means we can proceed.
+                                    if !allow_connect {
+                                        error!("BluetoothService: Pair failed: {}", err);
+                                    }
                                 }
+
+                                if !allow_connect {
+                                    return;
+                                }
+
+                                // Trust the device so future reconnects are seamless.
+                                let trusted_variant = Variant::tuple_from_iter([
+                                    DEVICE_IFACE.to_variant(),
+                                    "Trusted".to_variant(),
+                                    glib::Variant::from_variant(&true.to_variant()),
+                                ]);
+
+                                proxy_for_trust.call(
+                                    "org.freedesktop.DBus.Properties.Set",
+                                    Some(&trusted_variant),
+                                    DBusCallFlags::NONE,
+                                    5000,
+                                    None::<&gio::Cancellable>,
+                                    |res| {
+                                        if let Err(e) = res {
+                                            error!(
+                                                "BluetoothService: failed to mark device trusted: {}",
+                                                e
+                                            );
+                                        }
+                                    },
+                                );
+
+                                proxy_for_connect.call(
+                                    "Connect",
+                                    None,
+                                    DBusCallFlags::NONE,
+                                    30000, // Bluetooth connections can take time
+                                    None::<&gio::Cancellable>,
+                                    |res| {
+                                        if let Err(e) = res {
+                                            error!("BluetoothService: Connect after pair failed: {}", e);
+                                        }
+                                    },
+                                );
                             },
                         );
                     }
