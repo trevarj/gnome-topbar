@@ -358,7 +358,12 @@ impl ThemePalette {
     --radius-bar: {radius_bar}px;
     --radius-surface: {radius_surface}px;
     --radius-widget: {radius_widget};
+    --radius-widget-lg: calc({radius_widget} * 2);            /* Larger surfaces that scale with widget */
     --radius-pill: {radius_pill}px;
+    --radius-card: {radius_card}px;                        /* Cards/containers - never goes pill */
+    --radius-track: calc(var(--radius-pill) * 0.4);        /* Thin (6px) slider troughs */
+    --radius-track-thick: calc(var(--radius-pill) * 0.75); /* Thick (10px) OSD sliders, switch sliders */
+    --radius-round: 9999px;                                /* Always circular */
 
     /* ===== Sizes & Spacing ===== */
     --bar-height: {bar_height}px;
@@ -379,7 +384,6 @@ impl ThemePalette {
     --spacing-xl: 24px;
 
     /* Component tokens */
-    --card-radius: var(--radius-widget);
     --card-padding: var(--spacing-md);
     --row-padding-v: var(--spacing-sm);
     --row-padding-h: var(--spacing-md);
@@ -435,6 +439,7 @@ impl ThemePalette {
             } else {
                 format!("{}px", self.widget_border_radius)
             },
+            radius_card = self.widget_border_radius,
             radius_pill = self.radius_pill,
             bar_height = self.sizes.bar_height,
             bar_padding = self.sizes.bar_padding,
