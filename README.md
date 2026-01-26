@@ -19,20 +19,18 @@ VibePanel is something between a simple status bar and a full desktop shell:
 - **Integrated CLI** – Small CLI for controlling volume, brightness, media controls and idle inhibition.
 - **Center anchoring** – Custom GTK4 layout keeps center widgets centered even when left/right sections grow.
 
-## Screenshots
+## Demo
 
 These examples use roughly ~10–35 lines of TOML to get completely different vibes, no CSS required.
 
+https://github.com/user-attachments/assets/28cc8b6e-a1ec-46a9-acee-15c13ee2bce5
+
+*A few example configurations*
 <table align="center">
   <tr>
-    <td colspan="2"><img src="assets/screenshots/islands_desktop.png"></td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="assets/screenshots/gruvbox_desktop.png"></td>
-  </tr>
-  <tr>
-    <td><a href="assets/screenshots/frosted_minimal_desktop.png"><img src="assets/screenshots/frosted_minimal_desktop.png" width="400"></a></td>
-    <td><a href="assets/screenshots/sonoma_desktop.png"><img src="assets/screenshots/sonoma_desktop.png" width="400"></a></td>
+    <td><a href="assets/screenshots/gruvbox_desktop.png"><img src="assets/screenshots/gruvbox_desktop.png" width="270"></a></td>
+    <td><a href="assets/screenshots/frosted_minimal_desktop.png"><img src="assets/screenshots/frosted_minimal_desktop.png" width="270"></a></td>
+    <td><a href="assets/screenshots/sonoma_desktop.png"><img src="assets/screenshots/sonoma_desktop.png" width="270"></a></td>
   </tr>
 </table>
 
