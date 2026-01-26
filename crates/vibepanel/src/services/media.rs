@@ -505,7 +505,7 @@ impl MediaService {
                     }));
 
                     // Update state from cached properties
-                    Self::update_player_from_proxy(&player);
+                    let _ = Self::update_player_from_proxy(&player);
 
                     // Subscribe to PropertiesChanged for this player
                     let player_weak = Rc::downgrade(&player);
@@ -526,8 +526,9 @@ impl MediaService {
                             };
 
                             let old_status = player.borrow().playback_status;
-                            Self::update_player_from_proxy(&player);
+                            let track_changed = Self::update_player_from_proxy(&player);
                             let new_status = player.borrow().playback_status;
+                            let status_changed = old_status != new_status;
 
                             // Track the most recently playing player
                             if new_status == PlaybackStatus::Playing
@@ -538,7 +539,7 @@ impl MediaService {
                             }
 
                             // In auto mode, if this player just started playing, make it active
-                            if this.is_auto_selection() && old_status != new_status {
+                            if this.is_auto_selection() && status_changed {
                                 if new_status == PlaybackStatus::Playing {
                                     // This player just started playing - make it the active player
                                     let bus_name = player.borrow().bus_name.clone();
@@ -555,7 +556,7 @@ impl MediaService {
                                     // Player stopped/paused - re-evaluate to find best player
                                     this.update_active_player();
                                 }
-                            } else if old_status != new_status {
+                            } else if status_changed {
                                 // Manual mode: if the active player changed status, handle polling
                                 let bus_name = player.borrow().bus_name.clone();
                                 let is_active =
@@ -570,6 +571,21 @@ impl MediaService {
                             }
 
                             this.notify_callbacks();
+
+                            // Some players (notably YouTube Music) report stale
+                            // position data immediately after a track or status change.
+                            // Give them a moment to sort themselves out, then re-poll.
+                            if track_changed || status_changed {
+                                let this_weak = Rc::downgrade(&this);
+                                glib::timeout_add_local_once(
+                                    Duration::from_millis(100),
+                                    move || {
+                                        if let Some(this) = this_weak.upgrade() {
+                                            this.poll_position();
+                                        }
+                                    },
+                                );
+                            }
                         },
                     );
 
@@ -604,7 +620,8 @@ impl MediaService {
     }
 
     /// Update player state from its proxy's cached properties.
-    fn update_player_from_proxy(player: &Rc<RefCell<MprisPlayer>>) {
+    /// Returns `true` if a track change was detected.
+    fn update_player_from_proxy(player: &Rc<RefCell<MprisPlayer>>) -> bool {
         // Read all properties first (need to read from proxy without holding borrow_mut)
         let (
             playback_status,
@@ -689,6 +706,9 @@ impl MediaService {
         if track_id_changed || title_changed {
             p.position = 0;
             p.track_generation += 1;
+            true
+        } else {
+            false
         }
     }
 
