@@ -121,7 +121,7 @@ pub fn css() -> &'static str {
 
 .media-empty-icon {
     font-size: 3em;
-    opacity: 0.3;
+    color: var(--color-foreground-disabled);
 }
 
 .media-track-title {

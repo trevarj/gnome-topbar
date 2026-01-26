@@ -64,8 +64,12 @@ window.quick-settings-window {
 
 /* Wi-Fi disabled state override */
 .qs-wifi-disabled-icon {
-    color: var(--color-foreground-muted);
-    opacity: 0.5;
+    color: var(--color-foreground-disabled);
+}
+
+/* Bluetooth disabled state override */
+.qs-bt-disabled-icon {
+    color: var(--color-foreground-disabled);
 }
 
 /* Ethernet section in expanded details (above Wi-Fi controls) */
@@ -96,7 +100,7 @@ window.quick-settings-window {
 /* Wi-Fi switch styling - accent colored track when on */
 .qs-wifi-switch-row switch {
     /* Switch track: rounder than slider to contain it */
-    border-radius: calc(var(--radius-pill) * 1.2);
+    border-radius: calc(var(--radius-track-thick) * 1.5);
     margin-top: 2px;
 }
 
@@ -129,7 +133,7 @@ window.quick-settings-window {
 
 .qs-no-connections-icon {
     font-size: 32px;
-    opacity: 0.5;
+    color: var(--color-foreground-disabled);
 }
 
 .qs-no-connections-label {
@@ -142,7 +146,7 @@ window.quick-settings-window {
 
 .qs-wifi-disabled-state-icon {
     font-size: 28px;
-    opacity: 0.4;
+    color: var(--color-foreground-disabled);
 }
 
 .qs-wifi-disabled-label {
@@ -156,7 +160,7 @@ window.quick-settings-window {
 
 .qs-disabled-state-icon {
     font-size: 28px;
-    opacity: 0.4;
+    color: var(--color-foreground-disabled);
 }
 
 .qs-disabled-state-label {
@@ -257,10 +261,9 @@ window.quick-settings-window {
 .qs-radio-indicator {
     min-width: 12px;
     min-height: 12px;
-    border: 1.5px solid var(--color-foreground-primary);
+    border: 1.5px solid var(--color-foreground-muted);
     /* Nearly-pill but subtly softer for visual distinction */
     border-radius: calc(var(--radius-pill) * 0.9);
-    opacity: 0.6;
     margin: 2px 0;
 }
 
@@ -294,6 +297,7 @@ window.quick-settings-window {
 .qs-scan-spinner {
     min-width: 12px;
     min-height: 12px;
+    color: var(--color-foreground-primary);
 }
 
 /* Chevron animation */
@@ -319,6 +323,17 @@ window.quick-settings-window {
 
 .qs-power-progress.qs-power-confirming {
     background-color: var(--color-accent-primary);
+}
+
+/* Power card overlay - has background like .vp-card */
+.qs-power-card {
+    background: var(--color-card-overlay);
+    border-radius: var(--radius-widget);
+}
+
+/* Card inside power overlay - always transparent, parent has background */
+.qs-power-card > .vp-card {
+    background: transparent;
 }
 
 /* Power action rows - remove padding since overlay content provides it */
@@ -395,7 +410,7 @@ window.quick-settings-window {
 
 /* Audio row disabled state - gray out everything */
 .qs-audio-row-disabled {
-    opacity: 0.5;
+    color: var(--color-foreground-disabled);
 }
 
 .qs-audio-row-disabled .slider-icon-btn {

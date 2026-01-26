@@ -12,7 +12,7 @@ pub fn css() -> &'static str {
 }
 
 .notification-icon.backend-unavailable {
-    opacity: 0.4;
+    color: var(--color-foreground-disabled);
 }
 
 /* Badge indicator dot */

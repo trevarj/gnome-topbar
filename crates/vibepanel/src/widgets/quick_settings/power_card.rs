@@ -196,6 +196,10 @@ fn setup_hold_to_confirm<W1, W2, F>(
 
             // Add confirming class for background color
             progress.add_css_class(qs::POWER_CONFIRMING);
+            // Also add to parent overlay so CSS can make card background transparent
+            if let Some(parent) = progress.parent() {
+                parent.add_css_class(qs::POWER_CONFIRMING);
+            }
             state.is_confirming.set(true);
 
             // Record start time
@@ -259,6 +263,9 @@ fn setup_hold_to_confirm<W1, W2, F>(
 
                         if let Some(progress) = progress_weak_timeout.upgrade() {
                             progress.remove_css_class(qs::POWER_CONFIRMING);
+                            if let Some(parent) = progress.parent() {
+                                parent.remove_css_class(qs::POWER_CONFIRMING);
+                            }
                             progress.set_size_request(0, -1);
                         }
 
@@ -283,6 +290,9 @@ fn setup_hold_to_confirm<W1, W2, F>(
 
                 if let Some(progress) = progress_weak.upgrade() {
                     progress.remove_css_class(qs::POWER_CONFIRMING);
+                    if let Some(parent) = progress.parent() {
+                        parent.remove_css_class(qs::POWER_CONFIRMING);
+                    }
                     progress.set_size_request(0, -1);
                 }
             }
@@ -300,6 +310,9 @@ fn setup_hold_to_confirm<W1, W2, F>(
 
                 if let Some(progress) = progress_weak.upgrade() {
                     progress.remove_css_class(qs::POWER_CONFIRMING);
+                    if let Some(parent) = progress.parent() {
+                        parent.remove_css_class(qs::POWER_CONFIRMING);
+                    }
                     progress.set_size_request(0, -1);
                 }
             }

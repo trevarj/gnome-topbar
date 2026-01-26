@@ -38,10 +38,10 @@ const SHADOW_DIFFUSE_OPACITY_FACTOR: f64 = 0.6;
 const TRACK_OPACITY_DARK: f64 = 0.15;
 const TRACK_OPACITY_LIGHT: f64 = 0.12;
 
-// Foreground opacity factors for text hierarchy (secondary, tertiary, disabled)
-const FOREGROUND_MUTED_OPACITY: f64 = 0.7;
-const FOREGROUND_SUBTLE_OPACITY: f64 = 0.4;
+// Foreground opacity factors for text hierarchy
+const FOREGROUND_MUTED_OPACITY: f64 = 0.6;
 const FOREGROUND_DISABLED_OPACITY: f64 = 0.4;
+const FOREGROUND_FAINT_OPACITY: f64 = 0.3;
 
 // Toast critical background blend weight
 const TOAST_CRITICAL_URGENT_WEIGHT: f64 = 0.35;
@@ -225,8 +225,8 @@ pub struct ThemePalette {
     // Foreground colors
     pub foreground_primary: String,
     pub foreground_muted: String,
-    pub foreground_subtle: String,
     pub foreground_disabled: String,
+    pub foreground_faint: String,
 
     // Accent configuration
     pub accent_source: AccentSource,
@@ -317,8 +317,8 @@ impl ThemePalette {
     /* ===== Foreground Colors ===== */
     --color-foreground-primary: {fg_primary};
     --color-foreground-muted: {fg_muted};
-    --color-foreground-subtle: {fg_subtle};
     --color-foreground-disabled: {fg_disabled};
+    --color-foreground-faint: {fg_faint};
 
     /* ===== Accent Colors ===== */
     --color-accent-primary: {accent_primary};
@@ -412,8 +412,8 @@ impl ThemePalette {
             widget_bg = self.widget_background_with_opacity(),
             fg_primary = self.foreground_primary,
             fg_muted = self.foreground_muted,
-            fg_subtle = self.foreground_subtle,
             fg_disabled = self.foreground_disabled,
+            fg_faint = self.foreground_faint,
             accent_primary = accent_primary_css,
             accent_subtle = accent_subtle_css,
             accent_text = self.accent_text,
@@ -624,15 +624,14 @@ impl ThemePalette {
         if self.is_dark_mode {
             self.foreground_primary = "#ffffff".to_string();
             self.foreground_muted = format!("rgba(255, 255, 255, {:.2})", FOREGROUND_MUTED_OPACITY);
-            self.foreground_subtle =
-                format!("rgba(255, 255, 255, {:.2})", FOREGROUND_SUBTLE_OPACITY);
             self.foreground_disabled =
                 format!("rgba(255, 255, 255, {:.2})", FOREGROUND_DISABLED_OPACITY);
+            self.foreground_faint = format!("rgba(255, 255, 255, {:.2})", FOREGROUND_FAINT_OPACITY);
         } else {
             self.foreground_primary = "#1a1a1a".to_string();
             self.foreground_muted = format!("rgba(0, 0, 0, {:.2})", FOREGROUND_MUTED_OPACITY);
-            self.foreground_subtle = format!("rgba(0, 0, 0, {:.2})", FOREGROUND_SUBTLE_OPACITY);
             self.foreground_disabled = format!("rgba(0, 0, 0, {:.2})", FOREGROUND_DISABLED_OPACITY);
+            self.foreground_faint = format!("rgba(0, 0, 0, {:.2})", FOREGROUND_FAINT_OPACITY);
         }
     }
 
@@ -809,8 +808,8 @@ impl Default for ThemePalette {
             widget_background: DEFAULT_WIDGET_BG_DARK.to_string(),
             foreground_primary: "#ffffff".to_string(),
             foreground_muted: String::new(),
-            foreground_subtle: String::new(),
             foreground_disabled: String::new(),
+            foreground_faint: String::new(),
             accent_source: AccentSource::Gtk, // Default to GTK accent
             accent_primary: "@accent_color".to_string(),
             accent_subtle: String::new(),

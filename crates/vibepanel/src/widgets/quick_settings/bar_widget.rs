@@ -185,6 +185,9 @@ impl QuickSettingsWidget {
             if bt_connected_devices > 0 {
                 bt_icon.widget().add_css_class(state::ICON_ACTIVE);
             }
+            if !bt_powered {
+                bt_icon.widget().add_css_class(qs::BT_DISABLED_ICON);
+            }
 
             // Subscribe to BluetoothService updates
             let bt_icon_handle = bt_icon.clone();
@@ -212,6 +215,13 @@ impl QuickSettingsWidget {
                     widget.add_css_class(state::ICON_ACTIVE);
                 } else {
                     widget.remove_css_class(state::ICON_ACTIVE);
+                }
+
+                // Apply disabled styling when Bluetooth is off
+                if !powered {
+                    widget.add_css_class(qs::BT_DISABLED_ICON);
+                } else {
+                    widget.remove_css_class(qs::BT_DISABLED_ICON);
                 }
 
                 let tooltip = if connected_devices > 0 {

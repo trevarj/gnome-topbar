@@ -703,7 +703,7 @@ pub fn populate_wifi_list(state: &WifiCardState, list_box: &ListBox, snapshot: &
             // Create base icon (full signal, dimmed)
             let base_handle = icons.create_icon(
                 "network-wireless-signal-excellent-symbolic",
-                &[icon::TEXT, row::QS_ICON, qs::WIFI_BASE, color::MUTED],
+                &[icon::TEXT, row::QS_ICON, qs::WIFI_BASE, color::DISABLED],
             );
 
             // Create overlay icon (actual signal level, highlighted)

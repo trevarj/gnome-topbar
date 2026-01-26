@@ -68,18 +68,16 @@ sectioned-bar.bar {{
     min-width: 1em;
     min-height: 0.2em;
     border-radius: var(--radius-pill);
-    color: var(--color-foreground-muted);
-    opacity: 0.5;
+    color: var(--color-foreground-faint);
 }}
 
 .workspace-indicator-minimal {{
-    background-color: var(--color-foreground-muted);
+    background-color: var(--color-foreground-faint);
 }}
 
 .workspace-indicator.active {{
     color: var(--color-accent-text, #fff);
     background-color: var(--color-accent-primary);
-    opacity: 1;
 }}
 "#
     )

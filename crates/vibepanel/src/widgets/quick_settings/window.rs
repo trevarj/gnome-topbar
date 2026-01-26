@@ -689,6 +689,11 @@ impl QuickSettingsWindow {
         // Add card identifier for CSS targeting
         bt_card.card.add_css_class(qs::BLUETOOTH);
 
+        // Apply disabled styling when Bluetooth is off
+        if !bt_powered {
+            bt_card.icon_handle.add_css_class(qs::BT_DISABLED_ICON);
+        }
+
         {
             let toggle = bt_card.toggle.clone();
             let bt_state = Rc::clone(&qs.bluetooth);

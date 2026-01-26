@@ -759,6 +759,12 @@ pub fn on_bluetooth_changed(state: &BluetoothCardState, snapshot: &BluetoothSnap
         let icon_name = bt_icon_name(snapshot.powered, snapshot.connected_devices);
         icon_handle.set_icon(icon_name);
         set_icon_active(icon_handle, snapshot.connected_devices > 0);
+        // Apply disabled styling when Bluetooth is off
+        if !snapshot.powered {
+            icon_handle.add_css_class(qs::BT_DISABLED_ICON);
+        } else {
+            icon_handle.remove_css_class(qs::BT_DISABLED_ICON);
+        }
     }
 
     // Update Bluetooth subtitle

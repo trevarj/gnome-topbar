@@ -70,6 +70,12 @@ pub mod color {
     /// Muted/secondary foreground color (`.vp-muted`).
     pub const MUTED: &str = "vp-muted";
 
+    /// Disabled/tertiary foreground color (`.vp-disabled`).
+    pub const DISABLED: &str = "vp-disabled";
+
+    /// Faint foreground color for very subtle decorative elements (`.vp-faint`).
+    pub const FAINT: &str = "vp-faint";
+
     /// Accent color (`.vp-accent`).
     pub const ACCENT: &str = "vp-accent";
 
@@ -293,6 +299,9 @@ pub mod qs {
 
     /// Wi-Fi disabled icon state (`.qs-wifi-disabled-icon`).
     pub const WIFI_DISABLED_ICON: &str = "qs-wifi-disabled-icon";
+
+    /// Bluetooth disabled icon state (`.qs-bt-disabled-icon`).
+    pub const BT_DISABLED_ICON: &str = "qs-bt-disabled-icon";
 
     /// Wi-Fi disabled state container (`.qs-wifi-disabled-state`).
     pub const WIFI_DISABLED_STATE: &str = "qs-wifi-disabled-state";

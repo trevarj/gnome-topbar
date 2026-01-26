@@ -44,7 +44,7 @@ pub fn css() -> &'static str {
 
 /* OSD unavailable state - colors via vp-muted */
 .osd-unavailable-icon {
-    opacity: 0.6;
+    color: var(--color-foreground-disabled);
 }
 
 .osd-unavailable-label {

@@ -46,7 +46,7 @@ pub fn css() -> &'static str {
 }
 
 .tray-menu-button:disabled {
-    opacity: 0.5;
+    color: var(--color-foreground-disabled);
 }
 
 .tray-menu-button:disabled:hover {
