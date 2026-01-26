@@ -260,6 +260,9 @@ pub fn material_symbol_name(icon_name: &str) -> &str {
         "window-new-symbolic" => "open_in_new",
         "view-fullscreen-symbolic" => "fullscreen",
 
+        // Loading / progress spinner
+        "process-working-symbolic" => "progress_activity",
+
         // Fallback: pass through unchanged (allows Material ligature names directly)
         _ => icon_name,
     }
@@ -702,6 +705,13 @@ pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
             "view-fullscreen-symbolic",
         ],
         "view-fullscreen-symbolic" => &["view-fullscreen-symbolic", "view-fullscreen"],
+
+        // Loading / progress spinner
+        "process-working-symbolic" => &[
+            "process-working-symbolic",
+            "view-refresh-symbolic",
+            "emblem-synchronizing-symbolic",
+        ],
 
         // Unknown: treat as already-a-GTK-name, return as single-element slice
         // We use a static slice with a placeholder that will be replaced at runtime

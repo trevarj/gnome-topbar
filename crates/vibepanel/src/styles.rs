@@ -202,6 +202,9 @@ pub mod state {
 
     /// Urgent workspace state (`.urgent`).
     pub const URGENT: &str = "urgent";
+
+    /// Spinning/loading animation state (`.spinning`).
+    pub const SPINNING: &str = "spinning";
 }
 
 /// Quick Settings specific component classes.

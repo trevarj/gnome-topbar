@@ -300,6 +300,20 @@ window.quick-settings-window {
     color: var(--color-foreground-primary);
 }
 
+/* Material icon spinner rotation animation */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.qs-scan-spinner.spinning {
+    animation: spin 1s linear infinite;
+}
+
+.qs-scan-spinner.spinning label {
+    color: var(--color-accent-primary);
+}
+
 /* Chevron animation */
 .qs-toggle-more-icon {
     transition: transform 200ms ease;
