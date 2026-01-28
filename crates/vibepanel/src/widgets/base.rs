@@ -168,6 +168,10 @@ impl MenuHandle {
     }
 
     pub fn show(&self) {
+        // Update popover offset from config (enables hot reload)
+        let offset = ConfigManager::global().popover_offset() as i32;
+        self.popover.set_offset(0, offset);
+
         // Rebuild content on each show so that it always reflects the
         // latest service state, even if things changed while the menu was
         // closed.
