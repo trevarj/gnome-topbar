@@ -229,8 +229,6 @@ pub fn build_battery_popover_with_controller() -> (Widget, BatteryPopoverControl
     // Main container
     let container = GtkBox::new(Orientation::Vertical, 16);
     container.add_css_class(bat::POPOVER);
-    container.add_css_class(surface::POPOVER);
-    container.add_css_class(surface::NO_FOCUS);
 
     // Battery info section
     let info_section = GtkBox::new(Orientation::Vertical, 8);

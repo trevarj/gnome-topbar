@@ -334,6 +334,7 @@ impl QuickSettingsWindow {
 
         // Apply surface styles - background now controlled via CSS variables
         outer.add_css_class("quick-settings-popover");
+        outer.add_css_class(surface::POPOVER);
         SurfaceStyleManager::global().apply_surface_styles(&outer, true);
 
         let content = GtkBox::new(Orientation::Vertical, 0);

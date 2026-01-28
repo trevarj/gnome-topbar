@@ -42,6 +42,7 @@ use gtk4::{
 };
 
 use crate::services::icons::{IconHandle, IconsService};
+use crate::styles::color;
 
 /// CSS class for slider row container.
 const CSS_SLIDER_ROW: &str = "slider-row";
@@ -88,7 +89,7 @@ impl IconButton {
         Self {
             icon_name: icon_name.to_string(),
             interactive: false,
-            css_classes: vec!["vp-primary".to_string()],
+            css_classes: vec![color::PRIMARY.to_string()],
         }
     }
 
@@ -256,7 +257,7 @@ impl ExpanderButton {
         let icons = IconsService::global();
         let icon_handle = icons.create_icon(
             &self.icon_name,
-            &[crate::styles::qs::TOGGLE_MORE_ICON, "vp-primary"],
+            &[crate::styles::qs::TOGGLE_MORE_ICON, color::PRIMARY],
         );
 
         // Center the icon within the button's hover area
@@ -512,7 +513,7 @@ impl SliderRow {
         Self {
             icon_name: String::new(),
             interactive_icon: false,
-            icon_classes: vec!["vp-primary".to_string()],
+            icon_classes: vec![color::PRIMARY.to_string()],
             min: 0.0,
             max: 100.0,
             step: 1.0,

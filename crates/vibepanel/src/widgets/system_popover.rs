@@ -28,7 +28,7 @@ use gtk4::{
 
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::system::{SystemService, SystemSnapshot, format_bytes_long, format_speed};
-use crate::styles::{card, color, icon, surface, system_popover as sp};
+use crate::styles::{button, card, color, icon, surface, system_popover as sp};
 
 /// A single pre-allocated per-core row with its updatable widgets.
 #[derive(Clone)]
@@ -237,8 +237,6 @@ pub fn build_system_popover_with_controller() -> (Widget, SystemPopoverControlle
 
     let container = GtkBox::new(Orientation::Vertical, 0);
     container.add_css_class(sp::POPOVER);
-    container.add_css_class(surface::POPOVER);
-    container.add_css_class(surface::NO_FOCUS);
 
     let top_row = GtkBox::new(Orientation::Horizontal, 8);
     top_row.set_homogeneous(true);
@@ -275,7 +273,7 @@ pub fn build_system_popover_with_controller() -> (Widget, SystemPopoverControlle
 
     let expander_btn = gtk4::Button::new();
     expander_btn.set_child(Some(&expander_row));
-    expander_btn.add_css_class("vp-btn-compact");
+    expander_btn.add_css_class(button::COMPACT);
     expander_btn.add_css_class(sp::EXPANDER_HEADER);
     cpu_section.append(&expander_btn);
 

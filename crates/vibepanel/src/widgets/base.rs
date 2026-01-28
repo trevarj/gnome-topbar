@@ -32,6 +32,7 @@ pub fn configure_popover(popover: &Popover) {
     popover.set_has_arrow(false);
     popover.set_autohide(true);
     popover.add_css_class(surface::WIDGET_MENU);
+    popover.add_css_class(surface::NO_FOCUS);
     popover.set_position(PositionType::Bottom);
     popover.set_halign(Align::Center);
 
@@ -124,6 +125,7 @@ impl MenuHandle {
     fn refresh_content(&self) -> i32 {
         let content = (self.builder)();
         content.add_css_class(surface::WIDGET_MENU_CONTENT);
+        content.add_css_class(surface::POPOVER);
 
         // Add widget-specific popover class for per-widget styling via CSS variables
         // e.g., "clock" -> "clock-popover" which can override --widget-background-color

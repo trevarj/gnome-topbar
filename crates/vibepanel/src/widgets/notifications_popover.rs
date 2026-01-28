@@ -54,8 +54,6 @@ const BASE_SLOP: i32 = 8;
 pub(super) fn build_popover_content(on_close: Option<ClosePopoverCallback>) -> gtk4::Widget {
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class(notif::POPOVER);
-    root.add_css_class(surface::POPOVER);
-    root.add_css_class(surface::NO_FOCUS);
     root.set_size_request(POPOVER_WIDTH, -1);
 
     let header = build_header(on_close.clone());

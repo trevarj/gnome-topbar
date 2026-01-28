@@ -21,7 +21,6 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> Widget {
     // Main container
     let container = GtkBox::new(Orientation::Vertical, 0);
     container.add_css_class(cal::POPOVER);
-    container.add_css_class(surface::NO_FOCUS);
 
     // Header with navigation
 
