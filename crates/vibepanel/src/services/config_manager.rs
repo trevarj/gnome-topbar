@@ -164,6 +164,11 @@ impl ConfigManager {
         self.config.borrow().bar.size
     }
 
+    /// Get the bar padding (vertical padding inside bar) from the current configuration.
+    pub fn bar_padding(&self) -> u32 {
+        self.config.borrow().bar.padding
+    }
+
     /// Get the bar screen margin from the current configuration.
     pub fn screen_margin(&self) -> u32 {
         self.config.borrow().bar.screen_margin
@@ -172,6 +177,11 @@ impl ConfigManager {
     /// Get the popover offset (gap between widget and popover) from the current configuration.
     pub fn popover_offset(&self) -> u32 {
         self.config.borrow().bar.popover_offset
+    }
+
+    /// Get the bar background opacity from the current configuration.
+    pub fn bar_background_opacity(&self) -> f64 {
+        self.config.borrow().bar.background_opacity
     }
 
     /// Get a widget option value from the current configuration.
@@ -492,6 +502,14 @@ fn config_structure_changed(old: &Config, new: &Config) -> bool {
 
     if old.bar.inset != new.bar.inset {
         debug!("bar.inset changed ({} -> {})", old.bar.inset, new.bar.inset);
+        return true;
+    }
+
+    if old.bar.padding != new.bar.padding {
+        debug!(
+            "bar.padding changed ({} -> {})",
+            old.bar.padding, new.bar.padding
+        );
         return true;
     }
 

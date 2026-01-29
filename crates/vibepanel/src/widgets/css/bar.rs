@@ -32,6 +32,8 @@ pub fn css(screen_margin: u32, spacing: u32) -> String {
 /* Bar container - the visible bar */
 sectioned-bar.bar {{
     min-height: var(--bar-height);
+    padding-top: var(--bar-padding-y);
+    padding-bottom: var(--bar-padding-y-bottom);
     background: var(--color-background-bar);
     border-radius: var(--radius-bar);
     font-family: var(--font-family);

@@ -397,23 +397,20 @@ impl QuickSettingsWidget {
 
                     // Compute widget bounds relative to the native window
                     if let Some(bounds) = root.compute_bounds(&native) {
-                        // The bar window is offset from the monitor edge by screen_margin.
                         // Widget bounds are relative to the bar window's (0,0).
-                        // To get monitor-relative coordinates, we need to add screen_margin.
+                        // Only anchor_x is used for horizontal positioning of QS window.
                         let screen_margin = ConfigManager::global().screen_margin() as i32;
-
                         let widget_center_x =
                             (bounds.x() + bounds.width() / 2.0) as i32 + screen_margin;
-                        let widget_bottom_y = (bounds.y() + bounds.height()) as i32 + screen_margin;
 
                         let monitor = monitor.flatten();
-                        qs_window_handle.toggle_at(widget_center_x, widget_bottom_y, monitor);
+                        qs_window_handle.toggle_at(widget_center_x, monitor);
                     } else {
                         // Fallback: toggle without positioning
-                        qs_window_handle.toggle_at(0, 0, None);
+                        qs_window_handle.toggle_at(0, None);
                     }
                 } else {
-                    qs_window_handle.toggle_at(0, 0, None);
+                    qs_window_handle.toggle_at(0, None);
                 }
             });
         }

@@ -55,8 +55,6 @@ pub struct QuickSettingsWindow {
     click_catcher: RefCell<Option<ApplicationWindow>>,
     /// Anchor X position: widget center X in monitor coordinates.
     anchor_x: Cell<i32>,
-    /// Anchor Y position: widget bottom Y in monitor coordinates.
-    anchor_y: Cell<i32>,
     /// Monitor the widget is on (if known).
     anchor_monitor: RefCell<Option<Monitor>>,
 
@@ -118,7 +116,6 @@ impl QuickSettingsWindow {
             window: window.clone(),
             click_catcher: RefCell::new(None),
             anchor_x: Cell::new(0),
-            anchor_y: Cell::new(0),
             anchor_monitor: RefCell::new(None),
             cards_config,
             pending_close: Cell::new(None),
@@ -1083,17 +1080,15 @@ impl QuickSettingsWindow {
 
     // Position and visibility management
 
-    /// Set the anchor position for the window.
-    pub fn set_anchor_position(&self, x: i32, y: i32, monitor: Option<Monitor>) {
+    /// Set the anchor position for the window (horizontal positioning).
+    pub fn set_anchor_position(&self, x: i32, monitor: Option<Monitor>) {
         self.anchor_x.set(x);
-        self.anchor_y.set(y);
         *self.anchor_monitor.borrow_mut() = monitor;
     }
 
     /// Update window margins based on the current anchor position.
     fn update_position(&self) {
         let anchor_x = self.anchor_x.get();
-        let anchor_y = self.anchor_y.get();
 
         let mut monitor_opt = self.anchor_monitor.borrow().clone();
         if monitor_opt.is_none()
@@ -1116,23 +1111,29 @@ impl QuickSettingsWindow {
         // Get bar dimensions from config
         let config_mgr = ConfigManager::global();
         let bar_size = config_mgr.bar_size() as i32;
+        let bar_padding = config_mgr.bar_padding() as i32;
+        let bar_opacity = config_mgr.bar_background_opacity();
         let screen_margin = config_mgr.screen_margin() as i32;
         let popover_offset = config_mgr.popover_offset() as i32;
 
-        // Calculate and apply top margin
-        let top_margin = calculate_qs_top_margin(anchor_y, bar_size, screen_margin, popover_offset);
+        // Bar exclusive zone (matches bar.rs logic)
+        let bar_exclusive_zone = if bar_opacity > 0.0 {
+            bar_size + 2 * bar_padding + 2 * screen_margin + popover_offset
+        } else {
+            bar_size + 2 * screen_margin + popover_offset
+        };
+
+        // Adjust for padding in exclusive zone when bar is visible
+        let top_margin = if bar_opacity > 0.0 {
+            popover_offset - bar_padding
+        } else {
+            popover_offset
+        };
         self.window.set_margin(Edge::Top, top_margin);
 
-        // Calculate max height for scroll container based on available screen space.
-        // geom.height() is the full screen height, but QS is positioned relative to
-        // the work area (after the bar's exclusive zone). Account for:
-        // - bar_exclusive_zone: bar_size + 2*screen_margin + popover_offset
-        // - container_padding: outer container has padding (16px from surface styles)
-        //   and margin (4px margin_bottom), plus CSS padding-top (4px)
-        // - bottom_margin: desired gap from screen bottom
+        // Max height: screen minus bar zone, margins, and container padding
         let bottom_margin = 8;
-        let container_padding = 16 + 4 + 4; // surface padding-bottom + margin_bottom + padding-top
-        let bar_exclusive_zone = bar_size + 2 * screen_margin + popover_offset;
+        let container_padding = 24; // surface padding + margins
         let max_height =
             geom.height() - bar_exclusive_zone - top_margin - container_padding - bottom_margin;
 
@@ -1328,7 +1329,7 @@ impl QuickSettingsWindowHandle {
         }
     }
 
-    pub fn toggle_at(&self, x: i32, y: i32, monitor: Option<Monitor>) {
+    pub fn toggle_at(&self, x: i32, monitor: Option<Monitor>) {
         // Check if window exists and is visible, extracting it to avoid holding borrow
         // across GTK operations that might trigger callbacks.
         let existing_window = {
@@ -1350,114 +1351,8 @@ impl QuickSettingsWindowHandle {
 
         // Window doesn't exist or was closed externally - create fresh one
         let qs = QuickSettingsWindow::new(&self.app, self.cards_config.clone());
-        qs.set_anchor_position(x, y, monitor);
+        qs.set_anchor_position(x, monitor);
         qs.show_panel();
         *self.window.borrow_mut() = Some(qs);
-    }
-}
-
-/// Calculate the top margin for the QS window given positioning parameters.
-///
-/// This is the pure math extracted from `update_position` for testing.
-///
-/// # Arguments
-/// * `anchor_y` - Widget bottom Y from bar_widget (includes screen_margin adjustment)
-/// * `bar_size` - Bar height in pixels
-/// * `screen_margin` - Bar's screen margin from config
-/// * `popover_offset` - Desired gap between bar and popover from config
-///
-/// # Returns
-/// The layer-shell top margin to apply to the QS window (clamped to >= 0)
-fn calculate_qs_top_margin(
-    anchor_y: i32,
-    bar_size: i32,
-    screen_margin: i32,
-    popover_offset: i32,
-) -> i32 {
-    // The bar occupies: screen_margin (top) + bar_size + screen_margin (bottom padding)
-    let bar_total_height = bar_size + 2 * screen_margin;
-
-    // anchor_y from bar_widget already includes screen_margin offset
-    // Subtract bar_total_height to get actual screen position, then add popover_offset
-    let top_margin = anchor_y - bar_total_height + popover_offset;
-    top_margin.max(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_qs_top_margin_typical_config() {
-        // Typical config: bar_size=32, screen_margin=4, popover_offset=1
-        // anchor_y from bar_widget = (widget_bottom_in_window) + screen_margin
-        // Widget bottom in window ≈ screen_margin + bar_size = 4 + 32 = 36
-        // So anchor_y ≈ 36 + 4 = 40
-
-        let anchor_y = 40;
-        let bar_size = 32;
-        let screen_margin = 4;
-        let popover_offset = 1;
-
-        let margin = calculate_qs_top_margin(anchor_y, bar_size, screen_margin, popover_offset);
-
-        // bar_total_height = 32 + 8 = 40
-        // top_margin = 40 - 40 + 1 = 1
-        assert_eq!(margin, 1);
-    }
-
-    #[test]
-    fn test_qs_top_margin_larger_offset() {
-        let anchor_y = 40;
-        let bar_size = 32;
-        let screen_margin = 4;
-        let popover_offset = 8;
-
-        let margin = calculate_qs_top_margin(anchor_y, bar_size, screen_margin, popover_offset);
-
-        // top_margin = 40 - 40 + 8 = 8
-        assert_eq!(margin, 8);
-    }
-
-    #[test]
-    fn test_qs_top_margin_zero_offset() {
-        let anchor_y = 40;
-        let bar_size = 32;
-        let screen_margin = 4;
-        let popover_offset = 0;
-
-        let margin = calculate_qs_top_margin(anchor_y, bar_size, screen_margin, popover_offset);
-
-        // top_margin = 40 - 40 + 0 = 0
-        assert_eq!(margin, 0);
-    }
-
-    #[test]
-    fn test_qs_top_margin_clamps_negative() {
-        // Edge case: if anchor_y is unexpectedly small
-        let anchor_y = 30; // Less than bar_total_height
-        let bar_size = 32;
-        let screen_margin = 4;
-        let popover_offset = 1;
-
-        let margin = calculate_qs_top_margin(anchor_y, bar_size, screen_margin, popover_offset);
-
-        // top_margin = 30 - 40 + 1 = -9, clamped to 0
-        assert_eq!(margin, 0);
-    }
-
-    #[test]
-    fn test_qs_top_margin_no_screen_margin() {
-        // Config with no screen margin
-        let anchor_y = 32; // Just bar_size
-        let bar_size = 32;
-        let screen_margin = 0;
-        let popover_offset = 4;
-
-        let margin = calculate_qs_top_margin(anchor_y, bar_size, screen_margin, popover_offset);
-
-        // bar_total_height = 32 + 0 = 32
-        // top_margin = 32 - 32 + 4 = 4
-        assert_eq!(margin, 4);
     }
 }

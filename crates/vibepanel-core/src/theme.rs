@@ -162,7 +162,6 @@ pub fn rgba_str(r: u8, g: u8, b: u8, a: f64) -> String {
 #[derive(Debug, Clone)]
 pub struct ThemeSizes {
     pub bar_height: u32,
-    pub bar_padding: u32,
     pub widget_height: u32,
     pub widget_padding_x: u32,
     pub widget_padding_y: u32,
@@ -180,7 +179,6 @@ impl Default for ThemeSizes {
     fn default() -> Self {
         Self {
             bar_height: 36,
-            bar_padding: 5,
             widget_height: 26,
             widget_padding_x: 5,
             widget_padding_y: 2,
@@ -282,6 +280,7 @@ pub struct ThemePalette {
     bar_radius_percent: u32,
     widget_radius_percent: u32,
     bar_size: u32,
+    bar_padding: u32,
 }
 
 impl ThemePalette {
@@ -373,7 +372,8 @@ impl ThemePalette {
 
     /* ===== Sizes & Spacing ===== */
     --bar-height: {bar_height}px;
-    --bar-padding: {bar_padding}px;
+    --bar-padding-y: {bar_padding_y}px;
+    --bar-padding-y-bottom: {bar_padding_y_bottom}px;
     --widget-height: {widget_height}px;
     --widget-padding-x: {widget_padding_x}px;
     --widget-padding-y: {widget_padding_y}px;
@@ -449,7 +449,15 @@ impl ThemePalette {
             radius_card = self.widget_border_radius,
             radius_pill = self.radius_pill,
             bar_height = self.sizes.bar_height,
-            bar_padding = self.sizes.bar_padding,
+            // Visual padding always applies (widgets offset from edge),
+            // but exclusive zone only includes it when bar is visible (handled in bar.rs)
+            bar_padding_y = self.bar_padding,
+            // Bottom padding is 0 in islands mode (opacity=0) to keep exclusive zone tight
+            bar_padding_y_bottom = if self.bar_opacity > 0.0 {
+                self.bar_padding
+            } else {
+                0
+            },
             widget_height = self.sizes.widget_height,
             widget_padding_x = self.sizes.widget_padding_x,
             widget_padding_y = self.sizes.widget_padding_y,
@@ -644,6 +652,7 @@ impl ThemePalette {
 
         // Bar size
         self.bar_size = config.bar.size;
+        self.bar_padding = config.bar.padding;
     }
 
     fn compute_derived_values(&mut self) {
@@ -788,13 +797,15 @@ impl ThemePalette {
 
     fn compute_sizes(&mut self) {
         let bar_size = self.bar_size;
+        let bar_padding_config = self.bar_padding;
 
         // Round to even numbers for proper pixel-perfect centering
-        let bar_padding = round_to_even((bar_size as f64 * PADDING_SCALE) as u32);
-        let widget_height = round_to_even(bar_size - 2 * bar_padding);
+        // This internal padding is used for widget sizing, separate from user's padding config
+        let internal_bar_padding = round_to_even((bar_size as f64 * PADDING_SCALE) as u32);
+        let widget_height = round_to_even(bar_size - 2 * internal_bar_padding);
 
-        // Bar radius: use rendered height (bar + padding on both sides)
-        let bar_rendered_height = bar_size + 2 * bar_padding;
+        // Bar rendered height includes the user's padding config
+        let bar_rendered_height = bar_size + 2 * bar_padding_config;
         let bar_max_radius = bar_rendered_height / 2;
         self.bar_border_radius =
             (bar_rendered_height * self.bar_radius_percent / 100).min(bar_max_radius);
@@ -816,8 +827,8 @@ impl ThemePalette {
         let pixmap_icon_size = round_to_even((bar_size as f64 * PIXMAP_ICON_SCALE) as u32);
 
         self.sizes = ThemeSizes {
+            // bar_height is the content height (widgets area), CSS padding adds the rest
             bar_height: bar_size,
-            bar_padding,
             widget_height,
             widget_padding_x: (bar_size as f64 * PADDING_SCALE) as u32,
             // Vertical padding - fixed 2px for visual breathing room (already even)
@@ -876,6 +887,7 @@ impl Default for ThemePalette {
             bar_radius_percent: 30,
             widget_radius_percent: 40,
             bar_size: 32,
+            bar_padding: 4,
         }
     }
 }
@@ -1045,6 +1057,7 @@ mod tests {
     fn test_theme_sizes_computed_from_bar_size() {
         let mut config = Config::default();
         config.bar.size = 48;
+        // bar_height is the content height (bar.size), CSS padding adds the visual padding
         let palette = ThemePalette::from_config(&config);
 
         assert_eq!(palette.sizes.bar_height, 48);
@@ -1149,7 +1162,6 @@ mod tests {
         assert!(palette_large.sizes.widget_height > palette_small.sizes.widget_height);
         assert!(palette_large.sizes.font_size > palette_small.sizes.font_size);
         assert!(palette_large.sizes.text_icon_size > palette_small.sizes.text_icon_size);
-        assert!(palette_large.sizes.bar_padding > palette_small.sizes.bar_padding);
     }
 
     #[test]
@@ -1203,7 +1215,10 @@ mod tests {
             config.bar.border_radius = 100; // Request maximum radius
             let palette = ThemePalette::from_config(&config);
 
-            let max_possible_bar_radius = (bar_size + 2 * palette.sizes.bar_padding) / 2;
+            // Bar radius is computed from rendered height (bar_size + 2*padding config)
+            // With default padding=4, max radius = (bar_size + 8) / 2
+            let bar_rendered_height = bar_size + 2 * config.bar.padding;
+            let max_possible_bar_radius = bar_rendered_height / 2;
             assert!(
                 palette.bar_border_radius <= max_possible_bar_radius,
                 "Bar radius {} exceeds max {} for bar_size={}",

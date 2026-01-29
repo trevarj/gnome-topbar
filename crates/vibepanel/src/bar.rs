@@ -26,7 +26,16 @@ pub fn create_bar_window(
     output_id: &str,
     state: &mut BarState,
 ) -> ApplicationWindow {
-    let bar_height = config.bar.size as i32;
+    // Window height determines the exclusive zone (via auto_exclusive_zone_enable).
+    // - When bar is visible (opacity > 0): include padding on both sides
+    // - When bar is transparent (opacity = 0): exclusive zone = size only
+    //   The top padding offsets widgets visually but bottom padding is 0 via CSS
+    let bar_height = if config.bar.background_opacity > 0.0 {
+        config.bar.size as i32 + 2 * config.bar.padding as i32
+    } else {
+        // Islands mode: exclusive zone = widget height only
+        config.bar.size as i32
+    };
 
     let window = ApplicationWindow::builder()
         .application(app)
