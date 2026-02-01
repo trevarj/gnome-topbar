@@ -397,11 +397,10 @@ impl TooltipManager {
         // cursor_x is relative to the widget's top-left corner
         let cursor_rel_x = self.cursor_x.get() as i32;
 
-        // Get widget's X position within its window
-        let widget_in_window_x = self.get_widget_window_x(&widget).unwrap_or(0);
-
-        // For top-anchored layer-shell, X position is straightforward
-        let cursor_screen_x = widget_in_window_x + cursor_rel_x;
+        // Get cursor's screen X position, accounting for window anchor type
+        let cursor_screen_x = self
+            .get_cursor_screen_x(&widget, cursor_rel_x, monitor_width)
+            .unwrap_or(cursor_rel_x);
 
         // For Y position: layer-shell exclusive zone means the tooltip's "top" anchor
         // starts BELOW the bar's exclusive zone, so we only need a small offset
@@ -444,6 +443,31 @@ impl TooltipManager {
         let point = gtk4::graphene::Point::new(0.0, 0.0);
         let computed = widget.compute_point(&root_widget, &point)?;
         Some(computed.x() as i32)
+    }
+
+    /// Get cursor's screen X, accounting for right-anchored layer-shell windows (popovers).
+    fn get_cursor_screen_x(
+        &self,
+        widget: &gtk4::Widget,
+        cursor_rel_x: i32,
+        monitor_width: i32,
+    ) -> Option<i32> {
+        let root = widget.root()?;
+        let window = root.downcast_ref::<gtk4::Window>()?;
+        let widget_in_window_x = self.get_widget_window_x(widget)?;
+
+        // Right-anchored (but not left) windows need adjusted calculation
+        if window.is_layer_window()
+            && window.is_anchor(Edge::Right)
+            && !window.is_anchor(Edge::Left)
+        {
+            let right_margin = window.margin(Edge::Right);
+            let window_width = window.width();
+            let window_left_x = monitor_width - right_margin - window_width;
+            return Some(window_left_x + widget_in_window_x + cursor_rel_x);
+        }
+
+        Some(widget_in_window_x + cursor_rel_x)
     }
 
     /// Get monitor info for the widget's window.
