@@ -19,14 +19,14 @@ pub fn css() -> &'static str {
 /* Slider styling - slightly thicker for better visual weight */
 .osd-slider trough {
     background-color: var(--color-slider-track);
-    border-radius: var(--radius-track-thick);
+    border-radius: calc(5px * var(--radius-factor));
     min-height: 10px;
     min-width: 10px;
 }
 
 .osd-slider trough highlight {
     background-color: var(--color-accent-slider, var(--color-accent-primary));
-    border-radius: var(--radius-track-thick);
+    border-radius: calc(5px * var(--radius-factor));
     min-height: 10px;
     min-width: 10px;
 }

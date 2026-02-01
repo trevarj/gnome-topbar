@@ -100,7 +100,7 @@ window.quick-settings-window {
 /* Wi-Fi switch styling - accent colored track when on */
 .qs-wifi-switch-row switch {
     /* Switch track: rounder than slider to contain it */
-    border-radius: calc(var(--radius-track-thick) * 1.5);
+    border-radius: calc(10px * var(--radius-factor));
     margin-top: 2px;
 }
 
@@ -114,7 +114,7 @@ window.quick-settings-window {
 }
 
 .qs-wifi-switch-row switch slider {
-    border-radius: var(--radius-track-thick);
+    border-radius: calc(6px * var(--radius-factor));
     min-width: 12px;
     min-height: 12px;
 }
@@ -256,20 +256,20 @@ window.quick-settings-window {
 }
 
 /* Radio indicator for unselected audio/mic device rows.
- * Replaces the radio-symbolic icon so the shape scales with --radius-pill
+ * Replaces the radio-symbolic icon so the shape scales with --radius-factor
  * (square at border_radius: 0, circular at border_radius: 50). */
 .qs-radio-indicator {
     min-width: 12px;
     min-height: 12px;
     border: 1.5px solid var(--color-foreground-muted);
     /* Nearly-pill but subtly softer for visual distinction */
-    border-radius: calc(var(--radius-pill) * 0.9);
+    border-radius: calc(5.4px * var(--radius-factor));
     margin: 2px 0;
 }
 
 /* Checkmark indicator background for selected audio/mic device rows */
 .qs-row-indicator-bg {
-    border-radius: var(--radius-pill);
+    border-radius: calc(8px * var(--radius-factor));
     min-width: 16px;
     min-height: 16px;
 }

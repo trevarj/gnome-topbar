@@ -192,7 +192,7 @@ pub fn css() -> &'static str {
 
 .media-seek-slider trough {
     min-height: var(--slider-height);
-    border-radius: var(--radius-track);
+    border-radius: calc(3px * var(--radius-factor));
     background-color: var(--color-slider-track);
 }
 
@@ -201,7 +201,7 @@ pub fn css() -> &'static str {
     background-color: var(--color-accent-slider, var(--color-accent-primary));
     border: none;
     min-height: var(--slider-height);
-    border-radius: var(--radius-track);
+    border-radius: calc(3px * var(--radius-factor));
 }
 
 .media-seek-slider slider {
@@ -210,7 +210,7 @@ pub fn css() -> &'static str {
     margin: -5px;
     padding: 0;
     background-color: var(--color-accent-primary);
-    border-radius: var(--radius-pill);
+    border-radius: calc(8px * var(--radius-factor));
     border: none;
     box-shadow: none;
     transition: transform 100ms ease-out;
@@ -236,7 +236,7 @@ pub fn css() -> &'static str {
 
 .media-volume-slider trough {
     min-height: var(--slider-height);
-    border-radius: var(--radius-track);
+    border-radius: calc(3px * var(--radius-factor));
     background-color: var(--color-slider-track);
 }
 
@@ -245,7 +245,7 @@ pub fn css() -> &'static str {
     background-color: var(--color-accent-slider, var(--color-accent-primary));
     border: none;
     min-height: var(--slider-height);
-    border-radius: var(--radius-track);
+    border-radius: calc(3px * var(--radius-factor));
 }
 
 .media-volume-slider slider {
@@ -254,7 +254,7 @@ pub fn css() -> &'static str {
     margin: -5px;
     padding: 0;
     background-color: var(--color-accent-primary);
-    border-radius: var(--radius-pill);
+    border-radius: calc(8px * var(--radius-factor));
     border: none;
     box-shadow: none;
     transition: transform 100ms ease-out;

@@ -183,7 +183,7 @@ popover.widget-menu.background > contents {{
 
 .slider-row scale trough {{
     min-height: var(--slider-height);
-    border-radius: var(--radius-track);
+    border-radius: calc(3px * var(--radius-factor));
     background-color: var(--color-slider-track);
 }}
 
@@ -192,7 +192,7 @@ popover.widget-menu.background > contents {{
     background-color: var(--color-accent-slider, var(--color-accent-primary));
     border: none;
     min-height: var(--slider-height);
-    border-radius: var(--radius-track);
+    border-radius: calc(3px * var(--radius-factor));
 }}
 
 .slider-row scale slider {{
@@ -201,7 +201,7 @@ popover.widget-menu.background > contents {{
     margin: -5px;
     padding: 0;
     background-color: var(--color-accent-primary);
-    border-radius: var(--radius-pill);
+    border-radius: calc(8px * var(--radius-factor));
     border: none;
     box-shadow: none;
     transition: transform 100ms ease-out;
