@@ -105,6 +105,7 @@ impl WindowInfo {
 pub type WorkspaceCallback = Arc<dyn Fn(WorkspaceSnapshot) + Send + Sync>;
 
 /// Callback type for focused window updates.
+/// Receives `WindowInfo::default()` when no window is focused.
 pub type WindowCallback = Arc<dyn Fn(WindowInfo) + Send + Sync>;
 
 /// Trait for compositor backend implementations.
