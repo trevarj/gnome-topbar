@@ -61,22 +61,24 @@ pub fn css() -> &'static str {
     min-width: 340px;
 }
 
-/* Popout button */
-.media-popout-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 0px;
+/* Popover header buttons row */
+.media-popover-header {
     margin-top: -8px;
     margin-right: -8px;
+    margin-bottom: 8px;
 }
 
-/* Player selector button */
+/* Override base popover icon button size for denser media layout */
+.media-popout-btn,
 .media-player-selector-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 0px;
-    margin-top: -8px;
-    margin-right: 4px;
+    min-width: 20px;
+    min-height: 20px;
+    margin-top: 0;
+}
+
+/* open_in_new glyph sits slightly high; nudge down for visual centering */
+.media-popout-btn .icon-root {
+    margin-top: 2px;
 }
 
 /* Player selector menu - extends qs-row-menu-content */
