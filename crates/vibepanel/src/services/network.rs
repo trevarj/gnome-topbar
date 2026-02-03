@@ -141,6 +141,8 @@ enum NetworkUpdate {
     },
     /// Ethernet device exists on this system (detected during device discovery).
     EthernetDeviceExists,
+    /// Device discovery failed - service is unavailable.
+    DeviceDiscoveryFailed,
     /// Active access point details.
     ApDetails { ssid: Option<String>, strength: i32 },
     /// Failed to get AP details - set disconnected.
@@ -272,6 +274,10 @@ impl NetworkService {
                     drop(snapshot);
                     self.callbacks.notify(&snapshot_clone);
                 }
+            }
+            NetworkUpdate::DeviceDiscoveryFailed => {
+                // Device discovery failed - mark service as unavailable
+                self.set_unavailable();
             }
             NetworkUpdate::ApDetails { ssid, strength } => {
                 let mut snapshot = self.snapshot.borrow_mut();
@@ -514,6 +520,7 @@ impl NetworkService {
                 Ok(paths) => paths,
                 Err(e) => {
                     warn!("Failed to get device paths: {}", e);
+                    send_network_update(NetworkUpdate::DeviceDiscoveryFailed);
                     return;
                 }
             };

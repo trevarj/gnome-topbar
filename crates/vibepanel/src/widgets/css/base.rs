@@ -65,6 +65,11 @@ tooltip.background label {{
 .vp-accent {{ color: var(--color-accent-primary); }}
 .vp-error {{ color: var(--color-state-urgent); }}
 
+/* Service unavailable state - disabled/gray to indicate unavailable service */
+.service-unavailable {{
+    color: var(--color-foreground-disabled);
+}}
+
 /* Standard Link Styling */
 label link {{
     color: var(--color-accent-primary);

@@ -23,7 +23,7 @@ use super::window::QuickSettingsWindow;
 use crate::services::icons::IconsService;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::services::vpn::{VpnConnection, VpnService, VpnSnapshot};
-use crate::styles::{color, icon, qs, row};
+use crate::styles::{color, icon, qs, row, state};
 
 // Global state for VPN keyboard grab management.
 // This needs to be global because QuickSettingsWindow is recreated each time it opens,
@@ -404,19 +404,30 @@ pub fn on_vpn_changed(state: &Rc<VpnCardState>, snapshot: &VpnSnapshot) -> bool 
             toggle.set_active(should_be_active);
             state.updating_toggle.set(false);
         }
-        toggle.set_sensitive(has_connections);
+        // Disable toggle when service unavailable or no connections
+        toggle.set_sensitive(snapshot.available && has_connections);
     }
 
     // Update VPN card icon and its active state class
     if let Some(icon_handle) = state.base.card_icon.borrow().as_ref() {
         let icon_name = vpn_icon_name();
         icon_handle.set_icon(icon_name);
-        set_icon_active(icon_handle, snapshot.any_active);
+
+        // Service unavailable - use error styling
+        if !snapshot.available {
+            icon_handle.add_css_class(state::SERVICE_UNAVAILABLE);
+            icon_handle.remove_css_class(state::ICON_ACTIVE);
+        } else {
+            icon_handle.remove_css_class(state::SERVICE_UNAVAILABLE);
+            set_icon_active(icon_handle, snapshot.any_active);
+        }
     }
 
     // Update VPN subtitle
     if let Some(label) = state.base.subtitle.borrow().as_ref() {
-        let subtitle = if !snapshot.is_ready {
+        let subtitle = if !snapshot.available {
+            "Unavailable".to_string()
+        } else if !snapshot.is_ready {
             "VPN".to_string()
         } else if let Some(p) = primary {
             if p.active {
@@ -428,7 +439,7 @@ pub fn on_vpn_changed(state: &Rc<VpnCardState>, snapshot: &VpnSnapshot) -> bool 
             "No connections".to_string()
         };
         label.set_label(&subtitle);
-        set_subtitle_active(label, snapshot.any_active);
+        set_subtitle_active(label, snapshot.available && snapshot.any_active);
     }
 
     // Update connection list

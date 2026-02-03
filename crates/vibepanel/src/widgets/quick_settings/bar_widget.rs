@@ -144,7 +144,7 @@ impl QuickSettingsWidget {
 
                 if !snapshot.available {
                     widget.add_css_class(state::SERVICE_UNAVAILABLE);
-                    audio_icon_handle.set_icon("audio-volume-muted");
+                    audio_icon_handle.set_icon("audio-volume-muted-symbolic");
                     TooltipManager::global()
                         .set_styled_tooltip(&widget, "Audio: Service unavailable");
                     return;
@@ -196,7 +196,7 @@ impl QuickSettingsWidget {
                 if !snapshot.has_adapter && snapshot.is_ready {
                     widget.add_css_class(state::SERVICE_UNAVAILABLE);
                     widget.remove_css_class(state::ICON_ACTIVE);
-                    bt_icon_handle.set_icon("bluetooth-disabled");
+                    bt_icon_handle.set_icon("bluetooth-disabled-symbolic");
                     TooltipManager::global()
                         .set_styled_tooltip(&widget, "Bluetooth: No adapter found");
                     return;
@@ -251,6 +251,7 @@ impl QuickSettingsWidget {
             let wired_connected = wifi_snapshot.wired_connected;
             let has_wifi_device = wifi_snapshot.has_wifi_device;
             let wifi_icon_name_initial = wifi_icon_name(
+                wifi_snapshot.available,
                 wifi_connected,
                 wifi_enabled,
                 wired_connected,
@@ -274,7 +275,7 @@ impl QuickSettingsWidget {
                     widget.add_css_class(state::SERVICE_UNAVAILABLE);
                     widget.remove_css_class(qs::WIFI_DISABLED_ICON);
                     widget.remove_css_class(state::ICON_ACTIVE);
-                    wifi_icon_handle.set_icon("network-wireless-offline");
+                    wifi_icon_handle.set_icon("network-wireless-offline-symbolic");
                     TooltipManager::global()
                         .set_styled_tooltip(&widget, "Wi-Fi: Service unavailable");
                     return;
@@ -286,8 +287,13 @@ impl QuickSettingsWidget {
                 let wired_connected = snapshot.wired_connected;
                 let has_wifi_device = snapshot.has_wifi_device;
 
-                let icon_name =
-                    wifi_icon_name(connected, enabled, wired_connected, has_wifi_device);
+                let icon_name = wifi_icon_name(
+                    snapshot.available,
+                    connected,
+                    enabled,
+                    wired_connected,
+                    has_wifi_device,
+                );
                 wifi_icon_handle.set_icon(icon_name);
 
                 if !enabled && !wired_connected {
@@ -338,7 +344,7 @@ impl QuickSettingsWidget {
                 if !snapshot.available {
                     widget.add_css_class(state::SERVICE_UNAVAILABLE);
                     widget.remove_css_class(state::ICON_ACTIVE);
-                    vpn_icon_handle.set_icon("network-vpn-disabled");
+                    vpn_icon_handle.set_icon("network-vpn-disabled-symbolic");
                     TooltipManager::global()
                         .set_styled_tooltip(&widget, "VPN: Service unavailable");
                     return;

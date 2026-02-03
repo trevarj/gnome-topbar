@@ -510,6 +510,7 @@ impl QuickSettingsWindow {
         let subtitle_result = build_network_subtitle(&snapshot);
 
         let icon_name = wifi_icon_name(
+            snapshot.available,
             wifi_connected,
             wifi_enabled,
             wired_connected,

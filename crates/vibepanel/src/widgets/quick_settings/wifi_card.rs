@@ -36,11 +36,17 @@ use crate::widgets::base::configure_popover;
 /// while the per-network list rows use `wifi_strength_icon` for
 /// detailed signal levels.
 pub fn wifi_icon_name(
+    available: bool,
     connected: bool,
     wifi_enabled: bool,
     wired_connected: bool,
     has_wifi_device: bool,
 ) -> &'static str {
+    // Service unavailable - show offline icon regardless of device type
+    if !available {
+        return "network-wireless-offline-symbolic";
+    }
+
     if wired_connected {
         "network-wired-symbolic"
     } else if !has_wifi_device {
@@ -110,6 +116,7 @@ pub fn build_network_subtitle(snapshot: &NetworkSnapshot) -> NetworkSubtitleResu
 /// Generate the subtitle text for the network card based on connection state.
 ///
 /// Returns a string describing the current network status:
+/// - Service unavailable: "Unavailable"
 /// - Wired + connecting: "Ethernet · Connecting to {ssid}"
 /// - Wired + Wi-Fi connected: "Ethernet · {ssid}"
 /// - Wired only: "Ethernet"
@@ -119,6 +126,11 @@ pub fn build_network_subtitle(snapshot: &NetworkSnapshot) -> NetworkSubtitleResu
 /// - Wi-Fi disabled: "Off"
 /// - Ethernet-only system, disconnected: "Disconnected"
 pub fn get_network_subtitle_text(snapshot: &NetworkSnapshot) -> String {
+    // Service unavailable (e.g., NetworkManager not running)
+    if !snapshot.available {
+        return "Unavailable".to_string();
+    }
+
     let wifi_enabled = snapshot.wifi_enabled.unwrap_or(false);
     let is_connecting = snapshot.connecting_ssid.is_some();
 
@@ -1153,9 +1165,11 @@ pub fn on_network_changed(
         if toggle.is_active() != enabled {
             toggle.set_active(enabled);
         }
-        // Card toggle is only sensitive on WiFi-only devices (no ethernet port)
+        // Card toggle is only sensitive on WiFi-only devices (no ethernet port) and when service is available
         // When ethernet is present, users must use the switch in expanded view
-        toggle.set_sensitive(snapshot.has_wifi_device && !snapshot.has_ethernet_device);
+        toggle.set_sensitive(
+            snapshot.available && snapshot.has_wifi_device && !snapshot.has_ethernet_device,
+        );
     }
 
     // Update Wi-Fi label and switch visibility (only show when ethernet device present)
@@ -1167,8 +1181,8 @@ pub fn on_network_changed(
         if wifi_switch.is_active() != enabled {
             wifi_switch.set_active(enabled);
         }
-        // Switch should only be sensitive if Wi-Fi device exists
-        wifi_switch.set_sensitive(snapshot.has_wifi_device);
+        // Switch should only be sensitive if Wi-Fi device exists and service is available
+        wifi_switch.set_sensitive(snapshot.available && snapshot.has_wifi_device);
     }
 
     state.updating_toggle.set(false);
@@ -1189,6 +1203,7 @@ pub fn on_network_changed(
     if let Some(icon_handle) = state.base.card_icon.borrow().as_ref() {
         let enabled = snapshot.wifi_enabled.unwrap_or(false);
         let icon_name = wifi_icon_name(
+            snapshot.available,
             snapshot.connected,
             enabled,
             snapshot.wired_connected,
@@ -1196,14 +1211,23 @@ pub fn on_network_changed(
         );
         icon_handle.set_icon(icon_name);
 
-        let icon_active = (enabled && snapshot.connected) || snapshot.wired_connected;
-        set_icon_active(icon_handle, icon_active);
-
-        // Additional disabled styling for Wi-Fi
-        if !enabled && !snapshot.wired_connected {
-            icon_handle.add_css_class(qs::WIFI_DISABLED_ICON);
-        } else {
+        // Service unavailable - use warning styling
+        if !snapshot.available {
+            icon_handle.add_css_class(state::SERVICE_UNAVAILABLE);
             icon_handle.remove_css_class(qs::WIFI_DISABLED_ICON);
+            icon_handle.remove_css_class(state::ICON_ACTIVE);
+        } else {
+            icon_handle.remove_css_class(state::SERVICE_UNAVAILABLE);
+
+            let icon_active = (enabled && snapshot.connected) || snapshot.wired_connected;
+            set_icon_active(icon_handle, icon_active);
+
+            // Additional disabled styling for Wi-Fi
+            if !enabled && !snapshot.wired_connected {
+                icon_handle.add_css_class(qs::WIFI_DISABLED_ICON);
+            } else {
+                icon_handle.remove_css_class(qs::WIFI_DISABLED_ICON);
+            }
         }
     }
 
@@ -1236,7 +1260,7 @@ mod tests {
     #[test]
     fn test_wifi_icon_name_connected() {
         assert_eq!(
-            wifi_icon_name(true, true, false, true),
+            wifi_icon_name(true, true, true, false, true),
             "network-wireless-signal-excellent-symbolic"
         );
     }
@@ -1244,7 +1268,7 @@ mod tests {
     #[test]
     fn test_wifi_icon_name_disconnected() {
         assert_eq!(
-            wifi_icon_name(false, true, false, true),
+            wifi_icon_name(true, false, true, false, true),
             "network-wireless-offline-symbolic"
         );
     }
@@ -1252,11 +1276,11 @@ mod tests {
     #[test]
     fn test_wifi_icon_name_disabled() {
         assert_eq!(
-            wifi_icon_name(true, false, false, true),
+            wifi_icon_name(true, true, false, false, true),
             "network-wireless-offline-symbolic"
         );
         assert_eq!(
-            wifi_icon_name(false, false, false, true),
+            wifi_icon_name(true, false, false, false, true),
             "network-wireless-offline-symbolic"
         );
     }
@@ -1265,15 +1289,15 @@ mod tests {
     fn test_wifi_icon_name_wired_connected() {
         // Wired connected takes precedence regardless of Wi-Fi state
         assert_eq!(
-            wifi_icon_name(false, false, true, true),
+            wifi_icon_name(true, false, false, true, true),
             "network-wired-symbolic"
         );
         assert_eq!(
-            wifi_icon_name(true, true, true, true),
+            wifi_icon_name(true, true, true, true, true),
             "network-wired-symbolic"
         );
         assert_eq!(
-            wifi_icon_name(false, false, true, false),
+            wifi_icon_name(true, false, false, true, false),
             "network-wired-symbolic"
         );
     }
@@ -1282,8 +1306,25 @@ mod tests {
     fn test_wifi_icon_name_ethernet_only_disconnected() {
         // Ethernet-only system (no Wi-Fi device), not connected - shows lan icon (grayed)
         assert_eq!(
-            wifi_icon_name(false, false, false, false),
+            wifi_icon_name(true, false, false, false, false),
             "network-wired-symbolic"
+        );
+    }
+
+    #[test]
+    fn test_wifi_icon_name_service_unavailable() {
+        // Service unavailable - always shows wireless offline icon regardless of other state
+        assert_eq!(
+            wifi_icon_name(false, false, false, false, false),
+            "network-wireless-offline-symbolic"
+        );
+        assert_eq!(
+            wifi_icon_name(false, true, true, false, true),
+            "network-wireless-offline-symbolic"
+        );
+        assert_eq!(
+            wifi_icon_name(false, false, false, true, false),
+            "network-wireless-offline-symbolic"
         );
     }
 
@@ -1442,6 +1483,13 @@ mod tests {
         snapshot.has_ethernet_device = true;
         snapshot.wifi_enabled = None;
         assert_eq!(get_network_subtitle_text(&snapshot), "Disconnected");
+    }
+
+    #[test]
+    fn test_subtitle_service_unavailable() {
+        let mut snapshot = test_snapshot();
+        snapshot.available = false;
+        assert_eq!(get_network_subtitle_text(&snapshot), "Unavailable");
     }
 
     // Tests for is_network_subtitle_active()
