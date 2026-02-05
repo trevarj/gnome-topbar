@@ -45,6 +45,18 @@ struct BarInstance {
     state: BarState,
 }
 
+impl Drop for BarInstance {
+    fn drop(&mut self) {
+        // Automatically close the window when this instance is dropped.
+        // This handles explicit removal, HashMap replacements, and potential panics.
+        self.window.close();
+        debug!(
+            "BarInstance dropped: closed window for monitor {:?}",
+            self.monitor.connector()
+        );
+    }
+}
+
 /// Manages bar window lifecycle across multiple monitors.
 ///
 /// This is a singleton service that holds references to the GTK application
@@ -158,13 +170,11 @@ impl BarManager {
     }
 
     /// Remove a bar by its monitor key.
-    ///
-    /// Closes the window and drops the BarState, cleaning up timers/callbacks.
+    /// Removes the instance from the map. The `Drop` implementation for [BarInstance]
+    /// will automatically close the window and the `BarState` drop will clean up widgets.
     pub fn remove_bar(&self, key: &str) {
-        if let Some(instance) = self.bars.borrow_mut().remove(key) {
+        if self.bars.borrow_mut().remove(key).is_some() {
             debug!("Removing bar for key={}", key);
-            instance.window.close();
-            // BarState is dropped here, cleaning up widget handles
         }
     }
 
