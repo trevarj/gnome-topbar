@@ -68,9 +68,10 @@ sectioned-bar.bar {{
     min-height: var(--widget-height);
 }}
 
-/* Padding on the content box (not the container) so the ripple overlay
-   can fill the entire widget background area edge-to-edge */
-.widget .content {{
+/* Padding on .content (not the container) so the ripple overlay
+   fills the entire widget background area edge-to-edge */
+.widget:not(.widget-group) .content,
+.widget-group > .content > .widget-item .content {{
     padding: var(--widget-padding-y) 10px;
 }}
 
@@ -82,11 +83,6 @@ sectioned-bar.bar {{
 /* Widget hover state - standalone clickable widgets */
 .widget.clickable:not(.widget-group):hover {{
     background-color: {widget_bg_hover};
-}}
-
-/* Widget items inside groups - symmetric padding for hover area */
-.widget-group > .content > .widget-item {{
-    padding: var(--widget-padding-y) 10px;
 }}
 
 /* Pull non-first items left to overlap with previous item's right padding */

@@ -183,8 +183,7 @@ popover.widget-menu.background > contents {{
     background: transparent;
 }}
 
-/* The Overlay wrapper inside .widget needs to inherit border-radius
-   so overflow:hidden clips the ripple to the widget's rounded shape */
+/* Inherit border-radius so the ripple clips to the widget's rounded shape */
 .widget overlay {{
     border-radius: inherit;
 }}

@@ -385,7 +385,7 @@ impl BaseWidget {
         overlay.set_child(Some(&content));
         overlay.set_hexpand(true);
         overlay.set_vexpand(true);
-        // Clip the ripple overlay to the widget's border-radius
+        // Clip ripple to the widget's rounded corners.
         overlay.set_overflow(gtk4::Overflow::Hidden);
 
         // Create Cairo-based ripple overlay for click-origin ripple effect
