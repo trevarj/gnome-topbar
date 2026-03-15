@@ -184,7 +184,8 @@ popover.widget-menu.background > contents {{
 }}
 
 /* Inherit border-radius so the ripple clips to the widget's rounded shape */
-.widget overlay {{
+.widget overlay,
+.widget-item overlay {{
     border-radius: inherit;
 }}
 

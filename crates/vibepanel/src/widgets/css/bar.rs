@@ -90,6 +90,12 @@ sectioned-bar.bar {{
     margin-left: -20px;
 }}
 
+/* Base border-radius for grouped items — must be present in the non-hover
+   state so the radius doesn't snap on/off during the background transition */
+.widget-group > .content > .widget-item {{
+    border-radius: var(--radius-widget);
+}}
+
 /* Widget items inside groups - individual clickable hover targets */
 .widget-group > .content > .widget-item.clickable:hover {{
     background-color: {widget_bg_hover};
