@@ -96,9 +96,11 @@ sectioned-bar.bar {{
     border-radius: var(--radius-widget);
 }}
 
-/* Widget items inside groups - individual clickable hover targets */
+/* Widget items inside groups - individual clickable hover targets.
+   Use only the tint overlay (not the full hover color) because the
+   parent .widget-group already provides the base widget background. */
 .widget-group > .content > .widget-item.clickable:hover {{
-    background-color: {widget_bg_hover};
+    background-color: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
 }}
 
 /* Spacing between items inside widgets */
