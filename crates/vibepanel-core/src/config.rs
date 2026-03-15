@@ -1008,6 +1008,12 @@ pub struct ThemeConfig {
     /// Default: true
     pub ripple: bool,
 
+    /// Enable or disable CSS box-shadows on popover surfaces.
+    ///
+    /// Disable to prevent blur artifacts when compositor blur is active.
+    /// Default: true
+    pub shadows: bool,
+
     /// State colors (success, warning, urgent).
     pub states: ThemeStates,
 
@@ -1025,6 +1031,7 @@ impl Default for ThemeConfig {
             accent: None,
             animations: true,
             ripple: true,
+            shadows: true,
             states: ThemeStates::default(),
             typography: ThemeTypography::default(),
             icons: ThemeIconsConfig::default(),

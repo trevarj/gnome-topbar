@@ -43,6 +43,7 @@ fn default_surface_styles() -> SurfaceStyles {
         opacity: 1.0,
         shadow: "0 1px 2px rgba(0, 0, 0, 0.20), 0 1px 3px rgba(0, 0, 0, 0.24)".to_string(),
         is_dark_mode: true,
+        shadows_enabled: true,
     }
 }
 
@@ -147,6 +148,38 @@ impl SurfaceStyleManager {
     /// Get the theme's foreground/text color (e.g., "#1a1a1a" for light mode).
     pub fn text_color(&self) -> String {
         self.styles.borrow().text_color.clone()
+    }
+
+    /// Whether CSS box-shadows are enabled on surfaces.
+    pub fn shadows_enabled(&self) -> bool {
+        self.styles.borrow().shadows_enabled
+    }
+
+    /// Return `base_margin` when shadows are enabled, otherwise `0`.
+    pub fn shadow_margin(&self, base_margin: i32) -> i32 {
+        if self.shadows_enabled() {
+            base_margin
+        } else {
+            0
+        }
+    }
+
+    /// Apply shadow-aware margins to a popover/overlay container.
+    ///
+    /// The bar-adjacent side gets 0 margin (tight against bar), the opposite
+    /// side and both horizontal sides get the shadow margin.
+    pub fn apply_shadow_margins(&self, widget: &impl gtk4::prelude::WidgetExt, base_margin: i32) {
+        let m = self.shadow_margin(base_margin);
+        let is_bottom = crate::services::config_manager::ConfigManager::global().bar_is_bottom();
+        if is_bottom {
+            widget.set_margin_top(m);
+            widget.set_margin_bottom(0);
+        } else {
+            widget.set_margin_top(0);
+            widget.set_margin_bottom(m);
+        }
+        widget.set_margin_start(m);
+        widget.set_margin_end(m);
     }
 
     /// Get the current font size for bar widgets.
@@ -379,7 +412,7 @@ popover.widget-menu.background > contents {{
     color: var(--color-foreground-primary);
     {padding}
     margin: 0 6px 6px 6px;
-    box-shadow: {shadow};
+    box-shadow: var(--shadow-soft);
 }}
 
 popover.widget-menu > arrow,
@@ -398,7 +431,6 @@ popover.widget-menu.background * {{
                 bg = bg,
                 font = styles.font_family,
                 padding = padding_css,
-                shadow = styles.shadow,
                 radius = radius,
             )
         } else {
@@ -414,11 +446,11 @@ popover.widget-menu.background * {{
             };
 
             // Inner popover panels (.widget-menu-content) don't need shadow -
-            // the popover's contents node handles that. Other surfaces get shadow.
+            // the popover's contents node handles that.
             let shadow_css = if has_menu_content_class {
                 "none".to_string()
             } else {
-                styles.shadow.clone()
+                "var(--shadow-soft)".to_string()
             };
 
             format!(

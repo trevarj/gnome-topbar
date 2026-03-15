@@ -351,17 +351,8 @@ impl QuickSettingsWindow {
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.add_css_class(qs::WINDOW_CONTAINER);
         outer.add_css_class(surface::NO_FOCUS);
-        // Shadow margin: 0 on bar-adjacent side, margin on opposite side
-        let is_bottom = ConfigManager::global().bar_is_bottom();
-        if is_bottom {
-            outer.set_margin_top(QUICK_SETTINGS_OUTER_MARGIN);
-            outer.set_margin_bottom(0);
-        } else {
-            outer.set_margin_top(0);
-            outer.set_margin_bottom(QUICK_SETTINGS_OUTER_MARGIN);
-        }
-        outer.set_margin_start(QUICK_SETTINGS_OUTER_MARGIN);
-        outer.set_margin_end(QUICK_SETTINGS_OUTER_MARGIN);
+        // Shadow margins: 0 on bar-adjacent side, margin on opposite side.
+        SurfaceStyleManager::global().apply_shadow_margins(&outer, QUICK_SETTINGS_OUTER_MARGIN);
 
         // Apply surface styles - background now controlled via CSS variables
         outer.add_css_class("quick-settings-popover");
@@ -1202,6 +1193,11 @@ impl QuickSettingsWindow {
     /// Update window margins based on the current anchor position.
     fn update_position(&self) {
         let anchor_x = self.anchor_x.get();
+
+        // Update shadow margins on the outer container.
+        if let Some(ref outer) = *self.outer_container.borrow() {
+            SurfaceStyleManager::global().apply_shadow_margins(outer, QUICK_SETTINGS_OUTER_MARGIN);
+        }
 
         let mut monitor_opt = self.anchor_monitor.borrow().clone();
         if monitor_opt.is_none()

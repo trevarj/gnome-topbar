@@ -204,6 +204,7 @@ pub struct SurfaceStyles {
     pub opacity: f64,
     pub shadow: String,
     pub is_dark_mode: bool,
+    pub shadows_enabled: bool,
 }
 
 /// Single source of truth for all theme values.
@@ -253,6 +254,8 @@ pub struct ThemePalette {
     pub border_subtle: String,
     pub shadow_soft: String,
     pub shadow_strong: String,
+    /// Whether CSS box-shadows are enabled (from `theme.shadows` config).
+    pub shadows_enabled: bool,
 
     // Slider tracks
     pub slider_track: String,
@@ -531,6 +534,7 @@ impl ThemePalette {
             opacity: self.widget_opacity,
             shadow: self.shadow_soft.clone(),
             is_dark_mode: self.is_dark_mode,
+            shadows_enabled: self.shadows_enabled,
         }
     }
 
@@ -615,6 +619,9 @@ impl ThemePalette {
         // Opacities from bar/widgets config
         self.bar_opacity = config.bar.background_opacity;
         self.widget_opacity = config.widgets.background_opacity;
+
+        // Shadows config
+        self.shadows_enabled = config.theme.shadows;
 
         // Resolve is_dark_mode
         // For GTK mode, we assume dark for overlay calculations since we can't query GTK's actual colors at build time
@@ -772,6 +779,22 @@ impl ThemePalette {
     }
 
     fn compute_borders_and_shadows(&mut self) {
+        if !self.shadows_enabled {
+            let border_opacity = if self.is_dark_mode {
+                BORDER_OPACITY_DARK
+            } else {
+                BORDER_OPACITY_LIGHT
+            };
+            self.border_subtle = if self.is_dark_mode {
+                format!("rgba(255, 255, 255, {:.2})", border_opacity)
+            } else {
+                format!("rgba(0, 0, 0, {:.2})", border_opacity)
+            };
+            self.shadow_soft = "none".to_string();
+            self.shadow_strong = "none".to_string();
+            return;
+        }
+
         let shadow_opacity = if self.is_dark_mode {
             self.border_subtle = format!("rgba(255, 255, 255, {:.2})", BORDER_OPACITY_DARK);
             SHADOW_OPACITY_DARK
@@ -915,6 +938,7 @@ impl Default for ThemePalette {
             border_subtle: String::new(),
             shadow_soft: String::new(),
             shadow_strong: String::new(),
+            shadows_enabled: true,
             slider_track: String::new(),
             slider_track_disabled: String::new(),
             row_critical_background: String::new(),

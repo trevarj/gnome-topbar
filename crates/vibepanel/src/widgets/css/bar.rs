@@ -99,7 +99,6 @@ sectioned-bar.bar {{
 /* Widget items inside groups - individual clickable hover targets */
 .widget-group > .content > .widget-item.clickable:hover {{
     background-color: {widget_bg_hover};
-    border-radius: var(--radius-widget);
 }}
 
 /* Spacing between items inside widgets */

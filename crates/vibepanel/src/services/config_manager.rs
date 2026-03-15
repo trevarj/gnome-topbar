@@ -507,6 +507,7 @@ fn config_theme_changed(old: &Config, new: &Config) -> bool {
         || old.theme.accent != new.theme.accent
         || old.theme.animations != new.theme.animations
         || old.theme.ripple != new.theme.ripple
+        || old.theme.shadows != new.theme.shadows
         || old.bar.background_color != new.bar.background_color
         || old.bar.background_opacity != new.bar.background_opacity
         || old.widgets.background_color != new.widgets.background_color

@@ -439,15 +439,7 @@ impl LayerShellPopover {
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.add_css_class(surface::WIDGET_MENU);
         outer.add_css_class(surface::NO_FOCUS);
-        if is_bottom {
-            outer.set_margin_top(POPOVER_SHADOW_MARGIN);
-            outer.set_margin_bottom(0);
-        } else {
-            outer.set_margin_top(0);
-            outer.set_margin_bottom(POPOVER_SHADOW_MARGIN);
-        }
-        outer.set_margin_start(POPOVER_SHADOW_MARGIN);
-        outer.set_margin_end(POPOVER_SHADOW_MARGIN);
+        SurfaceStyleManager::global().apply_shadow_margins(&outer, POPOVER_SHADOW_MARGIN);
         outer.append(&content);
 
         // Apply surface styles (background, shadow, font) to the content
@@ -517,7 +509,9 @@ impl LayerShellPopover {
             );
             window.set_margin(Edge::Right, right_margin);
         } else {
-            window.set_margin(Edge::Right, POPOVER_SHADOW_MARGIN);
+            let fallback_margin =
+                SurfaceStyleManager::global().shadow_margin(POPOVER_SHADOW_MARGIN);
+            window.set_margin(Edge::Right, fallback_margin);
         }
     }
 }
