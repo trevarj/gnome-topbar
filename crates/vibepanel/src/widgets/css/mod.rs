@@ -20,6 +20,9 @@
 /// Widget background with opacity applied via `color-mix()`.
 pub const WIDGET_BG_WITH_OPACITY: &str = "color-mix(in srgb, var(--widget-background-color) var(--widget-background-opacity), transparent)";
 
+/// Popover background with opacity — uses max(bar, widget) opacity so popovers stay visible in "single bar" mode.
+pub const POPOVER_BG_WITH_OPACITY: &str = "color-mix(in srgb, var(--widget-background-color) var(--popover-background-opacity), transparent)";
+
 /// Widget hover background — blends 8% of the hover tint (white/black) into the base background.
 /// Uses nested `color-mix()` so per-widget `--widget-background-color` overrides cascade automatically.
 pub const WIDGET_BG_HOVER: &str = "color-mix(in srgb, color-mix(in srgb, var(--widget-background-color) var(--widget-background-opacity), transparent) 92%, var(--widget-hover-tint))";

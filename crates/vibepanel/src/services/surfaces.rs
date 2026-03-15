@@ -15,7 +15,7 @@ use tracing::debug;
 use vibepanel_core::SurfaceStyles;
 
 use crate::styles::{icon, surface};
-use crate::widgets::css::WIDGET_BG_WITH_OPACITY;
+use crate::widgets::css::{POPOVER_BG_WITH_OPACITY, WIDGET_BG_WITH_OPACITY};
 
 // GTK 4.10 deprecated widget-scoped style contexts but didn't provide a replacement.
 // We need widget-scoped CSS to style individual surfaces without affecting the entire
@@ -381,13 +381,13 @@ impl SurfaceStyleManager {
 
         // Use inline color-mix() so per-widget overrides work via CSS scoping
         // (e.g., .clock-popover overrides --widget-background-color)
-        let bg = WIDGET_BG_WITH_OPACITY;
 
         // Build CSS targeting the widget's CSS name
         // For Popover, we need to target both the popover and its contents
         // Use high-specificity selectors to override GTK themes
         let css_name = widget.css_name();
         let css = if css_name == "popover" {
+            let bg = POPOVER_BG_WITH_OPACITY;
             format!(
                 r#"
 popover.widget-menu,
@@ -434,6 +434,13 @@ popover.widget-menu.background * {{
                 radius = radius,
             )
         } else {
+            // Layer-shell popovers are GtkBox, not native Popover widgets.
+            let is_popover_surface = widget.has_css_class(surface::POPOVER);
+            let bg = if is_popover_surface {
+                POPOVER_BG_WITH_OPACITY
+            } else {
+                WIDGET_BG_WITH_OPACITY
+            };
             // Check if widget has the widget-menu-content class - if so, use
             // that as the selector for more specific targeting. These inner panels
             // should NOT get a shadow since popover contents node handles that.

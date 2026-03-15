@@ -3,11 +3,11 @@
 //! These are truly shared styles that apply across multiple surfaces
 //! (bar, popovers, quick settings, etc).
 
-use super::{POPOVER_ANIMATION_MS, WIDGET_BG_WITH_OPACITY};
+use super::{POPOVER_ANIMATION_MS, POPOVER_BG_WITH_OPACITY};
 
 /// Return shared utility CSS.
 pub fn css(animations: bool) -> String {
-    let widget_bg = WIDGET_BG_WITH_OPACITY;
+    let popover_bg = POPOVER_BG_WITH_OPACITY;
     let hover_transition = if animations {
         "transition: background-color 100ms ease;"
     } else {
@@ -128,7 +128,7 @@ label link:active {{
 /* Popover/surface background */
 /* color-mix() is inline here so per-widget popover --widget-background-color overrides work via CSS scoping */
 .vp-surface-popover {{
-    background-color: {widget_bg};
+    background-color: {popover_bg};
     border-radius: var(--radius-surface);
     box-shadow: var(--shadow-soft);
     padding: 16px;
