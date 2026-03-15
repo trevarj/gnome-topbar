@@ -182,6 +182,7 @@ where
     // Layer shell configuration - fullscreen surface behind the popover.
     // Use Top layer (not Overlay) to avoid appearing on top of fullscreen apps.
     catcher.init_layer_shell();
+    catcher.set_namespace(Some("vibepanel-click-catcher"));
     catcher.set_layer(Layer::Top);
     catcher.set_exclusive_zone(-1); // Cover everything
     catcher.set_anchor(Edge::Top, true);
@@ -410,6 +411,7 @@ impl LayerShellPopover {
         // Layer shell configuration.
         // Use Top layer (not Overlay) to avoid appearing on top of fullscreen apps.
         window.init_layer_shell();
+        window.set_namespace(Some(&format!("vibepanel-{}-popover", self.widget_name)));
         window.set_layer(Layer::Top);
         window.set_exclusive_zone(0);
         let is_bottom = ConfigManager::global().bar_is_bottom();

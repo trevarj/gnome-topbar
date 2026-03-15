@@ -318,6 +318,7 @@ impl OsdOverlay {
     fn setup_layer_shell_defaults(window: &gtk4::Window) {
         if gdk::Display::default().is_some() {
             window.init_layer_shell();
+            window.set_namespace(Some("vibepanel-osd"));
             window.set_layer(Layer::Overlay);
             window.set_exclusive_zone(0);
 

@@ -70,6 +70,7 @@ impl NotificationToast {
 
         // Initialize layer shell
         window.init_layer_shell();
+        window.set_namespace(Some("vibepanel-toast"));
         window.set_layer(Layer::Overlay);
         window.set_exclusive_zone(0);
         window.set_keyboard_mode(KeyboardMode::None);

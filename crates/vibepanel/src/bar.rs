@@ -49,6 +49,7 @@ pub fn create_bar_window(
 
     // Initialize layer-shell
     window.init_layer_shell();
+    window.set_namespace(Some("vibepanel"));
     window.set_layer(Layer::Top);
 
     // Bind to specific monitor - this should handle width automatically
