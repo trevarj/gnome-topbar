@@ -172,7 +172,7 @@ impl QuickSettingsWindow {
         // Layer shell configuration for panel behavior.
         // Use Top layer (not Overlay) to avoid appearing on top of fullscreen apps.
         window.init_layer_shell();
-        window.set_namespace(Some("vibepanel-quick-settings"));
+        window.set_namespace(Some("vibepanel-quick-settings-popover"));
         window.set_layer(Layer::Top);
         window.set_exclusive_zone(0);
         let is_bottom = ConfigManager::global().bar_is_bottom();
