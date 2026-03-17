@@ -44,7 +44,7 @@ background_opacity = 1.0
 #   visualizer = true  # Enable/disable cava audio visualizer (default: true)
 #
 # Custom widgets use the "custom-" prefix for user-defined buttons:
-#   right = ["custom-power", "tray", "clock"]
+#   right = ["custom-power", "custom-os", "tray", "clock"]
 #
 #   [widgets.custom-power]
 #   icon = "system-shutdown-symbolic"
@@ -52,6 +52,10 @@ background_opacity = 1.0
 #   tooltip = "Power menu"
 #   on_click = "wlogout"
 #   on_click_right = "systemctl suspend"
+#
+#   [widgets.custom-os]
+#   image = "/usr/share/pixmaps/distro-logo.svg"  # file path (PNG, SVG, etc.)
+#   tooltip = "My Distro"
 #
 #   [widgets.custom-weather]
 #   exec = "curl -s 'wttr.in/?format=1'"

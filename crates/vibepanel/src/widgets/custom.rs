@@ -10,7 +10,7 @@
 //! Configuration example:
 //! ```toml
 //! [widgets]
-//! right = ["custom-power", "custom-weather", "clock"]
+//! right = ["custom-power", "custom-os", "custom-weather", "clock"]
 //!
 //! [widgets.custom-power]
 //! icon = "system-shutdown-symbolic"
@@ -19,6 +19,10 @@
 //! on_click = "wlogout"
 //! # on_click_right and on_click_middle are available on all widgets
 //! on_click_right = "systemctl suspend"
+//!
+//! [widgets.custom-os]
+//! image = "/usr/share/pixmaps/distro-logo.svg"
+//! tooltip = "My Distro"
 //!
 //! [widgets.custom-weather]
 //! exec = "curl -s 'wttr.in/?format=1'"
@@ -35,19 +39,20 @@ use std::rc::Rc;
 use gtk4::gio;
 use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
-use gtk4::{GestureClick, Label, gdk};
+use gtk4::{Box as GtkBox, GestureClick, Image, Label, Orientation, gdk};
 use tracing::{debug, warn};
 use vibepanel_core::config::WidgetEntry;
 
 use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{IconHandle, has_material_mapping};
-use crate::styles::{state, widget as wgt};
+use crate::styles::{icon, state, widget as wgt};
 use crate::widgets::base::{BaseWidget, describe_exit_status};
 use crate::widgets::{WidgetConfig, warn_unknown_options};
 
 /// Known config keys for the custom widget.
 const KNOWN_OPTIONS: &[&str] = &[
     "icon",
+    "image",
     "label",
     "exec",
     "template",
@@ -63,8 +68,11 @@ const EXEC_TIMEOUT_SECS: u64 = 10;
 /// Configuration for a custom widget instance.
 #[derive(Debug, Clone, Default)]
 pub struct CustomConfig {
-    /// Logical icon name via `IconsService` (e.g., "system-shutdown-symbolic").
+    /// Logical icon name (e.g., "system-shutdown-symbolic").
     pub icon: Option<String>,
+    /// Image file path (PNG, SVG, etc.). Supports absolute paths, `file://` URIs,
+    /// and `~/`. Takes precedence over `icon` if both are set.
+    pub image: Option<String>,
     /// Static/fallback label text. Supports emoji, Nerd Font glyphs, Unicode.
     pub label: String,
     /// Shell command whose first line of stdout replaces the label text.
@@ -91,6 +99,13 @@ impl WidgetConfig for CustomConfig {
             .options
             .get("icon")
             .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let image = entry
+            .options
+            .get("image")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
             .map(String::from);
 
         let label = entry
@@ -138,6 +153,7 @@ impl WidgetConfig for CustomConfig {
 
         Self {
             icon,
+            image,
             label,
             exec,
             template,
@@ -167,17 +183,37 @@ struct ShowIfGate {
     cmd: String,
 }
 
+/// Resolve `file://` URIs and `~/` paths to absolute paths.
+fn resolve_image_path(value: &str) -> String {
+    if let Some(path) = value.strip_prefix("file://") {
+        path.to_string()
+    } else if let Some(rest) = value.strip_prefix("~/") {
+        match std::env::var("HOME") {
+            Ok(home) => format!("{home}/{rest}"),
+            Err(_) => {
+                warn!("$HOME is not set, cannot expand '~/' in image path");
+                value.to_string()
+            }
+        }
+    } else {
+        value.to_string()
+    }
+}
+
 /// Custom widget that displays a user-configured icon/label with optional
 /// script polling and click handlers.
 pub struct CustomWidget {
     /// Shared base widget container.
     base: BaseWidget,
-    /// Keeps the label GTK widget alive (needed when exec updates it).
+    /// Held to prevent GTK from dropping the label widget.
     #[allow(dead_code)]
     label: Option<Label>,
-    /// Keeps the icon GTK widget alive for the lifetime of this widget.
+    /// Held to prevent GTK from dropping the icon widget.
     #[allow(dead_code)]
     icon_handle: Option<IconHandle>,
+    /// Held to prevent GTK from dropping the image widget.
+    #[allow(dead_code)]
+    image_widget: Option<Image>,
     /// Active timer source ID for cancellation on drop.
     timer_source: Rc<RefCell<Option<SourceId>>>,
 }
@@ -227,16 +263,60 @@ impl CustomWidget {
             base.set_tooltip(tip);
         }
 
-        let icon_handle = config.icon.as_ref().map(|icon_name| {
-            if !has_material_mapping(icon_name) {
+        let (icon_handle, image_widget) = if let Some(ref image_path) = config.image {
+            if config.icon.is_some() {
+                warn!(
+                    "Custom widget '{}': both 'image' and 'icon' are set; using 'image'",
+                    custom_id
+                );
+            }
+
+            let resolved = resolve_image_path(image_path);
+
+            if !resolved.starts_with('/') {
+                warn!(
+                    "Custom widget '{}': image path '{}' is not absolute — \
+                     use an absolute path, ~/path, or file:// URI",
+                    custom_id, image_path
+                );
+            } else if !std::path::Path::new(&resolved).exists() {
+                warn!(
+                    "Custom widget '{}': image file '{}' does not exist",
+                    custom_id, resolved
+                );
+            }
+
+            let image = Image::from_file(&resolved);
+            let icon_size = ConfigManager::global().theme_sizes().pixmap_icon_size as i32;
+            image.set_pixel_size(icon_size);
+
+            let icon_root = GtkBox::new(Orientation::Horizontal, 0);
+            icon_root.add_css_class(icon::ROOT);
+            icon_root.append(&image);
+            base.content().append(&icon_root);
+
+            (None, Some(image))
+        } else if let Some(ref icon_name) = config.icon {
+            if icon_name.starts_with('/')
+                || icon_name.starts_with("~/")
+                || icon_name.starts_with("file://")
+            {
+                warn!(
+                    "Custom widget '{}': icon '{}' looks like a file path — \
+                     use the 'image' field for file-based images instead of 'icon'.",
+                    custom_id, icon_name
+                );
+            } else if !has_material_mapping(icon_name) {
                 warn!(
                     "Custom widget '{}': icon '{}' has no Material Symbol mapping. \
                      Use theme.icons.theme = \"gtk\" or a Nerd Font glyph in the label field.",
                     custom_id, icon_name
                 );
             }
-            base.add_icon(icon_name, &[])
-        });
+            (Some(base.add_icon(icon_name, &[])), None)
+        } else {
+            (None, None)
+        };
 
         let label = if !config.label.is_empty() || config.exec.is_some() {
             let initial_text = if config.label.is_empty() {
@@ -388,6 +468,7 @@ impl CustomWidget {
             base,
             label,
             icon_handle,
+            image_widget,
             timer_source,
         }
     }
@@ -591,6 +672,7 @@ mod tests {
         let config = CustomConfig::from_entry(&entry);
 
         assert!(config.icon.is_none());
+        assert!(config.image.is_none());
         assert_eq!(config.label, "");
         assert!(config.exec.is_none());
         assert!(config.template.is_none());
@@ -680,6 +762,62 @@ mod tests {
         let entry = make_entry(options);
         let config = CustomConfig::from_entry(&entry);
         assert!(config.template.is_none());
+    }
+
+    #[test]
+    fn test_custom_config_image_parsed() {
+        let mut options = HashMap::new();
+        options.insert(
+            "image".to_string(),
+            Value::String("/usr/share/pixmaps/logo.svg".to_string()),
+        );
+        let entry = make_entry(options);
+        let config = CustomConfig::from_entry(&entry);
+        assert_eq!(
+            config.image,
+            Some("/usr/share/pixmaps/logo.svg".to_string())
+        );
+    }
+
+    #[test]
+    fn test_custom_config_image_ignores_non_string() {
+        let mut options = HashMap::new();
+        options.insert("image".to_string(), Value::Integer(42));
+        let entry = make_entry(options);
+        let config = CustomConfig::from_entry(&entry);
+        assert!(config.image.is_none());
+    }
+
+    #[test]
+    fn test_custom_config_image_empty_string_is_none() {
+        let mut options = HashMap::new();
+        options.insert("image".to_string(), Value::String("".to_string()));
+        let entry = make_entry(options);
+        let config = CustomConfig::from_entry(&entry);
+        assert!(config.image.is_none());
+    }
+
+    #[test]
+    fn test_resolve_image_path_absolute() {
+        assert_eq!(
+            resolve_image_path("/usr/share/icon.png"),
+            "/usr/share/icon.png"
+        );
+    }
+
+    #[test]
+    fn test_resolve_image_path_file_uri() {
+        assert_eq!(
+            resolve_image_path("file:///usr/share/icon.png"),
+            "/usr/share/icon.png"
+        );
+    }
+
+    #[test]
+    fn test_resolve_image_path_home_tilde() {
+        let result = resolve_image_path("~/icons/logo.png");
+        assert!(!result.starts_with('~'));
+        assert!(result.ends_with("/icons/logo.png"));
     }
 
     // --- show_if piggyback tests ---
