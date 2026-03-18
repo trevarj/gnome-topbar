@@ -415,6 +415,14 @@ fn update_button(state: &Rc<RefCell<WidgetState>>, button: &Button, snapshot: &T
     if let Some(name) = icon_name
         && !name.is_empty()
     {
+        // Some apps set IconName to an absolute file path rather than a theme
+        // name. Load it directly as a texture, falling back to theme lookup.
+        if name.starts_with('/')
+            && let Ok(texture) = gdk::Texture::from_filename(name)
+        {
+            image.set_paintable(Some(&texture));
+            return;
+        }
         image.set_icon_name(Some(name));
         return;
     }
