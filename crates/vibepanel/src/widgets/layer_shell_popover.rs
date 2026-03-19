@@ -261,6 +261,8 @@ pub struct LayerShellPopover {
     /// Anchor X coordinate (widget center) in monitor coordinates.
     anchor_x: Cell<i32>,
     anchor_monitor: RefCell<Option<Monitor>>,
+    /// Optional callback invoked when the popover is hidden.
+    on_close: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
 impl LayerShellPopover {
@@ -284,6 +286,7 @@ impl LayerShellPopover {
             content_widget: RefCell::new(None),
             anchor_x: Cell::new(0),
             anchor_monitor: RefCell::new(None),
+            on_close: RefCell::new(None),
         })
     }
 
@@ -293,6 +296,11 @@ impl LayerShellPopover {
             .borrow()
             .as_ref()
             .is_some_and(|w| w.is_visible())
+    }
+
+    /// Set a callback to be invoked when the popover is hidden.
+    pub fn set_on_close<F: Fn() + 'static>(&self, callback: F) {
+        *self.on_close.borrow_mut() = Some(Rc::new(callback));
     }
 
     /// Show the popover at the given anchor position.
@@ -322,6 +330,11 @@ impl LayerShellPopover {
         let Some(window) = window else {
             return;
         };
+
+        // Fire on_close callback only when actually closing a visible popover.
+        if let Some(ref cb) = *self.on_close.borrow() {
+            cb();
+        }
 
         // Start close animation on the content widget
         if let Some(ref content) = content {

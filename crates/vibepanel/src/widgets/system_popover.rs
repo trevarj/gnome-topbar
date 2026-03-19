@@ -1,7 +1,7 @@
-//! System resource popover - detailed CPU, memory, network, and load information.
+//! System resource popover - detailed CPU, memory, GPU, network, and load information.
 //!
-//! This popover is shared between the CPU and Memory widgets, showing comprehensive
-//! system resource information when either widget is clicked.
+//! This popover is shared between the CPU, Memory, and GPU widgets, showing
+//! comprehensive system resource information when any of those widgets is clicked.
 //!
 //! Layout:
 //! ```text
@@ -9,6 +9,10 @@
 //! │ ┌───────────┐ ┌───────────┐ │
 //! │ │  CPU      │ │  Memory   │ │
 //! │ └───────────┘ └───────────┘ │
+//! ├─────────────────────────────┤
+//! │ ┌───────────────────────────┤  (conditional: only if GPU detected)
+//! │ │  GPU                      │
+//! │ └───────────────────────────┤
 //! ├─────────────────────────────┤
 //! │ ┌───────────┐ ┌───────────┐ │
 //! │ │  Load     │ │  Network  │ │
@@ -26,7 +30,9 @@ use gtk4::{
     Align, Box as GtkBox, Label, Orientation, ProgressBar, Revealer, RevealerTransitionType, Widget,
 };
 
+use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
+use crate::services::gpu::{GpuService, GpuSnapshot};
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::system::{SystemService, SystemSnapshot, format_bytes_long, format_speed};
 use crate::styles::{button, card, color, icon, surface, system_popover as sp};
@@ -65,12 +71,21 @@ pub struct SystemPopoverController {
     load_1_label: Label,
     load_5_label: Label,
     load_15_label: Label,
+
+    // GPU section (conditional: only present when GPU is detected)
+    gpu_card: GtkBox,
+    gpu_metrics_label: Label,
+    gpu_usage_label: Label,
+    gpu_progress: ProgressBar,
+    gpu_vram_value_label: Label,
+    gpu_vram_progress: ProgressBar,
+    gpu_vram_detail_label: Label,
 }
 
 impl SystemPopoverController {
     /// Update all labels and progress bars from the latest snapshot.
     pub fn update_from_snapshot(&self, snapshot: &SystemSnapshot) {
-        // CPU - temp in title (Option 3)
+        // CPU
         self.cpu_usage_label
             .set_label(&format!("{:.1}%", snapshot.cpu_usage));
         self.cpu_temp_label.set_label(&match snapshot.cpu_temp {
@@ -110,6 +125,57 @@ impl SystemPopoverController {
         self.load_1_label.set_label(&format!("{:.2}", one));
         self.load_5_label.set_label(&format!("{:.2}", five));
         self.load_15_label.set_label(&format!("{:.2}", fifteen));
+    }
+
+    /// Update the GPU card from the latest GPU snapshot.
+    pub fn update_from_gpu_snapshot(&self, snapshot: &GpuSnapshot) {
+        if !snapshot.available {
+            self.gpu_card.set_visible(false);
+            return;
+        }
+        self.gpu_card.set_visible(true);
+
+        if let Some(usage) = snapshot.gpu_usage {
+            self.gpu_usage_label.set_label(&format!("{:.1}%", usage));
+            self.gpu_progress.set_fraction(usage as f64 / 100.0);
+        } else {
+            self.gpu_usage_label.set_label("--");
+            self.gpu_progress.set_fraction(0.0);
+        }
+
+        // Clock + power + temperature on metrics row
+        let mut metrics_parts = Vec::new();
+        if let Some(mhz) = snapshot.clock_mhz {
+            metrics_parts.push(format!("{} MHz", mhz));
+        }
+        if let Some(watts) = snapshot.power_watts {
+            metrics_parts.push(format!("{:.1} W", watts));
+        }
+        if let Some(temp) = snapshot.temperature {
+            metrics_parts.push(format!("{:.0}°C", temp));
+        }
+        let metrics_text = metrics_parts.join(" \u{00B7} ");
+        self.gpu_metrics_label.set_label(&metrics_text);
+        self.gpu_metrics_label.set_visible(!metrics_text.is_empty());
+
+        // VRAM bar + detail
+        let vram_pct = snapshot.vram_percent();
+        if let Some(pct) = vram_pct {
+            self.gpu_vram_value_label.set_label(&format!("{:.1}%", pct));
+            self.gpu_vram_progress.set_fraction(pct as f64 / 100.0);
+        } else {
+            self.gpu_vram_value_label.set_label("--");
+            self.gpu_vram_progress.set_fraction(0.0);
+        }
+
+        let vram_detail = match (snapshot.vram_used, snapshot.vram_total) {
+            (Some(used), Some(total)) => {
+                format!("{} / {}", format_bytes_long(used), format_bytes_long(total))
+            }
+            (Some(used), None) => format!("{} used", format_bytes_long(used)),
+            _ => "--".to_string(),
+        };
+        self.gpu_vram_detail_label.set_label(&vram_detail);
     }
 
     /// Toggle the cores expander visibility.
@@ -315,6 +381,62 @@ pub fn build_system_popover_with_controller() -> (Widget, SystemPopoverControlle
     cores_revealer.set_child(Some(&cpu_cores_box));
     container.append(&cores_revealer);
 
+    // GPU section (full-width card, conditionally visible)
+    let gpu_service = GpuService::global();
+    let gpu_available = gpu_service.snapshot().available;
+
+    let gpu_card = GtkBox::new(Orientation::Vertical, 0);
+    gpu_card.add_css_class(card::BASE);
+    gpu_card.add_css_class(sp::SECTION_CARD);
+    gpu_card.add_css_class(sp::GPU_CARD);
+    gpu_card.set_margin_top(8);
+    gpu_card.set_visible(gpu_available);
+
+    let gpu_section = GtkBox::new(Orientation::Vertical, 8);
+
+    // Row 1: [icon] GPU  <clock · power · temp>
+    let gpu_title_row = GtkBox::new(Orientation::Horizontal, 6);
+    gpu_title_row.add_css_class(sp::SECTION_TITLE);
+    gpu_title_row.add_css_class(sp::GPU_TITLE);
+
+    let gpu_icon = icons.create_icon("video-display-symbolic", &[icon::TEXT, sp::SECTION_ICON]);
+    gpu_title_row.append(&gpu_icon.widget());
+
+    let gpu_label = Label::new(Some("GPU"));
+    gpu_label.add_css_class(surface::POPOVER_TITLE);
+    gpu_title_row.append(&gpu_label);
+
+    let gpu_metrics_label = Label::new(None);
+    gpu_metrics_label.add_css_class(color::MUTED);
+    gpu_metrics_label.add_css_class(sp::GPU_METRICS);
+    gpu_metrics_label.set_hexpand(true);
+    gpu_metrics_label.set_halign(Align::End);
+    gpu_title_row.append(&gpu_metrics_label);
+
+    gpu_section.append(&gpu_title_row);
+
+    let (gpu_usage_row, gpu_usage_label) = stat_row("Usage", 6);
+    gpu_section.append(&gpu_usage_row);
+
+    let gpu_progress = ProgressBar::new();
+    gpu_progress.add_css_class(sp::PROGRESS_BAR);
+    gpu_section.append(&gpu_progress);
+
+    let (gpu_vram_row, gpu_vram_value_label) = stat_row("VRAM", 6);
+    gpu_section.append(&gpu_vram_row);
+
+    let gpu_vram_progress = ProgressBar::new();
+    gpu_vram_progress.add_css_class(sp::PROGRESS_BAR);
+    gpu_section.append(&gpu_vram_progress);
+
+    let gpu_vram_detail_label = Label::new(Some("-- / --"));
+    gpu_vram_detail_label.add_css_class(color::MUTED);
+    gpu_vram_detail_label.set_halign(Align::Start);
+    gpu_section.append(&gpu_vram_detail_label);
+
+    gpu_card.append(&gpu_section);
+    container.append(&gpu_card);
+
     let bottom_row = GtkBox::new(Orientation::Horizontal, 8);
     bottom_row.set_homogeneous(true);
     bottom_row.set_margin_top(8);
@@ -447,6 +569,13 @@ pub fn build_system_popover_with_controller() -> (Widget, SystemPopoverControlle
         load_1_label,
         load_5_label,
         load_15_label,
+        gpu_card,
+        gpu_metrics_label,
+        gpu_usage_label,
+        gpu_progress,
+        gpu_vram_value_label,
+        gpu_vram_progress,
+        gpu_vram_detail_label,
     };
 
     let controller_clone = controller.clone();
@@ -456,6 +585,9 @@ pub fn build_system_popover_with_controller() -> (Widget, SystemPopoverControlle
 
     controller.update_from_snapshot(&snapshot);
 
+    let gpu_snapshot = gpu_service.snapshot();
+    controller.update_from_gpu_snapshot(&gpu_snapshot);
+
     (container.upcast::<Widget>(), controller)
 }
 
@@ -463,27 +595,74 @@ pub fn build_system_popover_with_controller() -> (Widget, SystemPopoverControlle
 #[derive(Clone)]
 pub struct SystemPopoverBinding {
     controller: Rc<RefCell<Option<SystemPopoverController>>>,
+    /// Held to keep the `Rc` alive; managed via clones in open/close closures.
+    #[allow(dead_code)]
+    gpu_callback_id: Rc<Cell<Option<CallbackId>>>,
 }
 
 impl SystemPopoverBinding {
     /// Create a new binding and wire up the popover menu on the given base widget.
+    ///
+    /// GPU polling is started when the popover opens and stopped when it closes,
+    /// so that NVML calls don't prevent the GPU from entering D3cold sleep.
+    /// A GPU service callback is also registered while the popover is open so that
+    /// GPU metrics update live (even when there is no GPU bar widget).
     pub fn new(base: &crate::widgets::base::BaseWidget) -> Self {
         let controller: Rc<RefCell<Option<SystemPopoverController>>> = Rc::new(RefCell::new(None));
+        let gpu_callback_id: Rc<Cell<Option<CallbackId>>> = Rc::new(Cell::new(None));
         let controller_for_builder = controller.clone();
+        let gpu_cb_for_builder = gpu_callback_id.clone();
 
-        base.create_menu(move || {
+        let menu_handle = base.create_menu(move || {
+            // Builder runs each time the popover opens.
+            // Start GPU polling so the popover gets fresh data.
+            let gpu_service = GpuService::global();
+            GpuService::request_polling(&gpu_service);
+
             let (widget, ctrl) = build_system_popover_with_controller();
             *controller_for_builder.borrow_mut() = Some(ctrl);
+
+            // Subscribe to GPU snapshot updates so the popover refreshes while open.
+            let controller_for_gpu = controller_for_builder.clone();
+            let cb_id = gpu_service.connect(move |snapshot: &GpuSnapshot| {
+                if let Some(ctrl) = controller_for_gpu.borrow().as_ref() {
+                    ctrl.update_from_gpu_snapshot(snapshot);
+                }
+            });
+            gpu_cb_for_builder.set(Some(cb_id));
+
             widget
         });
 
-        Self { controller }
+        // Stop GPU polling and drop the controller so we don't update invisible widgets.
+        let controller_for_close = controller.clone();
+        let gpu_cb_for_close = gpu_callback_id.clone();
+        menu_handle.set_on_close(move || {
+            // Disconnect GPU callback before releasing polling.
+            if let Some(cb_id) = gpu_cb_for_close.take() {
+                GpuService::global().disconnect(cb_id);
+            }
+            GpuService::global().release_polling();
+            *controller_for_close.borrow_mut() = None;
+        });
+
+        Self {
+            controller,
+            gpu_callback_id,
+        }
     }
 
     /// Update the popover if it's currently open.
     pub fn update_if_open(&self, snapshot: &SystemSnapshot) {
         if let Some(controller) = self.controller.borrow().as_ref() {
             controller.update_from_snapshot(snapshot);
+        }
+    }
+
+    /// Update the GPU section of the popover if it's currently open.
+    pub fn update_gpu_if_open(&self, snapshot: &GpuSnapshot) {
+        if let Some(controller) = self.controller.borrow().as_ref() {
+            controller.update_from_gpu_snapshot(snapshot);
         }
     }
 }

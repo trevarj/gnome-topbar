@@ -582,6 +582,22 @@ pub mod widget {
     /// Memory high usage state (`.memory-high`).
     pub const MEMORY_HIGH: &str = "memory-high";
 
+    // GPU
+    /// GPU widget (`.gpu`).
+    pub const GPU: &str = "gpu";
+
+    /// GPU icon (`.gpu-icon`).
+    pub const GPU_ICON: &str = "gpu-icon";
+
+    /// GPU label (`.gpu-label`).
+    pub const GPU_LABEL: &str = "gpu-label";
+
+    /// GPU high usage state (`.gpu-high`).
+    pub const GPU_HIGH: &str = "gpu-high";
+
+    /// GPU suspended/idle state (`.gpu-suspended`).
+    pub const GPU_SUSPENDED: &str = "gpu-suspended";
+
     // Custom
     /// Custom widget prefix (`.custom-<name>`).
     /// Each instance gets a dynamic `custom-{id}` class built from this prefix.
@@ -1072,4 +1088,13 @@ pub mod system_popover {
 
     /// Network speed icon (`.system-network-icon`).
     pub const NETWORK_ICON: &str = "system-network-icon";
+
+    /// GPU full-width card (`.system-gpu-card`).
+    pub const GPU_CARD: &str = "system-gpu-card";
+
+    /// GPU title row container (`.system-gpu-title`).
+    pub const GPU_TITLE: &str = "system-gpu-title";
+
+    /// GPU metrics label in title row (clock · power · temp) (`.system-gpu-metrics`).
+    pub const GPU_METRICS: &str = "system-gpu-metrics";
 }

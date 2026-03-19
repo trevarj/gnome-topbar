@@ -70,5 +70,14 @@ button.system-expander-header > overlay > box {
 .system-network-icon {
     font-size: 0.9em;
 }
+
+/* GPU title row: icon + "GPU" + metrics */
+.system-gpu-title {
+    margin-bottom: 4px;
+}
+
+/* GPU metrics in title row (clock · power · temp) */
+.system-gpu-metrics {
+}
 "#
 }

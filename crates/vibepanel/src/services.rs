@@ -18,6 +18,7 @@
 //! - **idle_inhibitor**: System idle/sleep prevention
 //! - **state**: Persistent state storage (DND, VPN last used, notification history)
 //! - **system**: CPU, memory, and system resource monitoring
+//! - **gpu**: GPU utilization and VRAM monitoring (AMD sysfs, NVIDIA NVML)
 //! - **media**: MPRIS media player control and monitoring
 
 pub mod audio;
@@ -29,6 +30,7 @@ pub mod callbacks;
 pub mod cava;
 pub mod compositor;
 pub mod config_manager;
+pub mod gpu;
 pub mod icons;
 pub mod idle_inhibitor;
 pub mod ipc;
