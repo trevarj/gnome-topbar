@@ -27,6 +27,12 @@ pub mod class {
     /// Applied to shared island containers that hold multiple grouped widgets.
     pub const WIDGET_GROUP: &str = "widget-group";
 
+    /// Widget visual surface class (`.widget-surface`).
+    /// Applied to a GtkBox that carries the widget's background-color and
+    /// border-radius. Separated from `.widget` so the click target remains
+    /// rectangular (Fitts's Law) while the visual appearance is rounded.
+    pub const WIDGET_SURFACE: &str = "widget-surface";
+
     /// Widget content inner box (`.content`).
     pub const CONTENT: &str = "content";
 

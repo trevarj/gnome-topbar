@@ -225,7 +225,16 @@ fn build_widget_or_group(
             content.add_css_class(class::CONTENT);
             content.set_vexpand(true);
             content.set_valign(gtk4::Align::Fill);
-            island.append(&content);
+
+            // Visual surface for rounded background (see WIDGET_SURFACE doc).
+            let surface = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            surface.add_css_class(class::WIDGET_SURFACE);
+            surface.set_overflow(gtk4::Overflow::Hidden);
+            surface.set_hexpand(true);
+            surface.set_vexpand(true);
+
+            surface.append(&content);
+            island.append(&surface);
 
             let mut count = 0;
             for entry in group {

@@ -183,8 +183,8 @@ popover.widget-menu.background > contents {{
     background: transparent;
 }}
 
-/* Inherit border-radius so the ripple clips to the widget's rounded shape */
-.widget overlay,
+/* Inherit border-radius so the ripple clips to the rounded shape */
+.widget-surface > overlay,
 .widget-item overlay {{
     border-radius: inherit;
 }}
@@ -211,11 +211,13 @@ button:hover {{
     {hover_transition}
 }}
 
-.widget,
+.widget-surface {{
+    {hover_transition}
+}}
+
 .widget-item {{
     {hover_transition}
 }}
-.widget:hover,
 .widget-item:hover {{
     {hover_transition}
 }}

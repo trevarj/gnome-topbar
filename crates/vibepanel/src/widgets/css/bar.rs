@@ -61,17 +61,20 @@ sectioned-bar.bar {{
 }}
 
 /* Widget - individual widget containers */
-/* color-mix() is inline here so per-widget --widget-background-color overrides work via CSS scoping */
 .widget {{
+    min-height: var(--widget-height);
+}}
+
+/* Widget visual surface — rounded background, rectangular click target */
+.widget-surface {{
     background-color: {widget_bg};
     border-radius: var(--radius-widget);
-    min-height: var(--widget-height);
 }}
 
 /* Padding on .content (not the container) so the ripple overlay
    fills the entire widget background area edge-to-edge */
 .widget:not(.widget-group) .content,
-.widget-group > .content > .widget-item .content {{
+.widget-group .content > .widget-item .content {{
     padding: var(--widget-padding-y) 10px;
 }}
 
@@ -80,32 +83,39 @@ sectioned-bar.bar {{
     padding: 0;
 }}
 
-/* Widget hover state - standalone clickable widgets */
-.widget.clickable:not(.widget-group):hover {{
+/* Widget hover — :hover on rectangular .widget, visual on rounded .widget-surface */
+.widget.clickable:not(.widget-group):hover > .widget-surface {{
     background-color: {widget_bg_hover};
 }}
 
 /* Pull non-first items left to overlap with previous item's right padding */
-.widget-group > .content > .widget-item:not(:first-child) {{
+.widget-group .content > .widget-item:not(:first-child) {{
     margin-left: -20px;
 }}
 
 /* Base border-radius for grouped items — must be present in the non-hover
    state so the radius doesn't snap on/off during the background transition */
-.widget-group > .content > .widget-item {{
+.widget-group .content > .widget-item {{
     border-radius: var(--radius-widget);
+}}
+
+/* Reset nested surface: group already provides background.
+   Keep border-radius: inherit so overflow:hidden still clips the ripple. */
+.widget-group .widget-surface .widget-surface {{
+    background-color: transparent;
+    border-radius: inherit;
 }}
 
 /* Widget items inside groups - individual clickable hover targets.
    Use only the tint overlay (not the full hover color) because the
    parent .widget-group already provides the base widget background. */
-.widget-group > .content > .widget-item.clickable:hover {{
+.widget-group .content > .widget-item.clickable:hover {{
     background-color: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
 }}
 
 /* Spacing between items inside widgets */
 .widget .content > *:not(:last-child),
-.widget-group > .content .content > *:not(:last-child) {{
+.widget-group .content .content > *:not(:last-child) {{
     margin-right: var(--spacing-widget-gap);
 }}
 

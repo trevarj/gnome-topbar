@@ -379,14 +379,20 @@ impl BaseWidget {
         // Disable baseline alignment - it can cause vertical offset issues with text
         content.set_baseline_position(gtk4::BaselinePosition::Center);
 
+        // Visual surface: rounded background + overflow clipping.
+        // Must be a GtkBox (not Overlay) — Overlay doesn't clip background to border-radius.
+        let surface = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        surface.add_css_class(class::WIDGET_SURFACE);
+        surface.set_overflow(gtk4::Overflow::Hidden);
+        surface.set_hexpand(true);
+        surface.set_vexpand(true);
+
         // Wrap content in an Overlay so the ripple effect can sit on top
         // without affecting the widget background or content opacity.
         let overlay = Overlay::new();
         overlay.set_child(Some(&content));
         overlay.set_hexpand(true);
         overlay.set_vexpand(true);
-        // Clip ripple to the widget's rounded corners.
-        overlay.set_overflow(gtk4::Overflow::Hidden);
 
         // Create Cairo-based ripple overlay for click-origin ripple effect
         let ripple_handle = RippleHandle::new();
@@ -394,7 +400,8 @@ impl BaseWidget {
         // Tell the Overlay to measure this overlay so it fills the full area
         overlay.set_measure_overlay(ripple_handle.widget(), true);
 
-        container.append(&overlay);
+        surface.append(&overlay);
+        container.append(&surface);
 
         let menu: Rc<RefCell<Option<Rc<MenuHandle>>>> = Rc::new(RefCell::new(None));
 
