@@ -148,9 +148,9 @@ mod imp {
                         nat_base,
                     );
                 } else {
-                    // max_chars == 0: Report zero so the widget never drives
-                    // parent width — hexpand=true fills available space instead.
-                    return (0, 0, min_base, nat_base);
+                    // max_chars == 0 (unlimited): report label's natural width so
+                    // the widget requests its real text size from the layout.
+                    return (0, nat, min_base, nat_base);
                 }
             }
 
