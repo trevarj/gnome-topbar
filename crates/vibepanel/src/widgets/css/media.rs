@@ -67,7 +67,6 @@ pub fn css(animations: bool) -> String {
 
 /* Popover styling */
 .media-popover.vp-surface-popover {{
-    padding: 28px;
     min-width: 340px;
 }}
 
@@ -84,11 +83,6 @@ pub fn css(animations: bool) -> String {
     min-width: 28px;
     min-height: 28px;
     margin-top: 0;
-}}
-
-/* open_in_new glyph sits slightly high; nudge down for visual centering */
-.media-popout-btn .icon-root {{
-    margin-top: 2px;
 }}
 
 /* Player selector menu - extends qs-row-menu-content */
