@@ -647,8 +647,10 @@ impl MediaWidget {
 
         // We need access to the menu handle to close the popover when popping out.
         // Use the same pattern as notifications: store it after create_menu returns.
+        // The on_popout closure captures a Weak to avoid a reference cycle:
+        //   menu_handle_cell → MenuHandle → builder closure → on_popout → menu_handle_cell
         let menu_handle_cell: Rc<RefCell<Option<Rc<MenuHandle>>>> = Rc::new(RefCell::new(None));
-        let menu_handle_for_builder = menu_handle_cell.clone();
+        let menu_handle_weak = Rc::downgrade(&menu_handle_cell);
 
         // Create the on_popout callback that will be called when the pop-out button is clicked.
         let on_popout = move || {
@@ -656,7 +658,9 @@ impl MediaWidget {
             TooltipManager::global().cancel_and_hide();
 
             // Close the popover first
-            if let Some(menu_handle) = menu_handle_for_builder.borrow().as_ref() {
+            if let Some(cell) = menu_handle_weak.upgrade()
+                && let Some(menu_handle) = cell.borrow().as_ref()
+            {
                 menu_handle.hide();
             }
 
@@ -723,16 +727,34 @@ impl MediaWidget {
         };
 
         let menu_handle = base.create_menu(move || {
-            // Drop old controller before building the new one so stale
-            // callbacks are cleaned up before new ones are registered.
-            controller_for_builder.borrow_mut().take();
-
             let on_popout_clone = on_popout.clone();
             let (widget, controller) = build_media_popover_with_controller(move || {
                 on_popout_clone();
             });
             *controller_for_builder.borrow_mut() = Some(controller);
             widget
+        });
+
+        menu_handle.set_reuse_content(true);
+
+        // Push a fresh snapshot each time the popover opens so values are current.
+        let controller_for_show = controller_cell.clone();
+        menu_handle.set_on_show(move || {
+            if let Some(ctrl) = controller_for_show.borrow().as_ref() {
+                let snapshot = MediaService::global().snapshot();
+                ctrl.update_from_snapshot(&snapshot);
+            }
+        });
+
+        // Pause the popover visualizer when closed so cava callbacks and
+        // tick-driven redraws don't run on an invisible widget.
+        let controller_for_close = controller_cell.clone();
+        menu_handle.set_on_close(move || {
+            if let Some(ctrl) = controller_for_close.borrow().as_ref()
+                && let Some(ref viz) = ctrl.visualizer
+            {
+                viz.pause();
+            }
         });
 
         *menu_handle_cell.borrow_mut() = Some(menu_handle);

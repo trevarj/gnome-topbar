@@ -131,6 +131,13 @@ impl ConfigManager {
         palette.sizes.clone()
     }
 
+    /// Get the computed surface border radius in pixels.
+    pub fn surface_border_radius(&self) -> u32 {
+        let config = self.config.borrow();
+        let palette = ThemePalette::from_config(&config);
+        palette.surface_border_radius
+    }
+
     /// Get the pill radius (used for rounded indicators, thumbnails, etc.).
     ///
     /// This is derived from the widget border radius configuration.

@@ -16,8 +16,8 @@ use gtk4::{
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
 
+use super::scale_box::ScaleBox;
 use crate::services::compositor::CompositorManager;
 use crate::services::config_manager::ConfigManager;
 use crate::services::surfaces::SurfaceStyleManager;
@@ -37,10 +37,122 @@ const POPOVER_DEFAULT_WIDTH_ESTIMATE: i32 = 320;
 
 const POPOVER_MIN_VALID_WIDTH: i32 = 20;
 
-/// Duration of the popover open/close CSS transition.
-/// Derived from the single source of truth in `css::POPOVER_ANIMATION_MS`.
-pub const POPOVER_ANIMATION_DURATION: Duration =
-    Duration::from_millis(super::css::POPOVER_ANIMATION_MS);
+/// Animation duration as f64 milliseconds for tick-callback math.
+pub(crate) const ANIM_DURATION_MS: f64 = super::css::POPOVER_ANIMATION_MS as f64;
+
+/// Starting scale for popover open/close animation.
+/// ScaleBox simulates this via symmetric center-clip (no actual scale transform).
+pub(crate) const ANIM_SCALE_FROM: f64 = 0.94;
+
+/// Direction of the popover animation.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum AnimDirection {
+    Opening,
+    Closing,
+}
+
+/// Shared animation state, passed to the tick callback via `Rc<RefCell<_>>`.
+///
+/// `progress` represents the current visual state:
+///   0.0 = fully hidden (opacity 0)
+///   1.0 = fully visible (opacity 1)
+pub(crate) struct AnimState {
+    /// Current direction of animation.
+    pub(crate) direction: AnimDirection,
+    /// Frame-clock time (microseconds) when this animation segment started.
+    pub(crate) start_time_us: i64,
+    /// Progress value at the start of this segment (for mid-flight reversal).
+    pub(crate) start_progress: f64,
+    /// Target progress (1.0 for opening, 0.0 for closing).
+    pub(crate) target_progress: f64,
+    /// Whether a tick callback is currently driving this state.
+    pub(crate) active: bool,
+    /// Generation counter that the current tick callback was started with.
+    /// Used to detect when an active tick has a stale generation and needs
+    /// to be replaced by a new one.
+    pub(crate) tick_generation: u32,
+}
+
+impl AnimState {
+    pub(crate) fn new_idle() -> Self {
+        Self {
+            direction: AnimDirection::Opening,
+            start_time_us: 0,
+            start_progress: 0.0,
+            target_progress: 0.0,
+            active: false,
+            tick_generation: 0,
+        }
+    }
+
+    /// Compute the current eased progress given the frame clock time.
+    pub(crate) fn current_progress(&self, now_us: i64) -> f64 {
+        let elapsed_ms = (now_us - self.start_time_us) as f64 / 1000.0;
+        let distance = (self.target_progress - self.start_progress).abs();
+        if distance < f64::EPSILON {
+            return self.target_progress;
+        }
+        // Duration is proportional to remaining distance — a half-done
+        // animation that reverses takes half the time.
+        let segment_duration_ms = ANIM_DURATION_MS * distance;
+        let t = (elapsed_ms / segment_duration_ms).clamp(0.0, 1.0);
+        // Quintic ease-out: snappy start, long gentle tail.
+        // Approximates the Material Design `cubic-bezier(0.2, 0, 0, 1)` curve
+        // used in the original CSS transitions.
+        let eased = 1.0 - (1.0 - t).powi(5);
+        self.start_progress + (self.target_progress - self.start_progress) * eased
+    }
+
+    /// Whether the animation has reached its target.
+    pub(crate) fn is_complete(&self, now_us: i64) -> bool {
+        let elapsed_ms = (now_us - self.start_time_us) as f64 / 1000.0;
+        let distance = (self.target_progress - self.start_progress).abs();
+        if distance < f64::EPSILON {
+            return true;
+        }
+        let segment_duration_ms = ANIM_DURATION_MS * distance;
+        elapsed_ms >= segment_duration_ms
+    }
+
+    /// Prepare an animation segment and determine if a new tick callback is needed.
+    ///
+    /// Captures the current progress (for mid-flight reversal), updates all state
+    /// fields, and returns `true` if a new tick callback must be registered. Returns
+    /// `false` if the existing tick callback will pick up the new direction.
+    ///
+    /// `current_opacity` is the shell's current opacity, used as the starting
+    /// progress when no animation is in flight.
+    pub(crate) fn prepare(
+        &mut self,
+        direction: AnimDirection,
+        generation: u32,
+        start_time_us: i64,
+        current_opacity: f64,
+    ) -> bool {
+        let target = match direction {
+            AnimDirection::Opening => 1.0,
+            AnimDirection::Closing => 0.0,
+        };
+
+        let start_progress = if self.active {
+            self.current_progress(start_time_us)
+        } else {
+            current_opacity
+        };
+
+        let was_active = self.active;
+        let tick_is_current = was_active && self.tick_generation == generation;
+        self.direction = direction;
+        self.start_time_us = start_time_us;
+        self.start_progress = start_progress;
+        self.target_progress = target;
+        self.active = true;
+        self.tick_generation = generation;
+        // Need a new tick callback if none is running, or the running one
+        // has a stale generation (it will self-cancel).
+        !tick_is_current
+    }
+}
 
 /// Calculate the margin for a popover on the bar-adjacent edge.
 ///
@@ -243,26 +355,65 @@ where
 
 /// A layer-shell popover for widget menus.
 ///
-/// Creates fresh windows on each `show()` call and destroys them on `hide()`,
-/// ensuring clean state without remembered scroll positions or expanded sections.
+/// The window shell (`ApplicationWindow` with layer-shell configuration) is
+/// created lazily on first show and **reused** across open/close cycles.
 ///
-/// Supports animated open/close via CSS transitions (scale + fade). On hide,
-/// the window is taken out of the struct (so `is_visible()` returns false
-/// immediately) and the close animation plays on the orphaned window before
-/// it is destroyed.
+/// ## Animation architecture
+///
+/// Open/close animations (opacity fade) are driven by a **tick callback**
+/// on the persistent animation shell, not by CSS `transition:` properties.
+/// CSS `transform: scale()` transitions are observed to cause unbounded
+/// memory growth in GTK4.
+///
+/// The tick callback reads the frame clock each frame, computes eased progress
+/// from an `AnimState`, and applies opacity via `Widget::set_opacity()`. This gives:
+///
+/// - **No CSS transitions** (no `transition:` on any widget)
+/// - **Smooth mid-flight reversal** (clicking close during open reverses from
+///   the current position, proportional timing)
+/// - **No jank** (no snapping between states on rapid clicks)
 pub struct LayerShellPopover {
     app: Application,
     widget_name: String,
     builder: Rc<dyn Fn() -> gtk4::Widget>,
     window: RefCell<Option<ApplicationWindow>>,
     click_catcher: RefCell<Option<ApplicationWindow>>,
-    /// Reference to the popover content widget for animation class toggling.
-    content_widget: RefCell<Option<gtk4::Widget>>,
+    /// Persistent animation shell. Never destroyed. Builder content is placed
+    /// inside this as a child and swapped on each show.
+    anim_shell: RefCell<Option<ScaleBox>>,
     /// Anchor X coordinate (widget center) in monitor coordinates.
     anchor_x: Cell<i32>,
     anchor_monitor: RefCell<Option<Monitor>>,
-    /// Optional callback invoked when the popover is hidden.
+    /// Optional callback invoked when the popover is fully hidden (after close
+    /// animation completes). NOT fired at the start of hide().
     on_close: RefCell<Option<Rc<dyn Fn()>>>,
+    /// Optional callback invoked every time the popover is shown (after content
+    /// is parented but before the animation starts). Use this to refresh data
+    /// in reuse mode — e.g. updating the calendar to today's date.
+    on_show: RefCell<Option<Rc<dyn Fn()>>>,
+    /// Shared animation state driven by the tick callback.
+    anim_state: Rc<RefCell<AnimState>>,
+    /// Generation counter incremented on every show/hide to cancel stale
+    /// tick callbacks and idle callbacks.
+    anim_generation: Rc<Cell<u32>>,
+    /// Logical open state. True from the moment show() is called until
+    /// hide() is called. Used by is_visible() so the toggle logic in BaseWidget works correctly
+    /// even while a close animation is in flight.
+    logically_open: Cell<bool>,
+    /// Set when `mark_content_dirty()` is called while the popover is not
+    /// logically open (e.g. a notification arrives during the close animation).
+    /// Checked and cleared on mid-close reversal so the content gets rebuilt.
+    content_dirty: Cell<bool>,
+    /// When true, the builder is called only once and the content widget is
+    /// cached across open/close cycles. On subsequent opens the cached widget
+    /// is re-parented into the anim shell instead of calling the builder again.
+    ///
+    /// This avoids per-cycle widget allocation which is observed to leak memory
+    /// in GTK4 for widgets with complex internal trees (e.g. Calendar).
+    reuse_content: Cell<bool>,
+    /// Cached content widget for reuse mode. Kept alive across close cycles
+    /// so it can be re-parented on the next open.
+    cached_content: RefCell<Option<gtk4::Widget>>,
 }
 
 impl LayerShellPopover {
@@ -283,19 +434,28 @@ impl LayerShellPopover {
             builder: Rc::new(builder),
             window: RefCell::new(None),
             click_catcher: RefCell::new(None),
-            content_widget: RefCell::new(None),
+            anim_shell: RefCell::new(None),
             anchor_x: Cell::new(0),
             anchor_monitor: RefCell::new(None),
             on_close: RefCell::new(None),
+            on_show: RefCell::new(None),
+            anim_state: Rc::new(RefCell::new(AnimState::new_idle())),
+            anim_generation: Rc::new(Cell::new(0)),
+            logically_open: Cell::new(false),
+            content_dirty: Cell::new(false),
+            reuse_content: Cell::new(false),
+            cached_content: RefCell::new(None),
         })
     }
 
-    /// Check if the popover is currently visible.
+    /// Check if the popover is logically open.
+    ///
+    /// Returns `true` from the moment `show_at()` is called until `hide()`
+    /// is called, even though the window may still be visible during the close
+    /// animation. This is critical for the toggle logic in `BaseWidget` to
+    /// work correctly during rapid clicking.
     pub fn is_visible(&self) -> bool {
-        self.window
-            .borrow()
-            .as_ref()
-            .is_some_and(|w| w.is_visible())
+        self.logically_open.get()
     }
 
     /// Set a callback to be invoked when the popover is hidden.
@@ -303,114 +463,313 @@ impl LayerShellPopover {
         *self.on_close.borrow_mut() = Some(Rc::new(callback));
     }
 
+    /// Set a callback to be invoked every time the popover is shown.
+    ///
+    /// In reuse mode this is called after the cached content is re-parented,
+    /// allowing consumers to refresh data (e.g. update calendar to today).
+    pub fn set_on_show<F: Fn() + 'static>(&self, callback: F) {
+        *self.on_show.borrow_mut() = Some(Rc::new(callback));
+    }
+
+    /// Enable content reuse mode.
+    ///
+    /// When enabled, the builder is called only once and the resulting widget
+    /// is cached. On subsequent opens the cached widget is re-parented into
+    /// the anim shell instead of calling the builder again.
+    pub fn set_reuse_content(&self, reuse: bool) {
+        self.reuse_content.set(reuse);
+    }
+
+    /// Mark the popover content as needing a rebuild.
+    ///
+    /// Called by `MenuHandle::refresh_if_visible()` when the popover is not
+    /// logically open (e.g. a notification arrives during the close animation).
+    /// The flag is checked on mid-close reversal so the stale content gets
+    /// replaced before the user sees it again.
+    pub fn mark_content_dirty(&self) {
+        self.content_dirty.set(true);
+    }
+
     /// Show the popover at the given anchor position.
     ///
-    /// Creates fresh window and click-catcher instances.
+    /// Reuses all persistent shells (window, animation, click-catcher) and
+    /// builds fresh content.
     pub fn show_at(self: &Rc<Self>, x: i32, monitor: Option<Monitor>) {
         self.anchor_x.set(x);
         *self.anchor_monitor.borrow_mut() = monitor;
         self.show_internal();
     }
 
-    /// Hide the popover with a close animation.
+    /// Hide the popover with a close animation, keeping the window shell alive.
     ///
-    /// The click-catcher is destroyed immediately so the bar is interactive
-    /// during the animation. The window is taken out of the struct (making
-    /// `is_visible()` return false) and moved into a timeout closure that
-    /// closes it after the CSS transition completes.
+    /// The click-catcher is hidden immediately so the bar is interactive
+    /// during the animation. The animation shell fades out via the tick
+    /// callback, then content is removed and the window is hidden.
+    ///
+    /// If the popover is currently opening, the animation smoothly reverses
+    /// from the current progress — no snapping.
+    ///
+    /// The `on_close` callback fires when the close animation **completes**,
+    /// not when `hide()` is called.
     pub fn hide(&self) {
-        // Destroy click-catcher immediately
-        if let Some(catcher) = self.click_catcher.borrow_mut().take() {
-            catcher.close();
+        // Mark as logically closed immediately — the toggle logic in BaseWidget
+        // checks this to decide show vs hide on the next click.
+        self.logically_open.set(false);
+
+        // Bump generation to cancel any pending idle callback from show_internal().
+        let generation = self.anim_generation.get().wrapping_add(1);
+        self.anim_generation.set(generation);
+
+        // Hide click-catcher immediately so bar is interactive during animation.
+        if let Some(ref catcher) = *self.click_catcher.borrow() {
+            catcher.set_visible(false);
         }
 
-        let content = self.content_widget.borrow_mut().take();
-        let window = self.window.borrow_mut().take();
+        let window = self.window.borrow().as_ref().cloned();
+        let anim_shell = self.anim_shell.borrow().as_ref().cloned();
 
         let Some(window) = window else {
             return;
         };
 
-        // Fire on_close callback only when actually closing a visible popover.
-        if let Some(ref cb) = *self.on_close.borrow() {
-            cb();
+        // Release keyboard grab while hiding.
+        window.set_keyboard_mode(KeyboardMode::None);
+
+        // If animations are disabled, snap closed immediately.
+        if !ConfigManager::global().animations_enabled() {
+            if let Some(ref shell) = anim_shell {
+                shell.set_opacity(0.0);
+                shell.set_scale(ANIM_SCALE_FROM);
+                shell.remove_child();
+            }
+            window.set_visible(false);
+            // Fire on_close now since there's no animation to wait for.
+            if let Some(ref cb) = *self.on_close.borrow() {
+                cb();
+            }
+            return;
         }
 
-        // Start close animation on the content widget
-        if let Some(ref content) = content {
-            content.add_css_class(surface::POPOVER_HIDDEN);
-        }
+        // Ensure the window is fully visible (the idle callback from show_internal
+        // may not have fired yet, leaving window.opacity at 0.0).
+        window.set_opacity(1.0);
 
-        // The orphaned window closes itself after the animation duration.
-        // If show_at() is called during this window, a new window is created
-        // independently — Rust ownership prevents conflicts.
-        let delay = if ConfigManager::global().animations_enabled() {
-            POPOVER_ANIMATION_DURATION
-        } else {
-            Duration::ZERO
+        // Start (or reverse into) the close animation.
+        // on_close fires when the animation completes (in the tick callback).
+        self.start_animation(AnimDirection::Closing, generation);
+    }
+
+    /// Rebuild the popover content in-place without any animation.
+    ///
+    /// Used by `MenuHandle::refresh_if_visible()` to hot-swap content while the
+    /// popover is already open (e.g. a new notification arrives). This avoids
+    /// the hide→show cycle which would trigger the mid-close reversal path and
+    /// skip the content rebuild.
+    pub fn rebuild_content(&self) {
+        let Some(anim_shell) = self.anim_shell.borrow().as_ref().cloned() else {
+            return;
         };
-        glib::timeout_add_local_once(delay, move || {
-            // `window` and `content` are moved here and dropped after close
-            let _ = &content;
-            window.close();
-        });
+
+        anim_shell.remove_child();
+
+        // Invalidate cache so the builder runs fresh.
+        *self.cached_content.borrow_mut() = None;
+
+        let content = (self.builder)();
+        content.add_css_class(surface::POPOVER);
+        let popover_class = format!("{}-popover", self.widget_name);
+        content.add_css_class(&popover_class);
+
+        // Re-cache if in reuse mode.
+        if self.reuse_content.get() {
+            *self.cached_content.borrow_mut() = Some(content.clone());
+        }
+
+        anim_shell.set_child(&content);
+
+        SurfaceStyleManager::global().apply_pango_attrs_all(&anim_shell);
     }
 
     fn show_internal(self: &Rc<Self>) {
-        // Guard against re-entrancy: if already visible, hide first to avoid
-        // orphaning the old window/click-catcher
-        if self.is_visible() {
-            self.hide();
+        // Mark as logically open immediately.
+        self.logically_open.set(true);
+
+        // If we're currently animating a close, the window is still visible
+        // with content — just reverse the animation direction. No need to
+        // rebuild content, recreate click-catcher, etc.
+        let was_closing = {
+            let state = self.anim_state.borrow();
+            state.active && state.direction == AnimDirection::Closing
+        };
+
+        if was_closing {
+            // Content may have become stale during the close animation (e.g. a
+            // notification arrived while logically_open was false). Rebuild now
+            // so the user doesn't see outdated content when the reversal
+            // completes.
+            if self.content_dirty.take() {
+                self.rebuild_content();
+            }
+
+            // Use the CURRENT generation (set by hide()) so the existing tick
+            // callback stays valid — no new closure allocation needed.
+            let generation = self.anim_generation.get();
+            // Re-show click-catcher (hide() hid it).
+            let catcher = self.ensure_click_catcher();
+            if let Some(ref monitor) = *self.anchor_monitor.borrow() {
+                catcher.set_monitor(Some(monitor));
+            }
+            catcher.set_margin(popover_bar_edge(), calculate_bar_exclusive_zone());
+            catcher.set_visible(true);
+
+            // Restore keyboard mode (hide() set it to None).
+            if let Some(ref window) = *self.window.borrow() {
+                window.set_keyboard_mode(popover_keyboard_mode());
+            }
+
+            // Anchor may have changed since the original open.
+            self.update_position();
+
+            // Reverse into opening — tick callback picks up new direction.
+            self.start_animation(AnimDirection::Opening, generation);
+            return;
         }
 
-        // Create the main window
-        let window = self.create_window();
+        // Not mid-close — full open from scratch.
+        // Fresh content will be built below, so clear any pending dirty flag.
+        self.content_dirty.set(false);
+        // Bump generation to cancel any stale tick callbacks or idle callbacks.
+        let generation = self.anim_generation.get().wrapping_add(1);
+        self.anim_generation.set(generation);
 
-        // Set monitor if specified
+        // If the window is somehow still visible (shouldn't happen with
+        // logically_open guard, but be defensive), hide it synchronously.
+        if self
+            .window
+            .borrow()
+            .as_ref()
+            .is_some_and(|w| w.is_visible())
+        {
+            // Snap-close without animation to avoid recursion.
+            if let Some(ref shell) = *self.anim_shell.borrow() {
+                shell.set_opacity(0.0);
+                shell.set_scale(ANIM_SCALE_FROM);
+                shell.remove_child();
+            }
+            if let Some(ref window) = *self.window.borrow() {
+                window.set_visible(false);
+            }
+        }
+
+        let window = self.ensure_window_shell();
+
+        let anim_shell = self.ensure_anim_shell();
+
+        anim_shell.remove_child();
+
+        // Get or build content. In reuse mode, the builder is called only once
+        // and the widget is cached for subsequent opens. This avoids per-cycle
+        // widget allocation which leaks memory in GTK4 for complex widgets.
+        let content = if self.reuse_content.get() {
+            if let Some(ref cached) = *self.cached_content.borrow() {
+                cached.clone()
+            } else {
+                let fresh = (self.builder)();
+                fresh.add_css_class(surface::POPOVER);
+                let popover_class = format!("{}-popover", self.widget_name);
+                fresh.add_css_class(&popover_class);
+                *self.cached_content.borrow_mut() = Some(fresh.clone());
+                fresh
+            }
+        } else {
+            let fresh = (self.builder)();
+            fresh.add_css_class(surface::POPOVER);
+            let popover_class = format!("{}-popover", self.widget_name);
+            fresh.add_css_class(&popover_class);
+            fresh
+        };
+
+        anim_shell.set_child(&content);
+
+        // Fire on_show callback (e.g. to refresh calendar to today's date).
+        if let Some(ref cb) = *self.on_show.borrow() {
+            cb();
+        }
+
+        SurfaceStyleManager::global().apply_pango_attrs_all(&anim_shell);
+
         if let Some(ref monitor) = *self.anchor_monitor.borrow() {
             window.set_monitor(Some(monitor));
         }
 
-        // Create and show click-catcher first
-        let bar_zone = calculate_bar_exclusive_zone();
-        let weak_self = Rc::downgrade(self);
-        let catcher = create_click_catcher(&self.app, bar_zone, move || {
-            if let Some(popover) = weak_self.upgrade() {
-                popover.hide();
-            }
-        });
+        // Set the shell to the hidden state (will be animated to visible).
+        anim_shell.set_opacity(0.0);
+        anim_shell.set_scale(ANIM_SCALE_FROM);
 
+        // Ensure the outer wrapper is set as the window's child (persists).
+        if window.child().is_none() {
+            let outer = GtkBox::new(Orientation::Vertical, 0);
+            outer.add_css_class(surface::WIDGET_MENU);
+            outer.add_css_class(surface::NO_FOCUS);
+            SurfaceStyleManager::global().apply_shadow_margins(&outer, POPOVER_SHADOW_MARGIN);
+            outer.append(&anim_shell);
+            window.set_child(Some(&outer));
+        }
+
+        // Restore keyboard mode (hide() sets it to None).
+        window.set_keyboard_mode(popover_keyboard_mode());
+
+        // Show click-catcher (persistent, created lazily).
+        let catcher = self.ensure_click_catcher();
         if let Some(ref monitor) = *self.anchor_monitor.borrow() {
             catcher.set_monitor(Some(monitor));
         }
-
+        catcher.set_margin(popover_bar_edge(), calculate_bar_exclusive_zone());
         catcher.set_visible(true);
-        *self.click_catcher.borrow_mut() = Some(catcher.clone());
 
-        // Show window with opacity trick to avoid flicker during positioning
+        // Show window with opacity trick to avoid flicker during positioning.
         window.set_opacity(0.0);
         window.set_visible(true);
         window.present();
 
-        *self.window.borrow_mut() = Some(window.clone());
-
-        // After window is mapped, update position and reveal with animation
+        // After window is mapped, update position and start the open animation.
         let weak_self = Rc::downgrade(self);
-        glib::idle_add_local(move || {
+        let gen_rc = Rc::clone(&self.anim_generation);
+        glib::idle_add_local_once(move || {
+            // Bail if a newer show/hide cycle started before this idle fired.
+            if gen_rc.get() != generation {
+                return;
+            }
+
             if let Some(popover) = weak_self.upgrade() {
                 popover.update_position();
                 if let Some(ref window) = *popover.window.borrow() {
                     window.set_opacity(1.0);
                 }
-                if let Some(ref content) = *popover.content_widget.borrow() {
-                    content.remove_css_class(surface::POPOVER_HIDDEN);
+
+                if ConfigManager::global().animations_enabled() {
+                    popover.start_animation(AnimDirection::Opening, generation);
+                } else {
+                    // Animations disabled — snap open immediately.
+                    if let Some(ref shell) = *popover.anim_shell.borrow() {
+                        shell.set_opacity(1.0);
+                        shell.set_scale(1.0);
+                    }
                 }
             }
-            ControlFlow::Break
         });
     }
 
-    fn create_window(self: &Rc<Self>) -> ApplicationWindow {
+    /// Ensure the window shell exists, creating it lazily if needed.
+    ///
+    /// The shell includes the `ApplicationWindow`, layer-shell configuration,
+    /// and ESC key handler — but no content. Content is set by `show_internal()`
+    /// on each open.
+    fn ensure_window_shell(self: &Rc<Self>) -> ApplicationWindow {
+        if let Some(ref window) = *self.window.borrow() {
+            return window.clone();
+        }
+
         let window = ApplicationWindow::builder()
             .application(&self.app)
             .title(format!("vibepanel {} popover", self.widget_name))
@@ -434,36 +793,6 @@ impl LayerShellPopover {
         window.set_anchor(Edge::Left, false);
         window.set_keyboard_mode(popover_keyboard_mode());
 
-        // Build content
-        let content = (self.builder)();
-        content.add_css_class(surface::POPOVER);
-        let popover_class = format!("{}-popover", self.widget_name);
-        content.add_css_class(&popover_class);
-
-        // Start in hidden state for the open animation
-        content.add_css_class(surface::POPOVER_ANIMATE);
-        content.add_css_class(surface::POPOVER_HIDDEN);
-
-        *self.content_widget.borrow_mut() = Some(content.clone().upcast());
-
-        // Wrap in container with margins for shadow space.
-        // The bar-adjacent side gets 0 margin (tight against bar),
-        // the opposite side gets shadow margin for drop shadow rendering.
-        let outer = GtkBox::new(Orientation::Vertical, 0);
-        outer.add_css_class(surface::WIDGET_MENU);
-        outer.add_css_class(surface::NO_FOCUS);
-        SurfaceStyleManager::global().apply_shadow_margins(&outer, POPOVER_SHADOW_MARGIN);
-        outer.append(&content);
-
-        // Apply surface styles (background, shadow, font) to the content
-        // Note: content does NOT have WIDGET_MENU_CONTENT class, so it gets shadow
-        SurfaceStyleManager::global().apply_surface_styles(&content, true);
-
-        // Apply Pango font attributes
-        SurfaceStyleManager::global().apply_pango_attrs_all(&outer);
-
-        window.set_child(Some(&outer));
-
         // ESC key handler
         {
             let weak_self = Rc::downgrade(self);
@@ -474,7 +803,140 @@ impl LayerShellPopover {
             });
         }
 
+        *self.window.borrow_mut() = Some(window.clone());
         window
+    }
+
+    /// Ensure the persistent animation shell exists, creating it lazily.
+    ///
+    /// The animation shell is a `ScaleBox` whose child (builder content) is
+    /// swapped on each show. It is **never destroyed** and carries no styling —
+    /// it is a pure transparent animation wrapper. Visual styles (background,
+    /// padding, border-radius) live on the content widget via CSS classes
+    /// resolved by the global stylesheet.
+    fn ensure_anim_shell(&self) -> ScaleBox {
+        if let Some(ref shell) = *self.anim_shell.borrow() {
+            return shell.clone();
+        }
+
+        let shell = ScaleBox::new();
+
+        // Start fully hidden (opacity 0, scale at starting value).
+        shell.set_opacity(0.0);
+        shell.set_scale(ANIM_SCALE_FROM);
+
+        *self.anim_shell.borrow_mut() = Some(shell.clone());
+        shell
+    }
+
+    /// Ensure the persistent click-catcher exists, creating it lazily.
+    ///
+    /// The click-catcher is shown/hidden each cycle rather than created/destroyed
+    /// to avoid per-cycle allocation of an `ApplicationWindow` + layer-shell surface.
+    fn ensure_click_catcher(self: &Rc<Self>) -> ApplicationWindow {
+        if let Some(ref catcher) = *self.click_catcher.borrow() {
+            return catcher.clone();
+        }
+
+        let bar_zone = calculate_bar_exclusive_zone();
+        let weak_self = Rc::downgrade(self);
+        let catcher = create_click_catcher(&self.app, bar_zone, move || {
+            if let Some(popover) = weak_self.upgrade() {
+                popover.hide();
+            }
+        });
+
+        *self.click_catcher.borrow_mut() = Some(catcher.clone());
+        catcher
+    }
+
+    /// Start or reverse the open/close animation via a tick callback.
+    ///
+    /// If an animation is already in flight (e.g., opening and user clicks to
+    /// close), the current progress is captured and the animation reverses from
+    /// that point with proportional timing — no snapping.
+    fn start_animation(&self, direction: AnimDirection, generation: u32) {
+        let anim_shell = self.anim_shell.borrow().as_ref().cloned();
+        let Some(anim_shell) = anim_shell else {
+            return;
+        };
+
+        // Cache the current border radius for the duration of this animation.
+        anim_shell.set_radius(ConfigManager::global().surface_border_radius() as f32);
+
+        let start_time_us = anim_shell
+            .frame_clock()
+            .map(|fc| fc.frame_time())
+            .unwrap_or(0);
+
+        let need_tick = self.anim_state.borrow_mut().prepare(
+            direction,
+            generation,
+            start_time_us,
+            anim_shell.opacity(),
+        );
+
+        if !need_tick {
+            return;
+        }
+
+        let anim_state = Rc::clone(&self.anim_state);
+        let anim_gen = Rc::clone(&self.anim_generation);
+        let window = self.window.borrow().as_ref().cloned();
+        let shell_for_scale = anim_shell.clone();
+        let on_close = self.on_close.borrow().clone();
+
+        anim_shell.add_tick_callback(move |shell, frame_clock| {
+            // Generation check — bail if a newer cycle started.
+            // Do NOT touch `active` — a newer tick callback owns that now.
+            if anim_gen.get() != generation {
+                return ControlFlow::Break;
+            }
+
+            let now_us = frame_clock.frame_time();
+            let (progress, complete, direction) = {
+                let state = anim_state.borrow();
+                if !state.active {
+                    return ControlFlow::Break;
+                }
+                (
+                    state.current_progress(now_us),
+                    state.is_complete(now_us),
+                    state.direction,
+                )
+            };
+
+            // Apply visual state — opacity and scale, no CSS involvement.
+            shell.set_opacity(progress);
+            // Interpolate scale: ANIM_SCALE_FROM at progress=0 → 1.0 at progress=1.
+            let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
+            shell_for_scale.set_scale(scale);
+
+            if complete {
+                anim_state.borrow_mut().active = false;
+
+                if direction == AnimDirection::Closing {
+                    // Close complete — remove content and hide window.
+                    shell.set_opacity(0.0);
+                    shell_for_scale.set_scale(ANIM_SCALE_FROM);
+                    shell_for_scale.remove_child();
+                    if let Some(ref w) = window {
+                        w.set_visible(false);
+                    }
+                    // Fire on_close now that the popover is fully hidden.
+                    if let Some(ref cb) = on_close {
+                        cb();
+                    }
+                } else {
+                    // Open complete — ensure we're at exactly 1.0.
+                    shell.set_opacity(1.0);
+                    shell_for_scale.set_scale(1.0);
+                }
+                return ControlFlow::Break;
+            }
+
+            ControlFlow::Continue
+        });
     }
 
     fn update_position(&self) {
@@ -533,6 +995,26 @@ impl LayerShellPopover {
 pub trait Dismissible {
     fn dismiss(&self);
     fn is_visible(&self) -> bool;
+}
+
+impl Drop for LayerShellPopover {
+    fn drop(&mut self) {
+        // If the popover was still open (or mid-animation) when destroyed,
+        // fire on_close synchronously so consumers can clean up resources
+        // (e.g. SystemPopoverBinding releases GPU polling).
+        if (self.logically_open.get() || self.anim_state.borrow().active)
+            && let Some(ref cb) = *self.on_close.borrow()
+        {
+            cb();
+        }
+
+        if let Some(catcher) = self.click_catcher.borrow_mut().take() {
+            catcher.close();
+        }
+        if let Some(window) = self.window.borrow_mut().take() {
+            window.close();
+        }
+    }
 }
 
 impl Dismissible for LayerShellPopover {

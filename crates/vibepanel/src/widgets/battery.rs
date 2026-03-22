@@ -105,10 +105,21 @@ impl BatteryWidget {
         let controller_for_builder = controller_cell.clone();
 
         // Create a popover menu for detailed battery info.
-        base.create_menu(move || {
+        let menu_handle = base.create_menu(move || {
             let (widget, controller) = build_battery_popover_with_controller();
             *controller_for_builder.borrow_mut() = Some(controller);
             widget
+        });
+        menu_handle.set_reuse_content(true);
+
+        // Push fresh snapshots each time the popover opens so values are current.
+        let controller_for_show = controller_cell.clone();
+        menu_handle.set_on_show(move || {
+            if let Some(ctrl) = controller_for_show.borrow().as_ref() {
+                let battery_snapshot = BatteryService::global().snapshot();
+                let power_snapshot = PowerProfileService::global().snapshot();
+                ctrl.update_from_snapshots(&battery_snapshot, &power_snapshot);
+            }
         });
 
         // Initial neutral state until the first snapshot arrives.
