@@ -359,6 +359,10 @@ pub struct NetworkCardState {
     pub password_cancel_button: RefCell<Option<Button>>,
     pub password_connect_button: RefCell<Option<Button>>,
     pub password_target_ssid: RefCell<Option<String>>,
+    /// SSID that was connected when the password dialog was opened. Used to
+    /// distinguish "user switched to a different network" from "user was already
+    /// connected to something else when they opened the dialog."
+    pub password_opened_ssid: RefCell<Option<String>>,
     pub connect_anim_source: RefCell<Option<glib::SourceId>>,
     pub connect_anim_step: Cell<u8>,
     /// Prevents `state_set` handlers from dispatching during programmatic updates.
@@ -396,6 +400,7 @@ impl NetworkCardState {
             password_cancel_button: RefCell::new(None),
             password_connect_button: RefCell::new(None),
             password_target_ssid: RefCell::new(None),
+            password_opened_ssid: RefCell::new(None),
             connect_anim_source: RefCell::new(None),
             connect_anim_step: Cell::new(0),
             updating_wifi_toggle: Cell::new(false),
@@ -1382,6 +1387,11 @@ pub fn show_password_dialog_with_error(
 
     *state.password_target_ssid.borrow_mut() = Some(ssid.to_string());
 
+    // Remember which network was connected when the dialog opened, so we can
+    // distinguish "user switched networks" from "was already on a different network."
+    let snapshot = NetworkService::global().snapshot();
+    *state.password_opened_ssid.borrow_mut() = snapshot.active_ssid().map(|s| s.to_string());
+
     if let Some(label) = state.password_label.borrow().as_ref() {
         label.set_label(&format!("Enter password for {}", ssid));
     }
@@ -1463,6 +1473,7 @@ pub(super) fn hide_password_dialog(state: &NetworkCardState) {
         error_label.set_label("");
     }
     *state.password_target_ssid.borrow_mut() = None;
+    *state.password_opened_ssid.borrow_mut() = None;
 
     if let Some(list_box) = state.base.list_box.borrow().as_ref() {
         let snapshot = NetworkService::global().snapshot();
@@ -1660,9 +1671,10 @@ pub fn on_network_changed(
             } else if nm_snap.wifi.connected
                 && nm_snap.wifi.ssid.as_ref() != Some(target_ssid)
                 && nm_snap.wifi.connecting_ssid.is_none()
+                && nm_snap.wifi.ssid != *state.password_opened_ssid.borrow()
             {
-                // Connected to a different network while password dialog was open
-                // (user clicked a saved network). Hide the stale dialog.
+                // Connected to a different network than when the dialog was
+                // opened (user clicked a saved network). Hide the stale dialog.
                 debug!(
                     "NM connected to '{}' while password dialog was open for '{}', hiding dialog",
                     nm_snap.wifi.ssid.as_deref().unwrap_or("?"),
@@ -1750,9 +1762,12 @@ pub fn on_network_changed(
                     target_ssid
                 );
                 hide_password_dialog(state);
-            } else if iwd_snap.connected() && iwd_snap.ssid.as_deref() != Some(target_ssid) {
-                // Connected to a different network while password dialog was open
-                // (user clicked a saved network). Hide the stale dialog.
+            } else if iwd_snap.connected()
+                && iwd_snap.ssid.as_deref() != Some(target_ssid)
+                && iwd_snap.ssid != *state.password_opened_ssid.borrow()
+            {
+                // Connected to a different network than when the dialog was
+                // opened (user clicked a saved network). Hide the stale dialog.
                 debug!(
                     "IWD connected to '{}' while password dialog was open for '{}', hiding dialog",
                     iwd_snap.ssid.as_deref().unwrap_or("?"),
@@ -1904,12 +1919,8 @@ pub fn on_network_changed(
 
     update_scan_ui(state, snapshot);
 
-    let password_dialog_visible = state
-        .password_box
-        .borrow()
-        .as_ref()
-        .is_some_and(|b| b.is_visible());
-    if !password_dialog_visible && let Some(list_box) = state.base.list_box.borrow().as_ref() {
+    let password_dialog_active = state.password_target_ssid.borrow().is_some();
+    if !password_dialog_active && let Some(list_box) = state.base.list_box.borrow().as_ref() {
         populate_wifi_list(state, list_box, snapshot);
         // Apply Pango font attrs to dynamically created list rows
         SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
