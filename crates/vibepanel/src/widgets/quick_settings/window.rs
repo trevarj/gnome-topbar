@@ -99,15 +99,14 @@ fn clear_current_qs_window() {
 }
 
 const QUICK_SETTINGS_CONTENT_WIDTH: i32 = 320;
-/// Estimated total width including margins (content + padding).
-const QUICK_SETTINGS_WIDTH_ESTIMATE: i32 = 336;
+/// CSS `padding: 16px` on `.vp-surface-popover` (both sides).
+const QUICK_SETTINGS_POPOVER_PADDING: i32 = 32;
 const QUICK_SETTINGS_OUTER_MARGIN: i32 = 4;
 const QUICK_SETTINGS_FAR_EDGE_MARGIN: i32 = 8;
 /// Container padding (surface padding + margins) for height calculation.
 const QUICK_SETTINGS_CONTAINER_PADDING: i32 = 24;
 const QUICK_SETTINGS_MIN_HEIGHT_THRESHOLD: i32 = 100;
 const QUICK_SETTINGS_MIN_EDGE_MARGIN: i32 = 4;
-const QUICK_SETTINGS_MIN_VALID_WIDTH: i32 = 20;
 const QUICK_SETTINGS_DEFAULT_RIGHT_MARGIN: i32 = 8;
 const CARD_ROW_SPACING: i32 = 8;
 const CARD_ROW_GAP: i32 = 8;
@@ -127,11 +126,17 @@ pub struct QuickSettingsWindow {
     /// Animation shell wrapping the outer container. Opacity and scale are
     /// animated via tick callback — no CSS transitions involved.
     anim_shell: ScaleBox,
-    /// Outer container (shadow margins, surface styles). Child of `anim_shell`.
+    /// Wrapper between window and anim_shell that provides shadow margins
+    /// so the ScaleBox grow-in clip animation is visible.
+    margin_wrapper: GtkBox,
+    /// Content container (surface styles, focus suppression).
     outer_container: RefCell<Option<GtkBox>>,
     /// Anchor X position in monitor coordinates.
     anchor_x: Cell<i32>,
     anchor_monitor: RefCell<Option<gdk::Monitor>>,
+    /// Cached window width from the first successful map. Layer shell surfaces
+    /// report 0 width when hidden, so we cache the real value for re-opens.
+    cached_width: Cell<i32>,
     /// Whether the window has been mapped at least once (used to skip
     /// the opacity fade-in trick on subsequent shows).
     has_been_mapped: Cell<bool>,
@@ -219,14 +224,24 @@ impl QuickSettingsWindow {
         anim_shell.set_opacity(0.0);
         anim_shell.set_scale(ANIM_SCALE_FROM);
 
+        // Margin wrapper sits between window and anim_shell, providing
+        // transparent padding so the ScaleBox clip animation is visible.
+        let margin_wrapper = GtkBox::new(Orientation::Vertical, 0);
+        margin_wrapper.add_css_class(surface::WIDGET_MENU);
+        margin_wrapper.add_css_class(surface::NO_FOCUS);
+        SurfaceStyleManager::global()
+            .apply_shadow_margins(&margin_wrapper, QUICK_SETTINGS_OUTER_MARGIN);
+
         // Content is built after construction.
         let qs = Rc::new(Self {
             window: window.clone(),
             click_catcher: RefCell::new(None),
             anim_shell: anim_shell.clone(),
+            margin_wrapper: margin_wrapper.clone(),
             outer_container: RefCell::new(None),
             anchor_x: Cell::new(0),
             anchor_monitor: RefCell::new(None),
+            cached_width: Cell::new(0),
             has_been_mapped: Cell::new(false),
             is_animating_out: Cell::new(false),
             logically_open: Cell::new(false),
@@ -258,9 +273,13 @@ impl QuickSettingsWindow {
 
         let outer = Self::build_content(&qs);
 
-        // Hierarchy: window → anim_shell (ScaleBox) → outer (GtkBox)
+        // Hierarchy: window → margin_wrapper → anim_shell (ScaleBox) → outer
+        // The margin wrapper provides transparent padding around the ScaleBox
+        // so the rounded-clip grow animation is visible (same pattern as
+        // LayerShellPopover).
         anim_shell.set_child(&outer);
-        window.set_child(Some(&anim_shell));
+        margin_wrapper.append(&anim_shell.clone().upcast::<gtk4::Widget>());
+        window.set_child(Some(&margin_wrapper));
 
         // Store outer container reference.
         *qs.outer_container.borrow_mut() = Some(outer.clone());
@@ -397,8 +416,6 @@ impl QuickSettingsWindow {
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.add_css_class(qs::WINDOW_CONTAINER);
         outer.add_css_class(surface::NO_FOCUS);
-        // Shadow margins: 0 on bar-adjacent side, margin on opposite side.
-        SurfaceStyleManager::global().apply_shadow_margins(&outer, QUICK_SETTINGS_OUTER_MARGIN);
 
         // Apply surface styles - background now controlled via CSS variables
         outer.add_css_class("quick-settings-popover");
@@ -1266,10 +1283,9 @@ impl QuickSettingsWindow {
     fn update_position(&self) {
         let anchor_x = self.anchor_x.get();
 
-        // Update shadow margins on the outer container.
-        if let Some(ref outer) = *self.outer_container.borrow() {
-            SurfaceStyleManager::global().apply_shadow_margins(outer, QUICK_SETTINGS_OUTER_MARGIN);
-        }
+        // Update shadow margins on the margin wrapper.
+        SurfaceStyleManager::global()
+            .apply_shadow_margins(&self.margin_wrapper, QUICK_SETTINGS_OUTER_MARGIN);
 
         let mut monitor_opt = self.anchor_monitor.borrow().clone();
         if monitor_opt.is_none()
@@ -1321,13 +1337,20 @@ impl QuickSettingsWindow {
 
         // Set right margin using shared helper
         if anchor_x > 0 {
-            let window_width = {
-                let w = self.window.width();
-                if w > QUICK_SETTINGS_MIN_VALID_WIDTH {
-                    w
-                } else {
-                    QUICK_SETTINGS_WIDTH_ESTIMATE
-                }
+            // Use cached width from a previous map, or fall back to the live
+            // value.  Layer-shell surfaces report 0 when hidden, so the cache
+            // is essential for re-opens.
+            let w = self.window.width();
+            let window_width = if w > 0 {
+                self.cached_width.set(w);
+                w
+            } else if self.cached_width.get() > 0 {
+                self.cached_width.get()
+            } else {
+                // Never mapped — estimate from content + CSS padding + shadow margins.
+                let shadow_m =
+                    SurfaceStyleManager::global().shadow_margin(QUICK_SETTINGS_OUTER_MARGIN);
+                QUICK_SETTINGS_CONTENT_WIDTH + QUICK_SETTINGS_POPOVER_PADDING + 2 * shadow_m
             };
             let right_margin = calculate_popover_right_margin(
                 anchor_x,
