@@ -58,10 +58,7 @@ use vibepanel_core::Config;
 /// These are truly shared styles that apply across multiple surfaces
 /// (bar, popovers, quick settings, etc).
 pub fn utility_css(config: &Config) -> String {
-    // When using GTK's accent, Adwaita's built-in focus ring is already correct.
-    // For custom/none modes, we override with var(--color-accent-primary).
-    let override_focus_ring = !matches!(config.theme.accent.as_deref(), None | Some("gtk"));
-    base::css(config.theme.animations, override_focus_ring)
+    base::css(config.theme.animations)
 }
 
 /// Generate all widget CSS.
