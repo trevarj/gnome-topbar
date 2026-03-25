@@ -2,7 +2,7 @@
 //!
 //! Maps widget names (e.g., "clock", "quick_settings") to their
 //! `PopoverToggleable` handles, enabling IPC commands like
-//! `vibepanel popover open clock`.
+//! `vibepanel popover show clock`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -110,17 +110,32 @@ pub fn dispatch(name: &str, action: DispatchAction) -> bool {
 
 /// Resolve which handle to dispatch to based on the focused monitor.
 ///
-/// Queries the compositor for the focused window's output, then finds the
-/// handle whose `monitor_connector()` matches. Falls back to the first handle.
+/// Tries the focused window's output first. Falls back to the active
+/// workspace's output (survives layer-shell keyboard grabs where the
+/// compositor unfocuses all windows). Last resort: first registered handle.
 fn resolve_focused_handle(
     handles: &[Rc<dyn PopoverToggleable>],
 ) -> Option<Rc<dyn PopoverToggleable>> {
     if handles.is_empty() {
         return None;
     }
-    let focused_output = crate::services::compositor::CompositorManager::global()
+    let manager = crate::services::compositor::CompositorManager::global();
+
+    let focused_output = manager
         .get_focused_window()
-        .and_then(|w| w.output);
+        .and_then(|w| w.output)
+        .or_else(|| {
+            // No focused window (e.g. popover has exclusive keyboard grab).
+            // Derive from the globally-active workspace's output instead.
+            let snapshot = manager.get_workspace_snapshot();
+            manager.list_workspaces().into_iter().find_map(|ws| {
+                if snapshot.active_workspace.contains(&ws.id) {
+                    ws.output
+                } else {
+                    None
+                }
+            })
+        });
 
     if let Some(ref output) = focused_output {
         for handle in handles {

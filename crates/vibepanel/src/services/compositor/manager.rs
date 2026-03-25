@@ -154,8 +154,15 @@ impl CompositorManager {
     }
 
     /// Get the current focused window info.
+    ///
+    /// Delegates to the backend directly — `last_window_info` can be stale
+    /// on backends that emit window callbacks for multiple outputs.
     pub fn get_focused_window(&self) -> Option<WindowInfo> {
-        self.last_window_info.borrow().clone()
+        if let Some(ref backend) = *self.backend.borrow() {
+            backend.get_focused_window()
+        } else {
+            None
+        }
     }
 
     /// Switch to a workspace.
