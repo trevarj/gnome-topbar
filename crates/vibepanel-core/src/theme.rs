@@ -271,6 +271,7 @@ pub struct ThemePalette {
     // Opacities
     pub bar_opacity: f64,
     pub widget_opacity: f64,
+    pub popover_opacity: Option<f64>, // None = max(bar, widget) heuristic
 
     // Radii (pixels)
     pub bar_border_radius: u32,
@@ -440,7 +441,10 @@ impl ThemePalette {
             bar_bg_with_opacity = self.bar_background_with_opacity(),
             widget_bg_color = self.widget_background,
             widget_bg_opacity = (self.widget_opacity * 100.0).round() as u32,
-            popover_bg_opacity = (self.bar_opacity.max(self.widget_opacity) * 100.0).round() as u32,
+            popover_bg_opacity = match self.popover_opacity {
+                Some(explicit) => (explicit * 100.0).round() as u32,
+                None => (self.bar_opacity.max(self.widget_opacity) * 100.0).round() as u32,
+            },
             widget_hover_tint = if self.is_dark_mode { "white" } else { "black" },
             fg_primary = self.foreground_primary,
             fg_muted = self.foreground_muted,
@@ -621,6 +625,7 @@ impl ThemePalette {
         // Opacities from bar/widgets config
         self.bar_opacity = config.bar.background_opacity;
         self.widget_opacity = config.widgets.background_opacity;
+        self.popover_opacity = config.widgets.popover_background_opacity;
 
         // Shadows config
         self.shadows_enabled = config.theme.shadows;
@@ -948,6 +953,7 @@ impl Default for ThemePalette {
             font_family: DEFAULT_FONT_FAMILY.to_string(),
             bar_opacity: 0.0,
             widget_opacity: 1.0,
+            popover_opacity: None,
             bar_border_radius: 0,
             widget_border_radius: 0,
             surface_border_radius: 0,

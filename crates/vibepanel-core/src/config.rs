@@ -275,6 +275,15 @@ impl Config {
             ));
         }
 
+        if let Some(opacity) = self.widgets.popover_background_opacity
+            && !(0.0..=1.0).contains(&opacity)
+        {
+            errors.push(format!(
+                "widgets.popover_background_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                opacity
+            ));
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -375,6 +384,9 @@ impl Config {
         ));
         if let Some(ref color) = self.widgets.background_color {
             lines.push(format!("  background_color: {}", color));
+        }
+        if let Some(opacity) = self.widgets.popover_background_opacity {
+            lines.push(format!("  popover_background_opacity: {}", opacity));
         }
 
         lines.push("\nTheme:".to_string());
@@ -542,6 +554,11 @@ pub struct WidgetsConfig {
     /// Default: 1.0 (fully visible widgets).
     pub background_opacity: f64,
 
+    /// Popover background opacity override (0.0 = fully transparent, 1.0 = fully opaque).
+    /// If not set, uses max(bar, widget) opacity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover_background_opacity: Option<f64>,
+
     /// Per-widget configuration tables.
     /// Keys are widget names, values are widget-specific options.
     #[serde(flatten)]
@@ -557,6 +574,7 @@ impl Default for WidgetsConfig {
             border_radius: 30,
             background_color: None,
             background_opacity: 1.0,
+            popover_background_opacity: None,
             widget_configs: HashMap::new(),
         }
     }

@@ -521,6 +521,7 @@ fn config_theme_changed(old: &Config, new: &Config) -> bool {
         || old.bar.background_opacity != new.bar.background_opacity
         || old.widgets.background_color != new.widgets.background_color
         || old.widgets.background_opacity != new.widgets.background_opacity
+        || old.widgets.popover_background_opacity != new.widgets.popover_background_opacity
         || old.theme.states.success != new.theme.states.success
         || old.theme.states.warning != new.theme.states.warning
         || old.theme.states.urgent != new.theme.states.urgent
@@ -670,6 +671,15 @@ mod tests {
         let mut new = Config::default();
 
         new.bar.background_opacity = 0.5;
+        assert!(config_theme_changed(&old, &new));
+    }
+
+    #[test]
+    fn test_config_theme_changed_popover_opacity() {
+        let old = Config::default();
+        let mut new = Config::default();
+
+        new.widgets.popover_background_opacity = Some(0.9);
         assert!(config_theme_changed(&old, &new));
     }
 

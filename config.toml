@@ -31,6 +31,7 @@ right = [
 ]
 border_radius = 40
 background_opacity = 1.0
+# popover_background_opacity = 0.9  # Override popover opacity (default: max of bar and widget opacity)
 
 # Per-widget options use [widgets.<name>] sections.
 # Example:
