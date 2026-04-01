@@ -505,14 +505,20 @@ impl BaseWidget {
 
     fn new_inner(extra_classes: &[&str], passive: bool) -> Self {
         let container = GtkBox::new(Orientation::Horizontal, 0);
-        container.add_css_class(class::WIDGET);
+        container.add_css_class(class::WIDGET_WRAPPER);
         container.add_css_class(class::WIDGET_ITEM);
         if passive {
             container.add_css_class(class::PASSIVE);
         }
         container.set_hexpand(false);
-        for cls in extra_classes {
-            container.add_css_class(cls);
+
+        // Widget-specific classes (e.g. "clock", "battery") are added to the
+        // surface, not the wrapper.  Passive widgets have no surface so they
+        // keep the classes on the container directly.
+        if passive {
+            for cls in extra_classes {
+                container.add_css_class(cls);
+            }
         }
 
         // First extra class is the widget name (e.g., "clock", "battery")
@@ -550,15 +556,23 @@ impl BaseWidget {
         // Visual surface: rounded background + overflow clipping.
         // Must be a GtkBox (not Overlay) — Overlay doesn't clip background to border-radius.
         let surface = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        surface.add_css_class(class::WIDGET_SURFACE);
+        surface.add_css_class(class::WIDGET);
+        // Widget-specific classes live on the surface so user CSS like
+        // `.clock { background: ... }` targets the painted element only.
+        for cls in extra_classes {
+            surface.add_css_class(cls);
+        }
         surface.set_overflow(gtk4::Overflow::Hidden);
         surface.set_hexpand(true);
         surface.set_vexpand(true);
 
         // Wrap content in an Overlay so the ripple effect can sit on top
         // without affecting the widget background or content opacity.
+        // overflow:hidden + inherited border-radius clips the ripple to
+        // rounded corners (GtkBox parent overflow alone doesn't suffice).
         let overlay = Overlay::new();
         overlay.set_child(Some(&content));
+        overlay.set_overflow(gtk4::Overflow::Hidden);
         overlay.set_hexpand(true);
         overlay.set_vexpand(true);
 
@@ -877,7 +891,7 @@ impl BaseWidget {
 
     /// Get the root GTK container for this widget.
     ///
-    /// This is the outermost box with the `widget` CSS class.
+    /// This is the outermost box (`.widget-wrapper`).
     /// Most widgets should use `content()` to add children instead.
     pub fn widget(&self) -> &GtkBox {
         &self.container

@@ -3,6 +3,20 @@
 //! This module centralizes all CSS class names used across the codebase,
 //! making them discoverable, avoiding typos, and enabling IDE autocompletion.
 //!
+//! # Naming Convention
+//!
+//! - **`vp-` prefix**: Generic names that collide with GTK4/Adwaita CSS
+//!   classes (e.g., `card` → `vp-card`, `row` → `vp-row`, `primary` → `vp-primary`).
+//! - **No prefix**: Domain-specific names unlikely to collide
+//!   (e.g., `widget`, `clock`, `bar`, `popover`, `notification-toast`).
+//! - **Widget prefix**: Sub-element classes namespaced by widget name
+//!   (e.g., `media-*`, `notification-*`, `qs-*`, `battery-popover-*`).
+//! - **State modifiers**: Short names used only in compound selectors
+//!   (e.g., `.active`, `.expanded`, `.clickable`).
+//!
+//! When adding a new class, check if the name exists in GTK4 or Adwaita
+//! theme CSS. If it does, use the `vp-` prefix.
+//!
 //! # Usage
 //!
 //! ```ignore
@@ -15,7 +29,12 @@
 
 /// Core structural/layout CSS classes.
 pub mod class {
-    /// Base widget container class (`.widget`).
+    /// Outer widget wrapper (`.widget-wrapper`).
+    /// Rectangular hit target so clicks register in rounded corners.
+    pub const WIDGET_WRAPPER: &str = "widget-wrapper";
+
+    /// Widget visual surface (`.widget`).
+    /// Carries background and border-radius; the class users target in custom CSS.
     pub const WIDGET: &str = "widget";
 
     /// Widget item class (`.widget-item`).
@@ -36,12 +55,6 @@ pub mod class {
 
     /// Passive widget marker (`.passive`).
     pub const PASSIVE: &str = "passive";
-
-    /// Widget visual surface class (`.widget-surface`).
-    /// Applied to a GtkBox that carries the widget's background-color and
-    /// border-radius. Separated from `.widget` so the click target remains
-    /// rectangular (Fitts's Law) while the visual appearance is rounded.
-    pub const WIDGET_SURFACE: &str = "widget-surface";
 
     /// Widget content inner box (`.content`).
     pub const CONTENT: &str = "content";
@@ -652,13 +665,25 @@ pub mod widget {
 
 /// Surface and popover classes.
 pub mod surface {
-    /// Popover surface style (`.vp-surface-popover`).
-    pub const POPOVER: &str = "vp-surface-popover";
+    /// Layer-shell popover surface (`.popover`). Canonical user-facing class.
+    pub const POPOVER: &str = "popover";
 
-    /// Widget menu popover (`.widget-menu`).
+    /// Outer transparent wrapper around a layer-shell popover (`.popover-wrapper`).
+    pub const POPOVER_WRAPPER: &str = "popover-wrapper";
+
+    /// Deprecated: use [`POPOVER`]. Internal popover surface marker (`.vp-surface-popover`).
+    pub const SURFACE_POPOVER: &str = "vp-surface-popover";
+
+    /// Deprecated: use [`POPOVER`]. Popover styling (`.widget-menu`).
+    ///
+    /// Still applied to native `gtk4::Popover` shells for CSS reset rules
+    /// and to layer-shell surfaces as a deprecated alias.
     pub const WIDGET_MENU: &str = "widget-menu";
 
-    /// Widget menu content (`.widget-menu-content`).
+    /// Deprecated: use [`POPOVER_WRAPPER`]. Wrapper (`.widget-menu-wrapper`).
+    pub const WIDGET_MENU_WRAPPER: &str = "widget-menu-wrapper";
+
+    /// Widget menu content (`.widget-menu-content`). Internal.
     pub const WIDGET_MENU_CONTENT: &str = "widget-menu-content";
 
     /// No focus outline container (`.vp-no-focus`).
@@ -792,8 +817,11 @@ pub mod notification {
     pub const ROW_DISMISSING: &str = "notification-row-dismissing";
 
     // Toast
-    /// Toast window (`.notification-toast`).
+    /// Toast surface (`.notification-toast`). User-facing, on the styled container.
     pub const TOAST: &str = "notification-toast";
+
+    /// Toast transparent window (`.notification-toast-wrapper`).
+    pub const TOAST_WRAPPER: &str = "notification-toast-wrapper";
 
     /// Toast container (`.notification-toast-container`).
     pub const TOAST_CONTAINER: &str = "notification-toast-container";
@@ -834,8 +862,11 @@ pub mod notification {
 
 /// On-Screen Display (OSD) classes.
 pub mod osd {
-    /// OSD window (`.osd-window`).
-    pub const WINDOW: &str = "osd-window";
+    /// OSD surface (`.osd`). User-facing, on the styled container.
+    pub const OSD: &str = "osd";
+
+    /// OSD transparent window (`.osd-wrapper`).
+    pub const WRAPPER: &str = "osd-wrapper";
 
     /// OSD widget container (`.osd-widget`).
     pub const WIDGET: &str = "osd-widget";
