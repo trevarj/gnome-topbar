@@ -566,6 +566,25 @@ pub mod widget {
     /// Window title app icon (`.window-title-app-icon`).
     pub const WINDOW_TITLE_APP_ICON: &str = "window-title-app-icon";
 
+    // Taskbar
+    /// Taskbar widget (`.taskbar`).
+    pub const TASKBAR: &str = "taskbar";
+
+    /// Taskbar button (`.taskbar-button`).
+    pub const TASKBAR_BUTTON: &str = "taskbar-button";
+
+    /// Taskbar icon (`.taskbar-icon`).
+    pub const TASKBAR_ICON: &str = "taskbar-icon";
+
+    /// Taskbar label (`.taskbar-label`).
+    pub const TASKBAR_LABEL: &str = "taskbar-label";
+
+    /// Taskbar workspace separator (`.taskbar-separator`).
+    pub const TASKBAR_SEPARATOR: &str = "taskbar-separator";
+
+    /// Taskbar output/monitor separator (`.taskbar-output-separator`).
+    pub const TASKBAR_OUTPUT_SEPARATOR: &str = "taskbar-output-separator";
+
     // Updates
     /// Updates widget (`.updates`).
     pub const UPDATES: &str = "updates";

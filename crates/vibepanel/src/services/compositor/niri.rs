@@ -73,6 +73,7 @@ pub struct NiriBackend {
     shared: Arc<SharedState>,
     callbacks: Mutex<Option<(WorkspaceCallback, WindowCallback)>>,
     keyboard_layout_callback: Mutex<Option<KeyboardLayoutCallback>>,
+    window_list_callback: Mutex<Option<super::WindowListCallback>>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,20 @@ struct WindowData {
     app_id: String,
     workspace_id: Option<u64>,
     is_focused: bool,
+    /// Column and tile position in the scrolling layout (niri-specific).
+    /// Used for ordering taskbar buttons to match visual window order.
+    layout_position: Option<(i32, i32)>,
+}
+
+/// Extract `pos_in_scrolling_layout` from a niri window JSON value.
+fn parse_layout_position(window: &Value) -> Option<(i32, i32)> {
+    let layout = window.get("layout")?;
+    let pos = layout.get("pos_in_scrolling_layout")?.as_array()?;
+    if pos.len() >= 2 {
+        Some((pos[0].as_i64()? as i32, pos[1].as_i64()? as i32))
+    } else {
+        None
+    }
 }
 
 impl NiriBackend {
@@ -94,6 +109,7 @@ impl NiriBackend {
             shared: Arc::new(SharedState::default()),
             callbacks: Mutex::new(None),
             keyboard_layout_callback: Mutex::new(None),
+            window_list_callback: Mutex::new(None),
         }
     }
 
@@ -140,6 +156,70 @@ impl NiriBackend {
                 None
             }
         }
+    }
+
+    fn get_windows_from_shared(shared: &Arc<SharedState>) -> Vec<super::Window> {
+        let windows = shared.windows.read();
+        let id_to_output = shared.id_to_output.read();
+        let workspaces = shared.workspaces.read();
+
+        // Build a map from workspace niri-ID to workspace display index for sorting.
+        let ws_id_to_idx: HashMap<u64, i32> =
+            workspaces.iter().map(|ws| (ws.id as u64, ws.idx)).collect();
+
+        // Collect windows with their sorting keys.
+        struct SortableWindow {
+            window: super::Window,
+            output_name: String,
+            ws_idx: i32,
+            layout_pos: (i32, i32),
+        }
+
+        let mut sortable: Vec<SortableWindow> = windows
+            .values()
+            .map(|win| {
+                let output = win
+                    .workspace_id
+                    .and_then(|ws_id| id_to_output.get(&ws_id).cloned());
+
+                let ws_idx = win
+                    .workspace_id
+                    .and_then(|ws_id| ws_id_to_idx.get(&ws_id).copied())
+                    .unwrap_or(i32::MAX);
+
+                let layout_pos = win.layout_position.unwrap_or((i32::MAX, i32::MAX));
+
+                let output_name = output.clone().unwrap_or_default();
+
+                SortableWindow {
+                    window: super::Window {
+                        id: win.id,
+                        title: win.title.clone(),
+                        app_id: win.app_id.clone(),
+                        workspace_id: win.workspace_id.map(|id| id as i32),
+                        output,
+                        is_focused: win.is_focused,
+                    },
+                    output_name,
+                    ws_idx,
+                    layout_pos,
+                }
+            })
+            .collect();
+
+        // Sort by output name, then workspace display index, then layout position,
+        // then window ID.  This mirrors the workspace sort order (output → idx)
+        // so multi-monitor taskbars with filter_by_output=false group windows by
+        // monitor first.
+        sortable.sort_by(|a, b| {
+            a.output_name
+                .cmp(&b.output_name)
+                .then(a.ws_idx.cmp(&b.ws_idx))
+                .then(a.layout_pos.cmp(&b.layout_pos))
+                .then(a.window.id.cmp(&b.window.id))
+        });
+
+        sortable.into_iter().map(|s| s.window).collect()
     }
 
     /// Process workspace list and update internal state.
@@ -306,6 +386,7 @@ impl NiriBackend {
                     .get("is_focused")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false),
+                layout_position: parse_layout_position(win),
             };
 
             win_cache.insert(win_id, data);
@@ -432,9 +513,18 @@ impl NiriBackend {
             app_id,
             workspace_id,
             is_focused,
+            layout_position: parse_layout_position(window),
         };
 
-        shared.windows.write().insert(win_id, data);
+        {
+            let mut win_cache = shared.windows.write();
+            if is_focused {
+                for win in win_cache.values_mut() {
+                    win.is_focused = false;
+                }
+            }
+            win_cache.insert(win_id, data);
+        }
 
         // Update window counts
         Self::update_window_counts(shared);
@@ -654,6 +744,36 @@ impl NiriBackend {
                 Self::update_per_output_windows(shared);
                 window_changed = true;
             }
+        } else if let Some(layouts_changed) = event.get("WindowLayoutsChanged") {
+            // changes is Vec<(u64, WindowLayout)> which serializes as an array of tuples:
+            // [[window_id, {layout_obj}], ...]
+            if let Some(changes) = layouts_changed.get("changes").and_then(|v| v.as_array()) {
+                let mut win_cache = shared.windows.write();
+                for entry in changes {
+                    let entry = match entry.as_array() {
+                        Some(arr) if arr.len() >= 2 => arr,
+                        _ => continue,
+                    };
+                    let win_id = match entry[0].as_u64() {
+                        Some(id) => id,
+                        None => continue,
+                    };
+                    if let Some(win) = win_cache.get_mut(&win_id) {
+                        // entry[1] is a WindowLayout object with pos_in_scrolling_layout directly
+                        win.layout_position = entry[1]
+                            .get("pos_in_scrolling_layout")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| {
+                                if arr.len() >= 2 {
+                                    Some((arr[0].as_i64()? as i32, arr[1].as_i64()? as i32))
+                                } else {
+                                    None
+                                }
+                            });
+                    }
+                }
+                window_changed = true;
+            }
         } else if let Some(window_closed) = event.get("WindowClosed") {
             if let Some(win_id) = window_closed.get("id").and_then(|v| v.as_u64()) {
                 shared.windows.write().remove(&win_id);
@@ -721,6 +841,7 @@ impl NiriBackend {
         socket_path: String,
         callbacks: Option<(WorkspaceCallback, WindowCallback)>,
         kb_callback: Option<KeyboardLayoutCallback>,
+        window_list_callback: Option<super::WindowListCallback>,
     ) {
         // Fetch initial state
         Self::fetch_initial_state(&socket_path, &shared);
@@ -836,6 +957,13 @@ impl NiriBackend {
                                 {
                                     kb_cb(info.clone());
                                 }
+
+                                if (win_changed || ws_changed)
+                                    && let Some(ref wl_cb) = window_list_callback
+                                {
+                                    let windows = Self::get_windows_from_shared(&shared);
+                                    wl_cb(super::WindowListSnapshot { windows });
+                                }
                             }
                             Err(e) => {
                                 trace!("Failed to parse Niri event: {}", e);
@@ -895,12 +1023,24 @@ impl CompositorBackend for NiriBackend {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let window_list_callback = self
+            .window_list_callback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
 
         // Start event loop thread
         let handle = thread::Builder::new()
             .name("niri-event-loop".into())
             .spawn(move || {
-                Self::event_loop(running, shared, socket_path, callbacks, kb_callback);
+                Self::event_loop(
+                    running,
+                    shared,
+                    socket_path,
+                    callbacks,
+                    kb_callback,
+                    window_list_callback,
+                );
             })
             .ok();
 
@@ -999,6 +1139,13 @@ impl CompositorBackend for NiriBackend {
             .unwrap_or_else(|e| e.into_inner()) = Some(callback);
     }
 
+    fn set_window_list_callback(&self, callback: super::WindowListCallback) {
+        *self
+            .window_list_callback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(callback);
+    }
+
     fn get_keyboard_layout(&self) -> Option<KeyboardLayoutInfo> {
         self.shared.keyboard_layout.read().clone()
     }
@@ -1008,6 +1155,21 @@ impl CompositorBackend for NiriBackend {
             "Action": {
                 "SwitchLayout": {
                     "layout": "Next"
+                }
+            }
+        });
+        let _ = self.send_request(&request);
+    }
+
+    fn list_windows(&self) -> Vec<super::Window> {
+        Self::get_windows_from_shared(&self.shared)
+    }
+
+    fn focus_window(&self, window_id: u64) {
+        let request = serde_json::json!({
+            "Action": {
+                "FocusWindow": {
+                    "id": window_id
                 }
             }
         });
