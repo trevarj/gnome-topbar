@@ -21,6 +21,9 @@ const VALID_COMPOSITORS: &[&str] = &[
 /// Known valid values for theme.mode.
 const VALID_THEME_MODES: &[&str] = &["auto", "dark", "light", "gtk"];
 
+/// Known valid values for theme.scheme.
+const VALID_THEME_SCHEMES: &[&str] = &["dark", "light"];
+
 /// Known valid values for bar.position.
 const VALID_BAR_POSITIONS: &[&str] = &["top", "bottom"];
 
@@ -29,6 +32,17 @@ const VALID_OSD_POSITIONS: &[&str] = &["bottom", "left", "right", "top"];
 
 /// Embedded default configuration TOML, compiled into the binary.
 pub const DEFAULT_CONFIG_TOML: &str = include_str!("../../../config.toml");
+
+/// Expand a leading `~` to `home` in a path string.
+pub fn expand_tilde(path: &str, home: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        format!("{}/{}", home, rest)
+    } else if path == "~" {
+        home.to_string()
+    } else {
+        path.to_string()
+    }
+}
 
 /// Result of loading a configuration file.
 #[derive(Debug)]
@@ -105,7 +119,8 @@ impl Config {
 
         deep_merge_toml(&mut base, user);
 
-        let config: Config = base.try_into()?;
+        let mut config: Config = base.try_into()?;
+        config.normalize_paths();
         Ok(config)
     }
 
@@ -191,6 +206,15 @@ impl Config {
         paths
     }
 
+    /// Expand `~` in config fields that accept file paths.
+    fn normalize_paths(&mut self) {
+        if let Some(ref mut wallpaper) = self.theme.wallpaper
+            && let Ok(home) = env::var("HOME")
+        {
+            *wallpaper = expand_tilde(wallpaper, &home);
+        }
+    }
+
     /// Validate the configuration, returning errors for invalid values.
     ///
     /// This performs strict validation - any invalid value causes an error.
@@ -224,7 +248,17 @@ impl Config {
             ));
         }
 
+        // Validate theme.scheme
+        if !VALID_THEME_SCHEMES.contains(&self.theme.scheme.as_str()) {
+            errors.push(format!(
+                "theme.scheme: invalid value '{}', expected one of: {}",
+                self.theme.scheme,
+                VALID_THEME_SCHEMES.join(", ")
+            ));
+        }
+
         // Validate theme.accent: must be "gtk", "none", or a valid hex color (if specified)
+        // Note: accent is ignored when mode = "auto" (colors derived from wallpaper)
         if let Some(ref accent) = self.theme.accent
             && accent != "gtk"
             && accent != "none"
@@ -329,6 +363,24 @@ impl Config {
                     name
                 ));
             }
+        }
+
+        // Warn about auto-mode-only fields set when mode != "auto"
+        if self.theme.mode != "auto" {
+            if self.theme.scheme != "dark" {
+                warnings.push("theme.scheme: has no effect when mode is not \"auto\"".to_string());
+            }
+            if self.theme.wallpaper.is_some() {
+                warnings
+                    .push("theme.wallpaper: has no effect when mode is not \"auto\"".to_string());
+            }
+        }
+
+        // Warn if explicit wallpaper path doesn't exist
+        if let Some(ref wallpaper) = self.theme.wallpaper
+            && !std::path::Path::new(wallpaper).exists()
+        {
+            warnings.push(format!("theme.wallpaper: file '{}' not found", wallpaper));
         }
 
         warnings
@@ -997,11 +1049,24 @@ impl Default for ThemeIconsConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeConfig {
     /// Theme mode: "auto", "dark", "light", "gtk".
-    /// - "auto": detects from widget background luminance
+    /// - "auto": wallpaper-adaptive Material You theming
+    ///   (detects from hyprpaper, awww/swww, wpaperd, or waypaper)
     /// - "dark": forces dark mode (light text on dark backgrounds)
     /// - "light": forces light mode (dark text on light backgrounds)
     /// - "gtk": derive colors from GTK theme where possible
     pub mode: String,
+
+    /// Material You color scheme polarity: "dark" or "light".
+    ///
+    /// Only meaningful when `mode = "auto"`. Default is "dark".
+    pub scheme: String,
+
+    /// Explicit wallpaper image path for auto mode.
+    ///
+    /// Only meaningful when `mode = "auto"`. When set, uses this image instead
+    /// of auto-detecting from wallpaper daemons. Supports PNG and JPEG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wallpaper: Option<String>,
 
     /// Accent color configuration: "gtk", "none", or a hex color like "#3584e4".
     /// - "gtk": use the GTK theme's accent color (don't override @accent_color)
@@ -1009,6 +1074,7 @@ pub struct ThemeConfig {
     /// - "#rrggbb": use this specific color as the accent
     ///
     /// When not specified, defaults to "gtk" if mode is "gtk", otherwise "#adabe0".
+    /// Ignored when mode is "auto" (accent is derived from wallpaper).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
 
@@ -1045,7 +1111,10 @@ pub struct ThemeConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
+            // "auto" here; the shipped config.toml overrides to "dark" via deep-merge
             mode: "auto".to_string(),
+            scheme: "dark".to_string(),
+            wallpaper: None,
             accent: None,
             animations: true,
             ripple: true,
@@ -2167,6 +2236,61 @@ mod tests {
             !warnings.iter().any(|w| w.contains("show_if_interval")),
             "unexpected warning: {:?}",
             warnings
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_with_subpath() {
+        assert_eq!(
+            expand_tilde("~/Pictures/wall.png", "/home/user"),
+            "/home/user/Pictures/wall.png"
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_bare() {
+        assert_eq!(expand_tilde("~", "/home/user"), "/home/user");
+    }
+
+    #[test]
+    fn test_expand_tilde_absolute_unchanged() {
+        assert_eq!(
+            expand_tilde("/usr/share/wall.png", "/home/user"),
+            "/usr/share/wall.png"
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_no_slash_unchanged() {
+        assert_eq!(expand_tilde("~foo", "/home/user"), "~foo");
+    }
+
+    #[test]
+    fn test_normalize_wallpaper_tilde() {
+        let toml = r#"
+            [theme]
+            mode = "auto"
+            wallpaper = "~/Pictures/wall.png"
+        "#;
+        let config = Config::load_with_defaults(toml).unwrap();
+        let home = env::var("HOME").unwrap();
+        assert_eq!(
+            config.theme.wallpaper,
+            Some(format!("{}/Pictures/wall.png", home))
+        );
+    }
+
+    #[test]
+    fn test_normalize_wallpaper_absolute_unchanged() {
+        let toml = r#"
+            [theme]
+            mode = "auto"
+            wallpaper = "/home/user/wall.png"
+        "#;
+        let config = Config::load_with_defaults(toml).unwrap();
+        assert_eq!(
+            config.theme.wallpaper,
+            Some("/home/user/wall.png".to_string())
         );
     }
 }
