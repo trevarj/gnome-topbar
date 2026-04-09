@@ -790,13 +790,13 @@ impl ThemePalette {
                     self.accent_primary = color.clone();
                 }
                 AccentSource::None => {
-                    // Monochrome mode - use mode-appropriate colors
+                    // Monochrome mode - match foreground color
                     if self.is_gtk_mode {
-                        self.accent_primary = gtk_fg_mix(25.0);
+                        self.accent_primary = "@window_fg_color".to_string();
                     } else if self.is_dark_mode {
-                        self.accent_primary = "rgba(255, 255, 255, 0.25)".to_string();
+                        self.accent_primary = "#ffffff".to_string();
                     } else {
-                        self.accent_primary = "rgba(0, 0, 0, 0.20)".to_string();
+                        self.accent_primary = "#1a1a1a".to_string();
                     }
                 }
                 AccentSource::Gtk => {
@@ -1467,8 +1467,8 @@ mod tests {
         let palette = ThemePalette::from_config(&config, None);
 
         assert_eq!(palette.accent_source, AccentSource::None);
-        // In dark mode, monochrome uses white-based colors
-        assert!(palette.accent_primary.contains("rgba"));
+        // In dark mode, monochrome uses foreground color
+        assert_eq!(palette.accent_primary, "#ffffff");
     }
 
     #[test]
