@@ -1056,12 +1056,32 @@ impl ThemePalette {
         self.foreground_disabled = argb_to_rgba(&scheme.on_surface, FOREGROUND_DISABLED_OPACITY);
         self.foreground_faint = argb_to_rgba(&scheme.on_surface, FOREGROUND_FAINT_OPACITY);
 
-        // Accent
-        self.accent_source = AccentSource::Custom(argb_to_hex(&scheme.primary));
-        self.accent_primary = argb_to_hex(&scheme.primary);
-        self.accent_subtle = argb_to_rgba(&scheme.primary, 0.20);
-        self.accent_text = argb_to_hex(&scheme.on_primary);
-        self.accent_hover_bg = argb_to_hex(&scheme.primary_container);
+        // Accent — only override if user didn't explicitly set one
+        if let Some(ref accent) = config.theme.accent {
+            self.accent_source = match accent.as_str() {
+                "gtk" => AccentSource::Gtk,
+                "none" => AccentSource::None,
+                color => AccentSource::Custom(color.to_string()),
+            };
+            match &self.accent_source {
+                AccentSource::Custom(color) => {
+                    self.accent_primary = color.clone();
+                }
+                AccentSource::None => {
+                    self.accent_primary = self.foreground_primary.clone();
+                }
+                AccentSource::Gtk => {
+                    self.accent_primary = "@accent_color".to_string();
+                }
+            }
+            self.compute_accent_derived();
+        } else {
+            self.accent_source = AccentSource::Custom(argb_to_hex(&scheme.primary));
+            self.accent_primary = argb_to_hex(&scheme.primary);
+            self.accent_subtle = argb_to_rgba(&scheme.primary, 0.20);
+            self.accent_text = argb_to_hex(&scheme.on_primary);
+            self.accent_hover_bg = argb_to_hex(&scheme.primary_container);
+        }
 
         // State colors: only override urgent (error), keep success/warning as user-configured
         self.state_urgent = argb_to_hex(&scheme.error);
@@ -1481,8 +1501,8 @@ mod tests {
         let palette = ThemePalette::from_config(&config, None);
 
         assert_eq!(palette.accent_source, AccentSource::None);
-        // In light mode, monochrome uses black-based colors
-        assert!(palette.accent_primary.contains("rgba(0, 0, 0"));
+        // In light mode, monochrome uses foreground color
+        assert_eq!(palette.accent_primary, "#1a1a1a");
     }
 
     #[test]

@@ -258,7 +258,7 @@ impl Config {
         }
 
         // Validate theme.accent: must be "gtk", "none", or a valid hex color (if specified)
-        // Note: accent is ignored when mode = "auto" (colors derived from wallpaper)
+        // In auto mode, an explicit accent overrides the wallpaper-derived one
         if let Some(ref accent) = self.theme.accent
             && accent != "gtk"
             && accent != "none"
@@ -1074,7 +1074,7 @@ pub struct ThemeConfig {
     /// - "#rrggbb": use this specific color as the accent
     ///
     /// When not specified, defaults to "gtk" if mode is "gtk", otherwise "#adabe0".
-    /// Ignored when mode is "auto" (accent is derived from wallpaper).
+    /// In "auto" mode, defaults to wallpaper-derived accent; set explicitly to override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
 

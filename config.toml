@@ -74,7 +74,7 @@ mode = "dark" # "auto", "dark", "light", "gtk"
 #               (detects from hyprpaper, awww/swww, wpaperd, waypaper)
 #scheme = "dark"         # Material You polarity: "dark" or "light" (auto mode only)
 #wallpaper = "/path/to/image.png"  # Explicit wallpaper for auto mode (default: auto-detect)
-#accent = "#adabe0" # "gtk", "none", or hex color (ignored in auto mode)
+#accent = "#adabe0" # "gtk", "none", or hex color (overrides wallpaper accent in auto mode)
 #animations = true  # Enable/disable all CSS transitions and animations
 #ripple = true      # Enable/disable Material Design ripple effect on click
 
