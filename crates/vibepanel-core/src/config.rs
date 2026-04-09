@@ -24,6 +24,9 @@ const VALID_THEME_MODES: &[&str] = &["auto", "dark", "light", "gtk"];
 /// Known valid values for theme.scheme.
 const VALID_THEME_SCHEMES: &[&str] = &["dark", "light"];
 
+/// Known valid values for theme.popover.
+const VALID_POPOVER_MODES: &[&str] = &["dark", "light"];
+
 /// Known valid values for bar.position.
 const VALID_BAR_POSITIONS: &[&str] = &["top", "bottom"];
 
@@ -257,6 +260,17 @@ impl Config {
             ));
         }
 
+        // Validate theme.popover
+        if let Some(ref popover) = self.theme.popover
+            && !VALID_POPOVER_MODES.contains(&popover.as_str())
+        {
+            errors.push(format!(
+                "theme.popover: invalid value '{}', expected one of: {}",
+                popover,
+                VALID_POPOVER_MODES.join(", ")
+            ));
+        }
+
         // Validate theme.accent: must be "gtk", "none", or a valid hex color (if specified)
         // In auto mode, an explicit accent overrides the wallpaper-derived one
         if let Some(ref accent) = self.theme.accent
@@ -373,6 +387,30 @@ impl Config {
             if self.theme.wallpaper.is_some() {
                 warnings
                     .push("theme.wallpaper: has no effect when mode is not \"auto\"".to_string());
+            }
+        }
+
+        // Warn about popover with gtk mode (not supported)
+        if self.theme.popover.is_some() && self.theme.mode == "gtk" {
+            warnings.push(
+                "theme.popover: has no effect when mode is \"gtk\" (GTK theme colors cannot be split by surface)"
+                    .to_string(),
+            );
+        }
+
+        // Warn about popover set to the same polarity as the current mode
+        if let Some(ref popover) = self.theme.popover {
+            let effective_mode = match self.theme.mode.as_str() {
+                "dark" => Some("dark"),
+                "light" => Some("light"),
+                "auto" => Some(self.theme.scheme.as_str()),
+                _ => None,
+            };
+            if effective_mode == Some(popover.as_str()) {
+                warnings.push(format!(
+                    "theme.popover: value \"{}\" matches the current theme polarity (has no effect)",
+                    popover
+                ));
             }
         }
 
@@ -1023,7 +1061,7 @@ fn format_widget_section(items: &[WidgetPlacement]) -> Vec<String> {
 }
 
 /// Icon theme configuration (nested under [theme.icons]).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeIconsConfig {
     /// Icon backend: "material" for bundled Material Symbols, or "gtk" for
@@ -1045,7 +1083,7 @@ impl Default for ThemeIconsConfig {
 }
 
 /// Theme configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeConfig {
     /// Theme mode: "auto", "dark", "light", "gtk".
@@ -1067,6 +1105,17 @@ pub struct ThemeConfig {
     /// of auto-detecting from wallpaper daemons. Supports PNG and JPEG.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallpaper: Option<String>,
+
+    /// Popover color polarity override: "dark" or "light".
+    ///
+    /// When set, popover surfaces use the specified polarity instead of
+    /// inheriting from the bar's theme mode. For example, `popover = "light"`
+    /// with `mode = "dark"` gives a dark bar with light popovers.
+    ///
+    /// In "auto" mode, uses the opposite Material You color scheme polarity
+    /// for popovers. Not supported with `mode = "gtk"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover: Option<String>,
 
     /// Accent color configuration: "gtk", "none", or a hex color like "#3584e4".
     /// - "gtk": use the GTK theme's accent color (don't override @accent_color)
@@ -1115,6 +1164,7 @@ impl Default for ThemeConfig {
             mode: "auto".to_string(),
             scheme: "dark".to_string(),
             wallpaper: None,
+            popover: None,
             accent: None,
             animations: true,
             ripple: true,
@@ -1127,7 +1177,7 @@ impl Default for ThemeConfig {
 }
 
 /// Theme state colors.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeStates {
     /// Success state color.
@@ -1151,7 +1201,7 @@ impl Default for ThemeStates {
 }
 
 /// Theme typography settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeTypography {
     /// Base font family.

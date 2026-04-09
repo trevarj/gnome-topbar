@@ -80,6 +80,10 @@ pub struct ConfigManager {
     /// This avoids re-reading and re-processing the wallpaper image on every call
     /// to `theme_sizes()`, `surface_border_radius()`, etc.
     palette: RefCell<ThemePalette>,
+    /// Cached popover palette — a second palette with flipped polarity for popover
+    /// surfaces, computed when `theme.popover` is set. `None` when not configured,
+    /// when the polarity matches the bar, or when mode is "gtk".
+    popover_palette: RefCell<Option<ThemePalette>>,
     /// Path to the config file being watched (if any).
     config_path: RefCell<Option<PathBuf>>,
     /// Shutdown flag for the file watcher thread.
@@ -127,10 +131,12 @@ impl ConfigManager {
 
         let source_color = material_theme.as_ref().map(|t| t.source);
         let palette = ThemePalette::from_config(&config, material_theme.as_ref());
+        let popover_palette = ThemePalette::popover_palette(&config, material_theme.as_ref());
 
         Rc::new(Self {
             config: RefCell::new(config),
             palette: RefCell::new(palette),
+            popover_palette: RefCell::new(popover_palette),
             config_path: RefCell::new(config_path),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             theme_callbacks: Callbacks::new(),
@@ -180,6 +186,14 @@ impl ConfigManager {
     /// re-reading and re-processing the wallpaper image on every access.
     pub fn palette(&self) -> ThemePalette {
         self.palette.borrow().clone()
+    }
+
+    /// Get the cached popover palette, if any.
+    ///
+    /// Returns `Some` when `theme.popover` is configured and the polarity
+    /// differs from the bar. Returns `None` otherwise.
+    pub fn popover_palette(&self) -> Option<ThemePalette> {
+        self.popover_palette.borrow().clone()
     }
 
     /// Get the computed surface border radius in pixels.
@@ -542,6 +556,8 @@ impl ConfigManager {
 
             // Rebuild the cached palette once
             let palette = ThemePalette::from_config(&new_config, material_theme.as_ref());
+            let popover_palette =
+                ThemePalette::popover_palette(&new_config, material_theme.as_ref());
             let surface_styles = palette.surface_styles();
 
             // Update surface style manager
@@ -553,8 +569,9 @@ impl ConfigManager {
             // Update tooltip manager
             TooltipManager::global().reconfigure(surface_styles);
 
-            // Update the cached palette before load_css so it's available
+            // Update the cached palettes before load_css so they're available
             *self.palette.borrow_mut() = palette;
+            *self.popover_palette.borrow_mut() = popover_palette;
 
             // Reload CSS with new theme values
             bar::load_css(&new_config);
@@ -685,6 +702,8 @@ impl ConfigManager {
                 mgr.cached_source_color.set(source_color);
 
                 let palette = ThemePalette::from_config(&config, material_theme.as_ref());
+                let popover_palette =
+                    ThemePalette::popover_palette(&config, material_theme.as_ref());
                 let surface_styles = palette.surface_styles();
 
                 SurfaceStyleManager::global()
@@ -692,6 +711,7 @@ impl ConfigManager {
                 TooltipManager::global().reconfigure(surface_styles);
 
                 *mgr.palette.borrow_mut() = palette;
+                *mgr.popover_palette.borrow_mut() = popover_palette;
                 bar::load_css(&config);
 
                 mgr.theme_callbacks.notify(&());
@@ -719,27 +739,16 @@ fn per_widget_styles_changed(old: &Config, new: &Config) -> bool {
 
 /// Check if theme-related config has changed.
 fn config_theme_changed(old: &Config, new: &Config) -> bool {
-    old.theme.mode != new.theme.mode
-        || old.theme.scheme != new.theme.scheme
-        || old.theme.wallpaper != new.theme.wallpaper
-        || old.theme.accent != new.theme.accent
-        || old.theme.animations != new.theme.animations
-        || old.theme.ripple != new.theme.ripple
-        || old.theme.shadows != new.theme.shadows
+    old.theme != new.theme
+        // These live outside [theme] but affect CSS variables / palette
         || old.bar.background_color != new.bar.background_color
         || old.bar.background_opacity != new.bar.background_opacity
+        || old.bar.border_radius != new.bar.border_radius
+        || old.bar.size != new.bar.size
         || old.widgets.background_color != new.widgets.background_color
         || old.widgets.background_opacity != new.widgets.background_opacity
         || old.widgets.popover_background_opacity != new.widgets.popover_background_opacity
-        || old.theme.states.success != new.theme.states.success
-        || old.theme.states.warning != new.theme.states.warning
-        || old.theme.states.urgent != new.theme.states.urgent
-        || old.theme.typography.font_family != new.theme.typography.font_family
-        || old.bar.border_radius != new.bar.border_radius
         || old.widgets.border_radius != new.widgets.border_radius
-        // bar.size affects computed font sizes in ThemeSizes/SurfaceStyles
-        || old.bar.size != new.bar.size
-        // advanced.pango_font_rendering affects how fonts are applied
         || old.advanced.pango_font_rendering != new.advanced.pango_font_rendering
         // Per-widget style overrides (background_color, etc.)
         || per_widget_styles_changed(old, new)
@@ -855,39 +864,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_theme_changed_mode() {
+    fn test_config_theme_changed_detects_theme_struct() {
         let old = Config::default();
-        let mut new = Config::default();
-
+        let new = Config::default();
         assert!(!config_theme_changed(&old, &new));
 
-        new.theme.mode = "light".to_string();
+        // Any ThemeConfig field change is detected via PartialEq
+        let mut new = old.clone();
+        new.theme.popover = Some("light".to_string());
         assert!(config_theme_changed(&old, &new));
     }
 
     #[test]
-    fn test_config_theme_changed_accent() {
+    fn test_config_theme_changed_non_theme_css_fields() {
+        // Fields outside [theme] that still affect CSS
         let old = Config::default();
-        let mut new = Config::default();
 
-        new.theme.accent = Some("#ff0000".to_string());
-        assert!(config_theme_changed(&old, &new));
-    }
-
-    #[test]
-    fn test_config_theme_changed_bar_opacity() {
-        let old = Config::default();
-        let mut new = Config::default();
-
+        let mut new = old.clone();
         new.bar.background_opacity = 0.5;
         assert!(config_theme_changed(&old, &new));
-    }
 
-    #[test]
-    fn test_config_theme_changed_popover_opacity() {
-        let old = Config::default();
-        let mut new = Config::default();
-
+        let mut new = old.clone();
         new.widgets.popover_background_opacity = Some(0.9);
         assert!(config_theme_changed(&old, &new));
     }

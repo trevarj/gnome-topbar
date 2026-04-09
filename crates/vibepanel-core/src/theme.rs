@@ -375,7 +375,136 @@ impl ThemePalette {
         palette
     }
 
+    /// Create an optional popover palette with flipped polarity.
+    ///
+    /// When `theme.popover` is set (e.g., `popover = "light"` with `mode = "dark"`),
+    /// this creates a second palette with the opposite polarity for popover surfaces.
+    /// Returns `None` if `popover` is not configured, matches the current polarity,
+    /// or cannot be applied (e.g., `mode = "gtk"`).
+    ///
+    /// In `auto` mode, uses the opposite Material You color scheme polarity
+    /// so popovers get wallpaper-adaptive colors.
+    pub fn popover_palette(
+        config: &Config,
+        material_theme: Option<&material_colors::theme::Theme>,
+    ) -> Option<Self> {
+        let popover_mode = config.theme.popover.as_deref()?;
+
+        // GTK mode: can't split runtime CSS variables by surface
+        if config.theme.mode == "gtk" {
+            return None;
+        }
+
+        // Check if the popover polarity actually differs from the bar's
+        let bar_is_dark = match config.theme.mode.as_str() {
+            "light" => false,
+            "auto" => config.theme.scheme != "light",
+            _ => true,
+        };
+        if bar_is_dark == (popover_mode == "dark") {
+            return None;
+        }
+
+        // Build a modified config with the popover's polarity
+        let mut popover_config = config.clone();
+
+        if config.theme.mode == "auto" {
+            popover_config.theme.scheme = popover_mode.to_string();
+        } else {
+            popover_config.theme.mode = popover_mode.to_string();
+        }
+
+        Some(Self::from_config(&popover_config, material_theme))
+    }
+
+    /// Generate CSS variable overrides scoped to `.vp-surface-popover`.
+    ///
+    /// Only emits polarity-dependent color variables (foregrounds, overlays,
+    /// borders, shadows, slider tracks, critical backgrounds, accent derivatives,
+    /// hover tint, and widget background). Size, spacing, radius, and typography
+    /// variables are inherited from `:root` and not overridden.
+    pub fn css_popover_vars_block(&self) -> String {
+        let (accent_primary_css, accent_subtle_css) = match &self.accent_source {
+            AccentSource::Gtk => (
+                "@accent_color".to_string(),
+                "color-mix(in srgb, @accent_color 20%, transparent)".to_string(),
+            ),
+            _ => (self.accent_primary.clone(), self.accent_subtle.clone()),
+        };
+
+        let hover_tint = if self.is_gtk_mode {
+            "@window_fg_color"
+        } else if self.is_dark_mode {
+            "white"
+        } else {
+            "black"
+        };
+
+        format!(
+            r#"
+.vp-surface-popover {{
+    /* ===== Popover polarity override ===== */
+    --widget-background-color: {widget_bg};
+    --widget-hover-tint: {hover_tint};
+
+    /* Foreground */
+    --color-foreground-primary: {fg_primary};
+    --color-foreground-muted: {fg_muted};
+    --color-foreground-disabled: {fg_disabled};
+    --color-foreground-faint: {fg_faint};
+
+    /* Accent */
+    --color-accent-primary: {accent_primary};
+    --color-accent-subtle: {accent_subtle};
+    --color-accent-text: {accent_text};
+    --color-accent-hover-bg: {accent_hover_bg};
+
+    /* Card overlays */
+    --color-card-overlay: {card_overlay};
+    --color-card-overlay-hover: {card_overlay_hover};
+    --color-card-overlay-subtle: {card_overlay_subtle};
+    --color-card-overlay-strong: {card_overlay_strong};
+
+    /* Borders & shadows */
+    --color-border-subtle: {border_subtle};
+    --shadow-soft: {shadow_soft};
+    --shadow-strong: {shadow_strong};
+
+    /* Slider tracks */
+    --color-slider-track: {slider_track};
+    --color-slider-track-disabled: {slider_track_disabled};
+
+    /* Contextual backgrounds */
+    --color-row-critical-background: {row_critical_bg};
+    --color-toast-critical-background: {toast_critical_bg};
+}}
+"#,
+            widget_bg = self.widget_background,
+            hover_tint = hover_tint,
+            fg_primary = self.foreground_primary,
+            fg_muted = self.foreground_muted,
+            fg_disabled = self.foreground_disabled,
+            fg_faint = self.foreground_faint,
+            accent_primary = accent_primary_css,
+            accent_subtle = accent_subtle_css,
+            accent_text = self.accent_text,
+            accent_hover_bg = self.accent_hover_bg,
+            card_overlay = self.card_overlay,
+            card_overlay_hover = self.card_overlay_hover,
+            card_overlay_subtle = self.card_overlay_subtle,
+            card_overlay_strong = self.card_overlay_strong,
+            border_subtle = self.border_subtle,
+            shadow_soft = self.shadow_soft,
+            shadow_strong = self.shadow_strong,
+            slider_track = self.slider_track,
+            slider_track_disabled = self.slider_track_disabled,
+            row_critical_bg = self.row_critical_background,
+            toast_critical_bg = self.toast_critical_background,
+        )
+    }
+
     /// Generate the :root CSS variable block.
+    /// NOTE: polarity-dependent variables are also emitted in `css_popover_vars_block()`.
     pub fn css_vars_block(&self) -> String {
         // For GTK accent mode, we reference @accent_color in CSS.
         // For custom/none modes, we use computed values.
@@ -1802,5 +1931,125 @@ mod tests {
                 bar_size
             );
         }
+    }
+
+    // --- Popover palette tests ---
+
+    #[test]
+    fn test_popover_palette_none_when_not_configured() {
+        let config = Config::default(); // popover = None
+        assert!(ThemePalette::popover_palette(&config, None).is_none());
+    }
+
+    #[test]
+    fn test_popover_palette_none_for_gtk_mode() {
+        let mut config = Config::default();
+        config.theme.mode = "gtk".to_string();
+        config.theme.popover = Some("light".to_string());
+        assert!(ThemePalette::popover_palette(&config, None).is_none());
+    }
+
+    #[test]
+    fn test_popover_palette_none_when_same_polarity() {
+        // Dark mode with dark popover = no-op
+        let mut config = Config::default();
+        config.theme.mode = "dark".to_string();
+        config.theme.popover = Some("dark".to_string());
+        assert!(ThemePalette::popover_palette(&config, None).is_none());
+
+        // Light mode with light popover = no-op
+        config.theme.mode = "light".to_string();
+        config.theme.popover = Some("light".to_string());
+        assert!(ThemePalette::popover_palette(&config, None).is_none());
+    }
+
+    #[test]
+    fn test_popover_palette_dark_to_light() {
+        let mut config = Config::default();
+        config.theme.mode = "dark".to_string();
+        config.theme.popover = Some("light".to_string());
+
+        let popover = ThemePalette::popover_palette(&config, None);
+        assert!(popover.is_some(), "should produce a light popover palette");
+        let popover = popover.unwrap();
+        assert!(!popover.is_dark_mode, "popover should be light mode");
+
+        // Bar palette should be dark
+        let bar = ThemePalette::from_config(&config, None);
+        assert!(bar.is_dark_mode, "bar should be dark mode");
+    }
+
+    #[test]
+    fn test_popover_palette_light_to_dark() {
+        let mut config = Config::default();
+        config.theme.mode = "light".to_string();
+        config.theme.popover = Some("dark".to_string());
+
+        let popover = ThemePalette::popover_palette(&config, None);
+        assert!(popover.is_some(), "should produce a dark popover palette");
+        let popover = popover.unwrap();
+        assert!(popover.is_dark_mode, "popover should be dark mode");
+
+        // Bar palette should be light
+        let bar = ThemePalette::from_config(&config, None);
+        assert!(!bar.is_dark_mode, "bar should be light mode");
+    }
+
+    #[test]
+    fn test_popover_palette_auto_mode_flips_scheme() {
+        use material_colors::theme::ThemeBuilder;
+
+        // Create a real Material You theme from a source color
+        let source_color = Argb::new(255, 53, 132, 228); // blue-ish
+        let material_theme = ThemeBuilder::with_source(source_color).build();
+
+        let mut config = Config::default();
+        config.theme.mode = "auto".to_string();
+        config.theme.scheme = "dark".to_string();
+        config.theme.popover = Some("light".to_string());
+
+        let popover = ThemePalette::popover_palette(&config, Some(&material_theme));
+        assert!(
+            popover.is_some(),
+            "auto mode should produce popover palette"
+        );
+        let popover = popover.unwrap();
+        assert!(
+            !popover.is_dark_mode,
+            "popover should be light (scheme flipped)"
+        );
+
+        let bar = ThemePalette::from_config(&config, Some(&material_theme));
+        assert!(bar.is_dark_mode, "bar should be dark (scheme=dark)");
+    }
+
+    #[test]
+    fn test_popover_css_vars_block_scoped() {
+        let mut config = Config::default();
+        config.theme.mode = "dark".to_string();
+        config.theme.popover = Some("light".to_string());
+
+        let popover = ThemePalette::popover_palette(&config, None).unwrap();
+        let css = popover.css_popover_vars_block();
+
+        // Should be scoped under .vp-surface-popover
+        assert!(
+            css.contains(".vp-surface-popover"),
+            "popover CSS should be scoped to .vp-surface-popover"
+        );
+        // Should contain polarity-dependent variables
+        assert!(css.contains("--widget-background-color:"));
+        assert!(css.contains("--color-foreground-primary:"));
+        assert!(css.contains("--color-accent-primary:"));
+        assert!(css.contains("--color-card-overlay:"));
+        assert!(css.contains("--color-border-subtle:"));
+        assert!(css.contains("--shadow-soft:"));
+        assert!(css.contains("--color-slider-track:"));
+
+        // Should NOT contain size/spacing variables (those are polarity-independent)
+        assert!(!css.contains("--bar-height:"));
+        assert!(!css.contains("--font-size:"));
+        assert!(!css.contains("--spacing:"));
+        assert!(!css.contains("--border-radius:"));
     }
 }

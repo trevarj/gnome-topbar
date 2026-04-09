@@ -536,9 +536,10 @@ fn create_center_section(
 pub fn load_css(config: &Config) {
     let provider = gtk4::CssProvider::new();
 
-    // Use cached palette from ConfigManager (avoids re-reading wallpaper image)
+    // Use cached palettes from ConfigManager (avoids re-reading wallpaper image)
     let palette = ConfigManager::global().palette();
-    let css = generate_css(config, &palette);
+    let popover_palette = ConfigManager::global().popover_palette();
+    let css = generate_css(config, &palette, popover_palette.as_ref());
 
     // Debug: print theme configuration
     debug!("Generated theme CSS:");
@@ -726,12 +727,21 @@ pub fn reload_user_css() {
 }
 
 /// Generate CSS string from configuration and theme palette.
-fn generate_css(config: &Config, palette: &ThemePalette) -> String {
+fn generate_css(
+    config: &Config,
+    palette: &ThemePalette,
+    popover_palette: Option<&ThemePalette>,
+) -> String {
     // Get CSS variables from theme palette
     let css_vars = palette.css_vars_block();
 
     // Per-widget CSS overrides (background_color, etc. from [widgets.xxx] sections)
     let per_widget_css = ThemePalette::generate_per_widget_css(config);
+
+    // Popover polarity overrides (scoped under .vp-surface-popover)
+    let popover_css = popover_palette
+        .map(|p| p.css_popover_vars_block())
+        .unwrap_or_default();
 
     // Utility CSS shared across widgets and surfaces
     let utility_css = widgets::css::utility_css(config);
@@ -740,8 +750,8 @@ fn generate_css(config: &Config, palette: &ThemePalette) -> String {
     let widget_css = widgets::css::widget_css(config);
 
     format!(
-        "{}\n{}\n{}\n{}",
-        css_vars, per_widget_css, utility_css, widget_css
+        "{}\n{}\n{}\n{}\n{}",
+        css_vars, per_widget_css, popover_css, utility_css, widget_css
     )
 }
 
