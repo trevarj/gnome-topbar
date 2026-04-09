@@ -229,7 +229,6 @@ impl QuickSettingsWindow {
         let margin_wrapper = GtkBox::new(Orientation::Vertical, 0);
         margin_wrapper.add_css_class(surface::POPOVER_WRAPPER);
         margin_wrapper.add_css_class(surface::WIDGET_MENU_WRAPPER);
-        margin_wrapper.add_css_class(surface::NO_FOCUS);
         SurfaceStyleManager::global()
             .apply_shadow_margins(&margin_wrapper, QUICK_SETTINGS_OUTER_MARGIN);
 
