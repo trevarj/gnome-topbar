@@ -10,7 +10,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use material_colors::color::Argb;
-use material_colors::dynamic_color::Variant;
+use material_colors::hct::Cam16;
 use material_colors::quantize::{Quantizer, QuantizerCelebi};
 use material_colors::score::Score;
 use material_colors::theme::ThemeBuilder;
@@ -241,15 +241,13 @@ pub fn detect_wallpaper(monitor: Option<&str>) -> Option<String> {
 /// This is cheap (pure math, no I/O) and used when only the light/dark preference
 /// changes without the wallpaper itself changing.
 pub fn theme_from_source_color(source: Argb) -> material_colors::theme::Theme {
-    ThemeBuilder::with_source(source)
-        .variant(Variant::Content)
-        .build()
+    ThemeBuilder::with_source(source).build()
 }
 
 /// Extract a Material You theme from a wallpaper image.
 ///
 /// Returns the full `Theme` (with light/dark schemes, tonal palettes, and source color)
-/// using the `Content` variant (same as matugen's default), or `None` on failure.
+/// using the default Material variant, or `None` on failure.
 pub fn extract_theme_from_image(path: &str) -> Option<material_colors::theme::Theme> {
     let file_size = std::fs::metadata(path)
         .inspect_err(|e| warn!("Failed to stat wallpaper '{}': {}", path, e))
@@ -273,23 +271,26 @@ pub fn extract_theme_from_image(path: &str) -> Option<material_colors::theme::Th
         .inspect_err(|e| warn!("Failed to decode wallpaper image '{}': {}", path, e))
         .ok()?;
 
-    let resized = img.resize(128, 128, image::imageops::FilterType::Triangle);
+    // Match matugen's preprocessing more closely so quantization sees a similar
+    // pixel distribution for wide and tall wallpapers.
+    let resized = img.resize_exact(112, 112, image::imageops::FilterType::Triangle);
     let rgba = resized.to_rgba8();
 
     let pixels: Vec<Argb> = rgba
         .pixels()
         .map(|p| Argb::new(p[3], p[0], p[1], p[2]))
+        .filter(|argb| argb.alpha == 255)
         .collect();
 
-    let result = QuantizerCelebi::quantize(&pixels, 128);
+    let mut result = QuantizerCelebi::quantize(&pixels, 128);
+    result
+        .color_to_count
+        .retain(|&argb, _| Cam16::from(argb).chroma >= 5.0);
+
     let ranked = Score::score(&result.color_to_count, None, None, None);
     let source_color = *ranked.first()?;
 
-    Some(
-        ThemeBuilder::with_source(source_color)
-            .variant(Variant::Content)
-            .build(),
-    )
+    Some(ThemeBuilder::with_source(source_color).build())
 }
 
 #[cfg(test)]
