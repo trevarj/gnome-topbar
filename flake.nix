@@ -76,6 +76,13 @@
           // {
             inherit cargoArtifacts;
 
+            # Allow the Nix-wrapped binary to find the host NVIDIA driver
+            preFixup = ''
+              gappsWrapperArgs+=(
+                --suffix LD_LIBRARY_PATH : "${pkgs.addDriverRunpath.driverLink}/lib:/usr/lib64:/usr/lib"
+              )
+            '';
+
             meta = {
               description = "A GTK4 panel for Wayland with integrated notifications, OSD, and quick settings";
               homepage = "https://github.com/prankstr/vibepanel";
