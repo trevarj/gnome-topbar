@@ -1579,10 +1579,8 @@ fn parse_vpn_plugin_name_file(content: &str) -> VpnPluginInfo {
             let value = trimmed[eq_pos + 1..].trim();
 
             match current_section.as_str() {
-                "VPN Connection" => {
-                    if key == "service" {
-                        service = value.to_string();
-                    }
+                "VPN Connection" if key == "service" => {
+                    service = value.to_string();
                 }
                 "GNOME" => match key {
                     "auth-dialog" => auth_dialog = Some(value.to_string()),

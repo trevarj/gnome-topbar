@@ -266,16 +266,10 @@ impl SystemService {
                 (dl + data.received(), ul + data.transmitted())
             });
         // Convert to bytes/sec
-        let net_download_speed = if poll_interval > 0 {
-            net_download / poll_interval
-        } else {
-            net_download
-        };
-        let net_upload_speed = if poll_interval > 0 {
-            net_upload / poll_interval
-        } else {
-            net_upload
-        };
+        let net_download_speed = net_download
+            .checked_div(poll_interval)
+            .unwrap_or(net_download);
+        let net_upload_speed = net_upload.checked_div(poll_interval).unwrap_or(net_upload);
 
         // Load average
         let load_avg = System::load_average();
