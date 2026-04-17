@@ -1,12 +1,12 @@
 //! Media pop-out window - standalone draggable media player controls.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::glib::clone;
 use gtk4::prelude::*;
-use gtk4::{Align, ApplicationWindow, Box as GtkBox, GestureClick, Orientation, Window};
+use gtk4::{Align, ApplicationWindow, Box as GtkBox, GestureDrag, Orientation, Window};
 
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
@@ -108,27 +108,66 @@ where
         .style_context()
         .add_provider(&opacity_provider, gtk4::STYLE_PROVIDER_PRIORITY_USER + 20);
 
-    // Drag gesture
-    let gesture = GestureClick::new();
+    // Drag gesture: use GestureDrag so that simple clicks on interactive
+    // children (buttons, seek slider) are not hijacked into a window move.
+    // begin_move is only invoked once the pointer actually moves past the
+    let gesture = GestureDrag::new();
     gesture.set_button(1);
-    gesture.connect_pressed(clone!(
+    let drag_started: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    gesture.connect_drag_begin(clone!(
+        #[strong]
+        drag_started,
+        move |_gesture, _x, _y| {
+            drag_started.set(false);
+        }
+    ));
+
+    gesture.connect_drag_update(clone!(
         #[weak]
         window,
-        move |gesture, _n_press, x, y| {
-            if let Some(surface) = window.surface()
-                && let Some(toplevel) = surface.downcast_ref::<gtk4::gdk::Toplevel>()
-                && let Some(widget) = gesture.widget()
-                && let Some(point) =
-                    widget.compute_point(&window, &gtk4::graphene::Point::new(x as f32, y as f32))
-            {
-                toplevel.begin_move(
-                    gesture.device().as_ref().unwrap(),
-                    gesture.current_button() as i32,
-                    point.x() as f64,
-                    point.y() as f64,
-                    gesture.current_event_time(),
-                );
+        #[strong]
+        drag_started,
+        move |gesture, offset_x, offset_y| {
+            if drag_started.get() {
+                return;
             }
+            // GTK drag threshold (default 8px).
+            let threshold = window.settings().gtk_dnd_drag_threshold().max(1) as f64;
+            if offset_x.abs() < threshold || offset_y.abs() < threshold {
+                return;
+            }
+
+            let Some((start_x, start_y)) = gesture.start_point() else {
+                return;
+            };
+            let Some(widget) = gesture.widget() else {
+                return;
+            };
+            let Some(surface) = window.surface() else {
+                return;
+            };
+            let Some(toplevel) = surface.downcast_ref::<gtk4::gdk::Toplevel>() else {
+                return;
+            };
+            let Some(point) = widget.compute_point(
+                &window,
+                &gtk4::graphene::Point::new(start_x as f32, start_y as f32),
+            ) else {
+                return;
+            };
+            let Some(device) = gesture.device() else {
+                return;
+            };
+
+            drag_started.set(true);
+            toplevel.begin_move(
+                &device,
+                gesture.current_button() as i32,
+                point.x() as f64,
+                point.y() as f64,
+                gesture.current_event_time(),
+            );
         }
     ));
     main_box.add_controller(gesture);
