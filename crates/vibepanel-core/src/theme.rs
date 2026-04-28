@@ -70,6 +70,8 @@ const DEFAULT_STATE_WARNING: &str = "#e5c07b";
 const DEFAULT_STATE_URGENT: &str = "#ff6b6b";
 const DEFAULT_FONT_FAMILY: &str = "monospace";
 
+const WIDGET_HOVER_BG_VALUE: &str = "color-mix(in srgb, color-mix(in srgb, var(--widget-background-color) var(--widget-background-opacity), transparent) 92%, var(--widget-hover-tint))";
+
 // Size scaling factors (empirically tuned for visual balance at bar sizes 28-60px)
 const FONT_SCALE: f64 = 0.6;
 const TEXT_ICON_SCALE: f64 = 0.50;
@@ -561,7 +563,6 @@ impl ThemePalette {
         } else {
             0
         };
-
         format!(
             r#"
 :root {{
@@ -573,6 +574,12 @@ impl ThemePalette {
     --widget-background-opacity: {widget_bg_opacity}%;
     --popover-background-opacity: {popover_bg_opacity}%;
     --widget-hover-tint: {widget_hover_tint};
+    /* Semantic hover backgrounds for user CSS overrides. */
+    --color-widget-hover-bg: {widget_hover_bg_value};
+    --color-workspace-indicator-hover-default-bg: var(--color-card-overlay-hover);
+    --color-workspace-indicator-active-hover-bg: var(--color-accent-hover-bg);
+    --color-taskbar-button-hover-bg: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
+    --color-taskbar-button-active-hover-bg: var(--color-accent-hover-bg);
 
     /* ===== Background Colors ===== */
     /* Bar background with opacity applied via color-mix */
@@ -683,6 +690,7 @@ impl ThemePalette {
 "#,
             bar_bg_with_opacity = self.bar_background_with_opacity(),
             widget_bg_color = self.widget_background,
+            widget_hover_bg_value = WIDGET_HOVER_BG_VALUE,
             widget_bg_opacity = (self.widget_opacity * 100.0).round() as u32,
             popover_bg_opacity = match self.popover_opacity {
                 Some(explicit) => (explicit * 100.0).round() as u32,
@@ -807,6 +815,7 @@ impl ThemePalette {
                 if let Some((r, g, b)) = parse_hex_color(color) {
                     let normalized = format!("#{:02x}{:02x}{:02x}", r, g, b);
                     rules.push(format!("--widget-background-color: {};", normalized));
+                    rules.push(format!("--color-widget-hover-bg: {WIDGET_HOVER_BG_VALUE};"));
                 } else {
                     tracing::warn!(
                         "Invalid background_color '{}' for widget '{}' - expected hex color",
@@ -822,7 +831,8 @@ impl ThemePalette {
                 css.push_str(&format!(
                     r#"
 .widget.{css_name},
-.widget-group.{css_name},
+.widget-item.{css_name},
+.widget-merge-group.{css_name},
 .{css_name}-popover {{
     {rules}
 }}
@@ -1544,6 +1554,19 @@ mod tests {
     }
 
     #[test]
+    fn test_workspace_indicator_hover_default_uses_internal_token() {
+        let config = Config::default();
+        let palette = ThemePalette::from_config(&config, None, None);
+        let css = palette.css_vars_block();
+
+        assert!(css.contains(
+            "--color-workspace-indicator-hover-default-bg: var(--color-card-overlay-hover);"
+        ));
+        assert!(!css.contains("--color-workspace-indicator-hover-bg:"));
+        assert!(!css.contains("--color-workspace-indicator-minimal-hover-bg"));
+    }
+
+    #[test]
     fn test_generate_per_widget_css_with_background_color() {
         use crate::config::WidgetOptions;
 
@@ -1558,11 +1581,21 @@ mod tests {
 
         let css = ThemePalette::generate_per_widget_css(&config);
 
-        // Should generate CSS targeting widget, widget-group, and popover
+        // Should generate CSS targeting widget surfaces, grouped paint elements, and popover.
+        // The transparent .widget-group surface must not receive per-widget variables;
+        // they would inherit into unrelated children in mixed groups.
         assert!(css.contains(".widget.clock"), "should target .widget.clock");
         assert!(
-            css.contains(".widget-group.clock"),
-            "should target .widget-group.clock"
+            css.contains(".widget-item.clock"),
+            "should target .widget-item.clock"
+        );
+        assert!(
+            !css.contains(".widget-group.clock"),
+            "should not target transparent .widget-group.clock"
+        );
+        assert!(
+            css.contains(".widget-merge-group.clock"),
+            "should target .widget-merge-group.clock"
         );
         assert!(
             css.contains(".clock-popover"),
@@ -1572,6 +1605,12 @@ mod tests {
         assert!(
             css.contains("--widget-background-color: #f5c2e7"),
             "should set --widget-background-color"
+        );
+        assert!(
+            css.contains(&format!(
+                "--color-widget-hover-bg: {WIDGET_HOVER_BG_VALUE};"
+            )),
+            "should rederive --color-widget-hover-bg from per-widget background"
         );
     }
 

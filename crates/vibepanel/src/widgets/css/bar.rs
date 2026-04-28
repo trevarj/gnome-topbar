@@ -3,7 +3,7 @@
 //! Note: This module requires config values for screen_margin and spacing,
 //! so it returns a formatted String rather than a static str.
 
-use super::{CONTENT_PADDING_X, WIDGET_BG_HOVER, WIDGET_BG_WITH_OPACITY};
+use super::{CONTENT_PADDING_X, WIDGET_BG_WITH_OPACITY};
 use crate::widgets::workspaces::{
     INDICATOR_ACTIVE_MULT, INDICATOR_HEIGHT_MULT, INDICATOR_INACTIVE_MULT, LONG_INDICATOR_HPAD,
 };
@@ -17,12 +17,12 @@ use crate::widgets::workspaces::{
 /// alive even when `theme.animations = false`.
 pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> String {
     let widget_bg = WIDGET_BG_WITH_OPACITY;
-    let widget_bg_hover = WIDGET_BG_HOVER;
     let inactive_mult = INDICATOR_INACTIVE_MULT;
     let active_mult = INDICATOR_ACTIVE_MULT;
     let height_mult = INDICATOR_HEIGHT_MULT;
     let long_hpad = LONG_INDICATOR_HPAD;
     let content_pad_x = CONTENT_PADDING_X;
+    let content_pad_x_half = CONTENT_PADDING_X / 2;
     let content_pad_x_double = 2 * CONTENT_PADDING_X;
     let workspace_transition = if workspace_animations {
         "transition: min-width 200ms linear, background-color 100ms ease;"
@@ -84,55 +84,135 @@ sectioned-bar.bar {{
     padding: var(--widget-padding-y) {content_pad_x}px;
 }}
 
-/* Widget groups - remove padding so hover can extend to edges */
+/* Widget groups — surface is transparent; each child paints its own base
+   so translucent hover composites over the bar background, not on a
+   stacked group base. Outer pill shape comes from position-aware radius
+   on the first/last children below. */
 .widget.widget-group {{
     padding: 0;
+    background-color: transparent;
+    background-image: none;
 }}
 
 /* Hover targets the wrapper but paints on the surface child */
 .widget-wrapper.clickable:hover > .widget:not(.widget-group) {{
-    background-color: {widget_bg_hover};
+    background-color: var(--color-widget-hover-bg);
 }}
 
-/* Pull non-first items left to overlap adjacent .content padding (2 × {content_pad_x}px).
-   Merge groups (.widget-merge-group) are also direct children of .content,
-   so they need the same treatment when they follow another item. */
-.widget-group .content > .widget-item:not(:first-child),
-.widget-group .content > .widget-merge-group:not(:first-child) {{
-    margin-left: -{content_pad_x_double}px;
+/* Each grouped child paints its own background. Both adjacent painted
+   siblings (.widget-merge-group and .widget-item) sit at the same DOM
+   depth (direct children of .widget-group > .content) so their painted
+   regions meet flush in the parent Box. The inner .widget stays
+   transparent — painting the outer .widget-item ensures the painted
+   surface fills the item's allocation, eliminating subpixel seams that
+   appear when paint depth differs between siblings. */
+.widget-group > .content > .widget-item {{
+    background-color: {widget_bg};
 }}
-
-/* Base border-radius for grouped items — must be present in the non-hover
-   state so the radius doesn't snap on/off during the background transition */
-.widget-group .content > .widget-item {{
-    border-radius: var(--radius-widget);
-}}
-
-/* Nested surfaces transparent — theme-priority fallback for grouped active
-   widgets.  The primary suppression is a scoped CSS provider in bar.rs
-   (transient priority), but this catches edge cases at theme priority. */
-.widget.widget-group .widget {{
+.widget-group > .content > .widget-item > .widget {{
     background-color: transparent;
-    border-radius: inherit;
+    box-shadow: none;
 }}
 
-/* Grouped item hover — tint only (group surface provides base background) */
-.widget-group .content > .widget-item.clickable:hover {{
-    background-color: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
+/* Halve the visible inter-item gap at every seam inside a group. Each
+   item carries `pad_x` on both inner-content sides; without override,
+   adjacent items show `2 * pad_x` between their icons (looks doubled vs
+   the intra-merge gap, which is collapsed by the negative-margin overlap
+   inside .merge-group-content + .merge-group-content's set_spacing).
+   Halving both seam-facing sides to `pad_x / 2` yields a total seam gap
+   of `pad_x`, matching MERGE_GROUP_SPACING for visual consistency.
+   - .widget-item: padding lives on .widget > overlay > .content.
+   - .widget-merge-group: the leftmost/rightmost passive item's .content
+     carries the seam-facing padding (interior passive items are already
+     overlapped by margin-left).
+   :not(:first-child) → has a previous sibling → halve left side.
+   :not(:last-child)  → has a following sibling → halve right side. */
+.widget-group > .content > .widget-item:not(:first-child) > .widget > overlay > .content,
+.widget-group > .content > .widget-merge-group:not(:first-child) > .merge-group-content > .widget-item:first-child > .content {{
+    padding-left: {content_pad_x_half}px;
+}}
+.widget-group > .content > .widget-item:not(:last-child) > .widget > overlay > .content,
+.widget-group > .content > .widget-merge-group:not(:last-child) > .merge-group-content > .widget-item:last-child > .content {{
+    padding-right: {content_pad_x_half}px;
+}}
+
+/* Position-aware pill shape: outer corners rounded only on the leading
+   and trailing children; interior edges square so adjacent children meet
+   flush. Applies to both plain items and merge wrappers. */
+.widget-group > .content > .widget-item,
+.widget-group > .content > .widget-merge-group {{
+    border-radius: 0;
+}}
+.widget-group > .content > :first-child {{
+    border-top-left-radius: var(--radius-widget);
+    border-bottom-left-radius: var(--radius-widget);
+}}
+.widget-group > .content > :last-child {{
+    border-top-right-radius: var(--radius-widget);
+    border-bottom-right-radius: var(--radius-widget);
+}}
+
+/* Inner .widget surface inside grouped items must match its parent
+   .widget-item's position-aware radius — the inner .widget has
+   Overflow::Hidden which clips the ripple, so without this override
+   the ripple would clip to the standalone --radius-widget shape and
+   not reach the painted square corners at interior seams. */
+.widget-group > .content > .widget-item > .widget {{
+    border-radius: 0;
+}}
+.widget-group > .content > .widget-item:first-child > .widget {{
+    border-top-left-radius: var(--radius-widget);
+    border-bottom-left-radius: var(--radius-widget);
+}}
+.widget-group > .content > .widget-item:last-child > .widget {{
+    border-top-right-radius: var(--radius-widget);
+    border-bottom-right-radius: var(--radius-widget);
+}}
+
+/* Grouped child hover — clears the cell base and paints a rounded hover
+   pill on the inner surface. The spread shadow restores the cell's base
+   color behind the rounded corners, clipped by the child allocation, so
+   translucent hover values composite over the bar background exactly once
+   without exposing wallpaper at mixed-group seams. */
+.widget-group > .content > .widget-item.clickable:hover {{
+    background-color: transparent;
+}}
+.widget-group > .content > .widget-item.clickable:hover > .widget {{
+    background-color: var(--color-widget-hover-bg);
+    border-radius: var(--radius-widget);
+    box-shadow: 0 0 0 9999px {widget_bg};
 }}
 
 /* ===== MERGE GROUP ===== */
 
 /* Merge group wrapper — acts as a single visual button for adjacent
-   same-popover widgets. Rounded corners clip the shared ripple effect.
-   overflow:hidden is set in Rust (not a valid GTK4 CSS property). */
+   same-popover widgets. Paints its own base; the parent group surface
+   is transparent. overflow:hidden is set in Rust (not a valid GTK4 CSS
+   property). */
 .widget-merge-group {{
+    background-color: {widget_bg};
     border-radius: var(--radius-widget);
 }}
+.widget-merge-group > .merge-group-content {{
+    box-shadow: none;
+}}
 
-/* Merge group hover — shared background for the entire merged button */
-.widget-merge-group.clickable:hover {{
-    background-color: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
+/* Ripple clip box (added in build_merge_group). Establishes a rounded clip
+   for the merge-group ripple so it matches the inner pill shape — the
+   merge-group itself uses position-aware radius and would otherwise leak
+   the ripple past rounded hover edges at mixed-group seams. */
+.widget-merge-group-ripple-clip {{
+    border-radius: var(--radius-widget);
+    background: transparent;
+}}
+
+.widget-group > .content > .widget-merge-group.clickable:hover {{
+    background-color: transparent;
+}}
+.widget-group > .content > .widget-merge-group.clickable:hover > .merge-group-content {{
+    background-color: var(--color-widget-hover-bg);
+    border-radius: var(--radius-widget);
+    box-shadow: 0 0 0 9999px {widget_bg};
 }}
 
 /* Passive items in merge groups don't show their own hover */
@@ -145,8 +225,16 @@ sectioned-bar.bar {{
     margin-left: -{content_pad_x_double}px;
 }}
 
-/* Spacing between items inside widgets */
-.widget .content > *:not(:last-child),
+/* Spacing between items inside widgets (icon→label, etc.).
+   Restricted to inner .content elements: standalone widgets' .content sits
+   inside .widget (which is NOT .widget-group), and grouped items' inner
+   .content sits inside .widget-item.passive (merge groups) or one extra
+   level deep under .widget-group's outer .content. The outer .content
+   directly under .widget.widget-group must NOT match — its direct children
+   are the painted siblings (.widget-merge-group, .widget-item) that need
+   to meet flush with zero margin between them. */
+.widget:not(.widget-group) > overlay > .content > *:not(:last-child),
+.widget:not(.widget-group) > .content > *:not(:last-child),
 .widget-group .content .content > *:not(:last-child) {{
     margin-right: var(--spacing-widget-gap);
 }}
@@ -179,22 +267,17 @@ overlay.workspace-indicator {{
     border-radius: calc(var(--radius-pill) * 1.2);
 }}
 
-/* Workspace indicator hover — background-color fades via the 100ms ease
-   transition above.  Accent state uses --color-accent-hover-bg (pre-computed in
-   the theme with luminance-aware tint direction and ratio). */
+/* Workspace hover backgrounds use scoped tokens so active hover can differ from global accent hover. */
 .workspace-indicator.clickable:hover {{
-    background-color: var(--color-card-overlay-hover);
-}}
-
-.workspace-indicator-minimal.clickable:hover {{
-    background-color: color-mix(in srgb, var(--color-foreground-faint) 80%, var(--widget-hover-tint));
+    background-color: var(--color-workspace-indicator-hover-bg, var(--color-workspace-indicator-hover-default-bg));
 }}
 
 .workspace-indicator.active.clickable:hover {{
-    background-color: var(--color-accent-hover-bg);
+    background-color: var(--color-workspace-indicator-active-hover-bg);
 }}
 
 .workspace-indicator-minimal {{
+    --color-workspace-indicator-hover-default-bg: color-mix(in srgb, var(--color-foreground-faint) 80%, var(--widget-hover-tint));
     background-color: var(--color-foreground-faint);
 }}
 
@@ -244,7 +327,7 @@ overlay.workspace-indicator {{
 }}
 
 .taskbar-button.clickable:hover {{
-    background-color: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
+    background-color: var(--color-taskbar-button-hover-bg);
 }}
 
 .taskbar-button.active {{
@@ -253,7 +336,7 @@ overlay.workspace-indicator {{
 }}
 
 .taskbar-button.active.clickable:hover {{
-    background-color: var(--color-accent-hover-bg);
+    background-color: var(--color-taskbar-button-active-hover-bg);
 }}
 
 "#
