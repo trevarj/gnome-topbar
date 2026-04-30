@@ -25,7 +25,9 @@ use tracing::{debug, warn};
 use vibepanel_core::config::OsdConfig;
 
 use crate::services::audio::AudioSnapshot;
+use crate::services::background_effect::attach_blur_surface_lifecycle;
 use crate::services::brightness::BrightnessSnapshot;
+use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::ipc::IpcMessage;
 use crate::services::surfaces::SurfaceStyleManager;
@@ -200,6 +202,7 @@ pub struct OsdOverlay {
     // Callback IDs for deterministic cleanup.
     brightness_callback_id: Cell<Option<CallbackId>>,
     audio_callback_id: Cell<Option<CallbackId>>,
+    theme_callback_guard: RefCell<Option<ThemeCallbackGuard>>,
 }
 
 impl OsdOverlay {
@@ -260,6 +263,15 @@ impl OsdOverlay {
         // Anchor window according to position.
         Self::apply_position(&window, &position);
 
+        let theme_callback_guard = attach_blur_surface_lifecycle(
+            &window,
+            |win: &gtk4::Window| win.child(),
+            || {
+                // Same as `--radius-widget-lg: calc(widget-radius * 2)` in theme CSS.
+                ConfigManager::global().widget_border_radius() as i32 * 2
+            },
+        );
+
         let overlay = Rc::new(Self {
             window,
             osd_widget,
@@ -272,6 +284,7 @@ impl OsdOverlay {
             last_muted: Cell::new(false),
             brightness_callback_id: Cell::new(None),
             audio_callback_id: Cell::new(None),
+            theme_callback_guard: RefCell::new(Some(theme_callback_guard)),
         });
 
         overlay.connect_brightness();
@@ -385,6 +398,9 @@ impl OsdOverlay {
 
         let source_id = glib::timeout_add_local(Duration::from_millis(timeout as u64), move || {
             if let Some(this) = this_weak.upgrade() {
+                // No explicit blur removal needed — unmapping suspends
+                // compositor-side blur while the protocol object persists.
+                // connect_map re-applies blur on next show.
                 this.window.set_visible(false);
                 *this.hide_source.borrow_mut() = None;
             }
@@ -559,5 +575,7 @@ impl Drop for OsdOverlay {
         if let Some(id) = self.audio_callback_id.take() {
             AudioService::global().disconnect(id);
         }
+        // ThemeCallbackGuard handles disconnect_theme_callback on drop.
+        drop(self.theme_callback_guard.borrow_mut().take());
     }
 }

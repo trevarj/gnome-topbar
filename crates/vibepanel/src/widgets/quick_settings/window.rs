@@ -302,6 +302,34 @@ impl QuickSettingsWindow {
             });
         }
 
+        // Apply blur when mapped.  On first map the surface has no size yet
+        // so apply_blur_region defers via idle.  On re-show, anim_shell is at
+        // opacity 0 (transparent) until the animation tick overwrites the region
+        // with a scaled version within 1-2 frames.
+        //
+        // The else-branch removes any stale protocol object left from a
+        // previous map cycle.  This handles the case where blur was enabled
+        // when QS was last shown, then disabled while QS was hidden (unmapped).
+        // `remove_blur_region` requires a mapped surface, so connect_map is
+        // the earliest reliable cleanup point.
+        //
+        // Known limitation: config changes to `theme.blur` or border radius
+        // while Quick Settings is open take effect on next open, not
+        // immediately.  QS grabs focus so config edits are unlikely while open.
+        window.connect_map(move |win| {
+            if ConfigManager::global().blur_enabled() {
+                if let Some(blur) =
+                    crate::services::background_effect::BackgroundEffectManager::global()
+                {
+                    blur.apply_blur_region(win, QUICK_SETTINGS_OUTER_MARGIN);
+                }
+            } else if let Some(blur) =
+                crate::services::background_effect::BackgroundEffectManager::global()
+            {
+                blur.remove_blur_region(win);
+            }
+        });
+
         // Subscribe to services
         Self::subscribe_to_services(&qs);
 
@@ -1592,6 +1620,9 @@ impl QuickSettingsWindow {
             self.anim_shell.set_scale(ANIM_SCALE_FROM);
             self.is_animating_out.set(false);
             self.reset_ui_state();
+            // No explicit blur removal needed — unmapping suspends
+            // compositor-side blur while the protocol object persists.
+            // Blur is re-applied on next map via connect_map.
             self.window.set_visible(false);
             return;
         }
@@ -1599,6 +1630,14 @@ impl QuickSettingsWindow {
         // Ensure the window is fully visible (the idle callback from show_panel
         // may not have fired yet, leaving window.opacity at 0.0).
         self.window.set_opacity(1.0);
+
+        // Remove blur immediately so the compositor stops drawing it while the
+        // surface fades out.  Blur is a compositor effect independent of surface
+        // opacity — if left in place it would remain visible as the content
+        // becomes transparent.
+        if let Some(blur) = crate::services::background_effect::BackgroundEffectManager::global() {
+            blur.remove_blur_region(&self.window);
+        }
 
         // Start (or reverse into) the close animation.
         self.start_animation(AnimDirection::Closing, generation);
@@ -1688,6 +1727,20 @@ impl QuickSettingsWindow {
                 let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
                 shell_clone.set_scale(scale);
 
+                if direction == AnimDirection::Opening
+                    && ConfigManager::global().blur_enabled()
+                    && let Some(blur) =
+                        crate::services::background_effect::BackgroundEffectManager::global()
+                    && let Some(window) = window_weak.upgrade()
+                {
+                    blur.apply_open_animation_blur(
+                        &window,
+                        QUICK_SETTINGS_OUTER_MARGIN,
+                        scale,
+                        complete,
+                    );
+                }
+
                 if complete {
                     anim_state.borrow_mut().active = false;
 
@@ -1774,6 +1827,13 @@ impl Drop for QuickSettingsWindow {
         // Destroy click-catcher if still alive
         if let Some(catcher) = self.click_catcher.borrow_mut().take() {
             catcher.close();
+        }
+
+        // Best-effort blur cleanup; primary removal happens at fade-start
+        // in hide_panel().  May no-op if already unmapped.
+        // See BackgroundEffectManager::remove_blur_region docs.
+        if let Some(blur) = crate::services::background_effect::BackgroundEffectManager::global() {
+            blur.remove_blur_region(&self.window);
         }
 
         // Destroy the GTK window

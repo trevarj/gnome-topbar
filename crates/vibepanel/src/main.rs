@@ -633,6 +633,13 @@ fn run_gtk_app(config: Config, config_source: Option<PathBuf>) -> ExitCode {
             }
         };
 
+        // Initialize background effect (blur) service unconditionally so that
+        // hot-reloading `theme.blur = true` at runtime works.  The service is
+        // cheap when the compositor lacks ext-background-effect support, and
+        // call-sites already gate on `blur_enabled()`.
+        services::background_effect::BackgroundEffectManager::init_global();
+        debug!("Background effect (blur) service initialized");
+
         // Initialize bar manager and sync bars to current monitors
         let bar_manager = BarManager::global();
         bar_manager.init(app);

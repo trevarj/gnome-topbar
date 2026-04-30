@@ -8,8 +8,9 @@ use gtk4::glib::clone;
 use gtk4::prelude::*;
 use gtk4::{Align, ApplicationWindow, Box as GtkBox, GestureDrag, Orientation, Window};
 
+use crate::services::background_effect::attach_blur_surface_lifecycle;
 use crate::services::callbacks::CallbackId;
-use crate::services::config_manager::ConfigManager;
+use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::media::MediaService;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{media, surface};
@@ -25,10 +26,12 @@ const WINDOW_BLOB_MARGIN: i32 = 12;
 /// Smaller blob displacement for the compact window layout.
 const WINDOW_BLOB_MAX_DISPLACEMENT: f64 = 8.0;
 
-/// Handle to the media pop-out window. Drop this to close the window.
+/// Handle to the media pop-out window. Dropping disconnects the theme callback.
 pub struct MediaWindowHandle {
     window: Window,
     _callback_id: Rc<RefCell<Option<CallbackId>>>,
+    /// Theme-change callback guard; disconnected automatically on `Drop`.
+    _theme_callback_guard: ThemeCallbackGuard,
     opacity_provider: gtk4::CssProvider,
 }
 
@@ -247,6 +250,14 @@ where
         *callback_id_cell.borrow_mut() = Some(callback_id);
     }
 
+    let theme_callback_guard = attach_blur_surface_lifecycle(
+        &window,
+        move |_| Some(main_box.clone().upcast::<gtk4::Widget>()),
+        || ConfigManager::global().surface_border_radius() as i32,
+    );
+
+    // Disconnect media updates when the GTK window is destroyed.
+    // Blur cleanup is handled by attach_blur_surface_lifecycle.
     window.connect_destroy(clone!(
         #[strong]
         callback_id_cell,
@@ -265,6 +276,7 @@ where
     MediaWindowHandle {
         window,
         _callback_id: callback_id_cell,
+        _theme_callback_guard: theme_callback_guard,
         opacity_provider,
     }
 }

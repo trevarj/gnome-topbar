@@ -237,6 +237,20 @@ impl ConfigManager {
         self.palette.borrow().surface_border_radius
     }
 
+    /// Get the computed bar border radius in pixels.
+    pub fn bar_border_radius(&self) -> u32 {
+        self.palette.borrow().bar_border_radius
+    }
+
+    /// Get the computed widget border radius in pixels.
+    ///
+    /// This is the radius applied to individual widget islands (`.widget` elements).
+    /// Use this for blur regions on widget islands — not `bar_border_radius`, which
+    /// includes bar padding and applies to the whole bar surface.
+    pub fn widget_border_radius(&self) -> u32 {
+        self.palette.borrow().widget_border_radius
+    }
+
     /// Get the pill radius (used for rounded indicators, thumbnails, etc.).
     ///
     /// This is derived from the widget border radius configuration.
@@ -313,6 +327,15 @@ impl ConfigManager {
             .borrow()
             .as_ref()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    }
+
+    /// Check if compositor background blur is enabled.
+    ///
+    /// When true, vibepanel sends ext-background-effect-v1 blur region hints
+    /// for the bar, popovers, quick settings, notification toasts, OSD,
+    /// tray menus, and media pop-out windows.
+    pub fn blur_enabled(&self) -> bool {
+        self.config.borrow().theme.blur
     }
 
     /// Get a widget option value from the current configuration.
@@ -745,8 +768,12 @@ impl ConfigManager {
             if let Some(display) = gtk4::gdk::Display::default() {
                 BarManager::global().reconfigure_all(&display, &new_config);
             }
-        } else if theme_changed {
-            // Theme-only changes: notify callbacks for programmatic styling updates
+        }
+
+        if theme_changed {
+            // Notify theme callbacks even during structural rebuild, because
+            // non-bar surfaces (e.g. media pop-out) persist across bar rebuilds
+            // and need to react to theme changes independently.
             self.theme_callbacks.notify(&());
         }
 
@@ -874,6 +901,19 @@ impl ConfigManager {
     }
 }
 
+/// Drop guard that disconnects a theme callback when dropped.
+///
+/// Wrap a `CallbackId` from [`ConfigManager::on_theme_change`] in this guard
+/// to ensure the callback is automatically unregistered when the owning
+/// widget is destroyed.
+pub struct ThemeCallbackGuard(pub CallbackId);
+
+impl Drop for ThemeCallbackGuard {
+    fn drop(&mut self) {
+        ConfigManager::global().disconnect_theme_callback(self.0);
+    }
+}
+
 /// Check if per-widget style overrides have changed (triggers CSS-only reload).
 ///
 /// This detects when widget-specific styling options (like `background_color`)
@@ -924,6 +964,14 @@ fn config_structure_changed(old: &Config, new: &Config) -> bool {
 
     if old.bar.inset != new.bar.inset {
         debug!("bar.inset changed ({} -> {})", old.bar.inset, new.bar.inset);
+        return true;
+    }
+
+    if old.bar.background_opacity != new.bar.background_opacity {
+        debug!(
+            "bar.background_opacity changed ({} -> {})",
+            old.bar.background_opacity, new.bar.background_opacity
+        );
         return true;
     }
 

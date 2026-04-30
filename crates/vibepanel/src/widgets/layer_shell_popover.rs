@@ -653,6 +653,9 @@ impl LayerShellPopover {
                 shell.set_scale(ANIM_SCALE_FROM);
                 shell.remove_child();
             }
+            // No explicit blur removal needed — unmapping suspends
+            // compositor-side blur while the protocol object persists.
+            // Blur is re-applied on next map via connect_map.
             window.set_visible(false);
             // Fire on_close now since there's no animation to wait for.
             if let Some(ref cb) = *self.on_close.borrow() {
@@ -664,6 +667,14 @@ impl LayerShellPopover {
         // Ensure the window is fully visible (the idle callback from show_internal
         // may not have fired yet, leaving window.opacity at 0.0).
         window.set_opacity(1.0);
+
+        // Remove blur immediately so the compositor stops drawing it while the
+        // surface fades out.  Blur is a compositor effect independent of surface
+        // opacity — if left in place it would remain visible as the content
+        // becomes transparent.
+        if let Some(blur) = crate::services::background_effect::BackgroundEffectManager::global() {
+            blur.remove_blur_region(&window);
+        }
 
         // Start (or reverse into) the close animation.
         // on_close fires when the animation completes (in the tick callback).
@@ -929,6 +940,36 @@ impl LayerShellPopover {
             });
         }
 
+        // Apply blur on every map (first show and re-show).  Close calls
+        // set_visible(false) which unmaps the surface, so connect_map fires
+        // again when the window is re-shown.  On first map the surface has no
+        // size yet, so apply_blur_region defers via idle.  On re-show it sets
+        // the full-size region, which the animation tick overwrites with a
+        // scaled region within 1-2 frames.
+        //
+        // The else-branch removes any stale protocol object left from a
+        // previous map cycle.  This handles the case where blur was enabled
+        // when the popover was last shown, then disabled while the popover
+        // was hidden (unmapped).  `remove_blur_region` requires a mapped
+        // surface, so connect_map is the earliest reliable cleanup point.
+        //
+        // Known limitation: config changes to `theme.blur` or border radius
+        // while the popover is open take effect on next open, not immediately.
+        // Popovers grab focus so config edits are unlikely while open.
+        window.connect_map(move |win| {
+            if ConfigManager::global().blur_enabled() {
+                if let Some(blur) =
+                    crate::services::background_effect::BackgroundEffectManager::global()
+                {
+                    blur.apply_blur_region(win, POPOVER_SHADOW_MARGIN);
+                }
+            } else if let Some(blur) =
+                crate::services::background_effect::BackgroundEffectManager::global()
+            {
+                blur.remove_blur_region(win);
+            }
+        });
+
         *self.window.borrow_mut() = Some(window.clone());
         window
     }
@@ -1038,6 +1079,15 @@ impl LayerShellPopover {
             let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
             shell_for_scale.set_scale(scale);
 
+            if direction == AnimDirection::Opening
+                && ConfigManager::global().blur_enabled()
+                && let Some(blur) =
+                    crate::services::background_effect::BackgroundEffectManager::global()
+                && let Some(ref w) = window
+            {
+                blur.apply_open_animation_blur(w, POPOVER_SHADOW_MARGIN, scale, complete);
+            }
+
             if complete {
                 anim_state.borrow_mut().active = false;
 
@@ -1136,6 +1186,14 @@ impl Drop for LayerShellPopover {
 
         if let Some(catcher) = self.click_catcher.borrow_mut().take() {
             catcher.close();
+        }
+        // Best-effort blur cleanup; primary removal happens at fade-start
+        // in hide().  May no-op if already unmapped.
+        // See BackgroundEffectManager::remove_blur_region docs.
+        if let Some(blur) = crate::services::background_effect::BackgroundEffectManager::global()
+            && let Some(ref window) = *self.window.borrow()
+        {
+            blur.remove_blur_region(window);
         }
         if let Some(window) = self.window.borrow_mut().take() {
             window.close();
