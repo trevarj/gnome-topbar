@@ -21,7 +21,7 @@ VibePanel is something between a simple status bar and a full desktop shell:
   - **OSD** – Built-in on-screen display for volume and brightness
   - **Quick settings** – Native panel for Wi‑Fi, Bluetooth, audio, power profiles and more
 - **Minimal config** – Sensible defaults out of the box; customize with TOML, CSS only if needed.
-- **Modern aesthetics** – Defaults to a floating "island" style with instant hot‑reloading for layouts and themes.
+- **Modern aesthetics** – Defaults to a floating "island" design with instant hot‑reloading and features wallpaper adaptive theming that auto‑switches between light and dark.
 - **Integrated CLI** – Control volume, brightness, media playback, bar visibility, popovers and idle inhibition.
 
 ## Demo
@@ -41,6 +41,13 @@ These examples use roughly ~10–35 lines of TOML to get completely different vi
 
 ## Widgets
 
+- **Quick settings**:
+  - **Audio** - Control volume and outputs
+  - **Brightness** - Adjust screen brightness
+  - **Bluetooth** - Manage and pair devices
+  - **Wi-Fi** - Connect to and manage networks
+  - **VPN** - Connect to NetworkManager-managed VPN connections
+  - **Idle Inhibitor** - Toggle idle inhibitor to prevent sleep
 - **Workspaces** - clickable indicators with tooltips
 - **Window title** - active window with app icon
 - **Keyboard layout** - layout indicator with click to cycle
@@ -52,13 +59,7 @@ These examples use roughly ~10–35 lines of TOML to get completely different vi
 - **CPU, Memory, GPU & Network Speed** - system resource monitors (AMD and NVIDIA GPU support)
 - **Media** - MPRIS media player controls with album art
 - **Custom** - user-defined widgets (scripts, buttons, indicators)
-- **Quick settings**:
-  - **Audio** - Control volume and outputs
-  - **Brightness** - Adjust screen brightness
-  - **Bluetooth** - Manage and pair devices
-  - **Wi-Fi** - Connect to and manage networks
-  - **VPN** - Connect to NetworkManager-managed VPN connections
-  - **Idle Inhibitor** - Toggle idle inhibitor to prevent sleep
+- **Taskbar** - open windows as clickable buttons
 
 ## Quickstart
 
