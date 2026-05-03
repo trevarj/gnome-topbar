@@ -9,7 +9,7 @@
   <img src="assets/screenshots/islands_bar_dark.png" alt="VibePanel" width="830">
 </p>
 
-A batteries-included Wayland panel that replaces your status bar, notification daemon and OSD with a single binary. Works out of the box with [Hyprland](https://github.com/hyprwm/Hyprland), [Niri](https://github.com/niri-wm/niri), [Sway](https://github.com/swaywm/sway), [MangoWC](https://github.com/mangowm/mango) and other compositors.
+A batteries-included Wayland panel that replaces your status bar, notification daemon, OSD and more with a single binary. Works out of the box with [Hyprland](https://github.com/hyprwm/Hyprland), [Niri](https://github.com/niri-wm/niri), [Sway](https://github.com/swaywm/sway), [MangoWC](https://github.com/mangowm/mango) and other compositors.
 
 ## Why VibePanel?
 
@@ -28,7 +28,7 @@ VibePanel is something between a simple status bar and a full desktop shell:
 
 These examples use roughly ~10–35 lines of TOML to get completely different vibes, no CSS required.
 
-<https://github.com/user-attachments/assets/d7ed9674-1c32-436e-af1a-5ece72096816>
+https://github.com/user-attachments/assets/fba27921-0886-4e7b-850d-b51341583693
 
 *A few example configurations*
 <table align="center">
