@@ -8,7 +8,7 @@ use material_colors::scheme::Scheme;
 use tracing::warn;
 
 use crate::Config;
-use crate::config::SchemePolarity;
+use crate::config::{SchemePolarity, ThemeStates};
 
 // Overlay opacities: base values for card backgrounds.
 // Dark mode uses lower opacity (0.06) since white overlays on dark are more visible.
@@ -1386,8 +1386,10 @@ impl ThemePalette {
             self.accent_hover_bg = argb_to_hex(&scheme.primary_container);
         }
 
-        // State colors: only override urgent (error), keep success/warning as user-configured
-        self.state_urgent = argb_to_hex(&scheme.error);
+        // State colors: use Material You error unless the user customized urgent.
+        if config.theme.states.urgent == ThemeStates::default().urgent {
+            self.state_urgent = argb_to_hex(&scheme.error);
+        }
 
         // Overlays — use surface_tint at varying opacities
         let base_opacity = if self.is_dark_mode {
@@ -2402,6 +2404,22 @@ mod tests {
             palette.is_dark_mode,
             "low luminance should produce dark fallback when material_theme is None"
         );
+    }
+
+    #[test]
+    fn test_auto_mode_respects_custom_urgent_state() {
+        use material_colors::theme::ThemeBuilder;
+
+        let source_color = Argb::new(255, 53, 132, 228);
+        let material_theme = ThemeBuilder::with_source(source_color).build();
+
+        let mut config = Config::default();
+        config.theme.mode = "auto".to_string();
+        config.theme.states.urgent = "#adeba0".to_string();
+
+        let palette = ThemePalette::from_config(&config, Some(&material_theme), Some(0.1));
+
+        assert_eq!(palette.state_urgent, "#adeba0");
     }
 
     // ===== Outline =====
