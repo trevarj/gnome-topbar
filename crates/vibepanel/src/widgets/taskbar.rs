@@ -151,6 +151,33 @@ impl Default for TaskbarConfig {
 /// moved to a different workspace, or reordered across outputs).
 type WindowIdList = Vec<(u64, Option<i32>, Option<String>)>;
 
+// Visual-state priority: active > urgent. Window data may have both states;
+// the rendered taskbar button intentionally picks one visual class.
+fn taskbar_button_state_class(
+    window: &crate::services::compositor::Window,
+    config: &TaskbarConfig,
+) -> Option<&'static str> {
+    if config.show_active && window.is_focused {
+        Some(widget::ACTIVE)
+    } else if window.is_urgent {
+        Some(state::URGENT)
+    } else {
+        None
+    }
+}
+
+fn sync_taskbar_button_state(button: &Widget, target_class: Option<&str>) {
+    for &cls in &[widget::ACTIVE, state::URGENT] {
+        if Some(cls) == target_class {
+            if !button.has_css_class(cls) {
+                button.add_css_class(cls);
+            }
+        } else if button.has_css_class(cls) {
+            button.remove_css_class(cls);
+        }
+    }
+}
+
 /// Taskbar widget that displays all windows as clickable buttons.
 pub struct TaskbarWidget {
     base: BaseWidget,
@@ -264,13 +291,17 @@ fn update_window_buttons(
         .cloned()
         .collect();
 
-    // When max_windows is set and the focused window would be cut off,
-    // swap it into the last visible slot so the user always sees it.
+    // When max_windows is set, preserve the focused window first. If focus is
+    // already visible, preserve one urgent window so attention requests show up.
     if config.max_windows > 0 && windows.len() > config.max_windows {
         if let Some(focused_idx) = windows.iter().position(|w| w.is_focused)
             && focused_idx >= config.max_windows
         {
             windows.swap(config.max_windows - 1, focused_idx);
+        } else if let Some(urgent_idx) = windows.iter().position(|w| w.is_urgent)
+            && urgent_idx >= config.max_windows
+        {
+            windows.swap(config.max_windows - 1, urgent_idx);
         }
         windows.truncate(config.max_windows);
     }
@@ -378,9 +409,10 @@ fn create_window_button(
         .style_context()
         .add_provider(button_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
 
-    if config.show_active && window.is_focused {
-        button.add_css_class(widget::ACTIVE);
-    }
+    sync_taskbar_button_state(
+        button.upcast_ref(),
+        taskbar_button_state_class(window, config),
+    );
 
     if config.show_icon {
         let icon_name = get_app_icon_name(&window.app_id);
@@ -423,15 +455,7 @@ fn update_button_state(
     window: &crate::services::compositor::Window,
     config: &TaskbarConfig,
 ) {
-    if config.show_active {
-        if window.is_focused {
-            button.add_css_class(widget::ACTIVE);
-        } else {
-            button.remove_css_class(widget::ACTIVE);
-        }
-    } else {
-        button.remove_css_class(widget::ACTIVE);
-    }
+    sync_taskbar_button_state(button, taskbar_button_state_class(window, config));
 
     TooltipManager::global().set_styled_tooltip(button, &window_tooltip(window));
 

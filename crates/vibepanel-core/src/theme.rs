@@ -619,8 +619,10 @@ impl ThemePalette {
     --color-widget-hover-bg: {widget_hover_bg_value};
     --color-workspace-indicator-hover-default-bg: var(--color-card-overlay-hover);
     --color-workspace-indicator-active-hover-bg: var(--color-accent-hover-bg);
+    --color-workspace-indicator-urgent-hover-bg: color-mix(in srgb, var(--color-state-urgent) 80%, var(--widget-hover-tint));
     --color-taskbar-button-hover-bg: color-mix(in srgb, transparent 92%, var(--widget-hover-tint));
     --color-taskbar-button-active-hover-bg: var(--color-accent-hover-bg);
+    --color-taskbar-button-urgent-hover-bg: color-mix(in srgb, var(--color-state-urgent) 80%, var(--widget-hover-tint));
 
     /* ===== Background Colors ===== */
     /* Bar background with opacity applied via color-mix */

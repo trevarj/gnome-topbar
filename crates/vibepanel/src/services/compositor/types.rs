@@ -150,6 +150,8 @@ pub struct Window {
     pub output: Option<String>,
     /// Whether this window is currently focused.
     pub is_focused: bool,
+    /// Whether this window is requesting attention.
+    pub is_urgent: bool,
 }
 
 /// Snapshot of all windows for the taskbar.

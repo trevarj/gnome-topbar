@@ -1545,10 +1545,10 @@ fn update_indicators(
         // class causes GTK's style system to return stale measure() values.
         let target_class: Option<&str> = if workspace.active {
             Some(widget::ACTIVE)
-        } else if workspace.occupied {
-            Some(state::OCCUPIED)
         } else if workspace.urgent {
             Some(state::URGENT)
+        } else if workspace.occupied {
+            Some(state::OCCUPIED)
         } else {
             None
         };

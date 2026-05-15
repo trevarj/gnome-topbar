@@ -290,6 +290,10 @@ overlay.workspace-indicator {{
     background-color: var(--color-workspace-indicator-active-hover-bg);
 }}
 
+.workspace-indicator.urgent.clickable:hover {{
+    background-color: var(--color-workspace-indicator-urgent-hover-bg);
+}}
+
 .workspace-indicator-minimal {{
     --color-workspace-indicator-hover-default-bg: color-mix(in srgb, var(--color-foreground-faint) 80%, var(--widget-hover-tint));
     background-color: var(--color-foreground-faint);
@@ -299,6 +303,11 @@ overlay.workspace-indicator {{
     color: var(--color-accent-text, #fff);
     background-color: var(--color-accent-primary);
     min-width: calc(var(--widget-height) * {active_mult});
+}}
+
+.workspace-indicator.urgent {{
+    color: var(--color-accent-text, #fff);
+    background-color: var(--color-state-urgent);
 }}
 
 .workspace-indicator-long {{
@@ -351,6 +360,15 @@ overlay.workspace-indicator {{
 
 .taskbar-button.active.clickable:hover {{
     background-color: var(--color-taskbar-button-active-hover-bg);
+}}
+
+.taskbar-button.urgent.clickable:hover {{
+    background-color: var(--color-taskbar-button-urgent-hover-bg);
+}}
+
+.taskbar-button.urgent {{
+    background-color: var(--color-state-urgent);
+    color: var(--color-accent-text, #fff);
 }}
 
 "#

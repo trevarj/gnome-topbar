@@ -83,6 +83,7 @@ struct WindowData {
     app_id: String,
     workspace_id: Option<u64>,
     is_focused: bool,
+    is_urgent: bool,
     /// Column and tile position in the scrolling layout (niri-specific).
     /// Used for ordering taskbar buttons to match visual window order.
     layout_position: Option<(i32, i32)>,
@@ -199,6 +200,7 @@ impl NiriBackend {
                         workspace_id: win.workspace_id.map(|id| id as i32),
                         output,
                         is_focused: win.is_focused,
+                        is_urgent: win.is_urgent,
                     },
                     output_name,
                     ws_idx,
@@ -386,6 +388,10 @@ impl NiriBackend {
                     .get("is_focused")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false),
+                is_urgent: win
+                    .get("is_urgent")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
                 layout_position: parse_layout_position(win),
             };
 
@@ -506,6 +512,10 @@ impl NiriBackend {
             .get("is_focused")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let is_urgent = window
+            .get("is_urgent")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let data = WindowData {
             id: win_id,
@@ -513,6 +523,7 @@ impl NiriBackend {
             app_id,
             workspace_id,
             is_focused,
+            is_urgent,
             layout_position: parse_layout_position(window),
         };
 
@@ -793,6 +804,22 @@ impl NiriBackend {
             Self::update_focused_window_from_cache(shared);
             Self::update_per_output_windows(shared);
             window_changed = true;
+        } else if let Some(urgency_changed) = event.get("WindowUrgencyChanged") {
+            let win_id = urgency_changed.get("id").and_then(|v| v.as_u64());
+            let is_urgent = urgency_changed
+                .get("urgent")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if let Some(win_id) = win_id {
+                let mut win_cache = shared.windows.write();
+                if let Some(win) = win_cache.get_mut(&win_id)
+                    && win.is_urgent != is_urgent
+                {
+                    win.is_urgent = is_urgent;
+                    window_changed = true;
+                }
+            }
         } else if let Some(active_changed) = event.get("WorkspaceActiveWindowChanged") {
             let ws_niri_id = active_changed.get("workspace_id").and_then(|v| v.as_u64());
             let active_win_id = active_changed
@@ -854,6 +881,12 @@ impl NiriBackend {
             for win_info in per_output.values() {
                 win_cb(win_info.clone());
             }
+        }
+
+        // Emit the full initial window list for taskbar consumers.
+        if let Some(ref wl_cb) = window_list_callback {
+            let windows = Self::get_windows_from_shared(&shared);
+            wl_cb(super::WindowListSnapshot { windows });
         }
 
         // Emit initial keyboard layout
