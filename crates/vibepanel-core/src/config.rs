@@ -109,11 +109,57 @@ pub struct Config {
     /// On-screen display configuration.
     pub osd: OsdConfig,
 
+    /// Audio configuration.
+    pub audio: AudioConfig,
+
     /// Advanced configuration options.
     pub advanced: AdvancedConfig,
 }
 
 impl Config {
+    /// Best-effort loader for the standalone volume CLI's overdrive policy.
+    ///
+    /// Volume keybinds should stay reliable even when the full bar config is
+    /// invalid, so this reads only `[audio].allow_overdrive` and falls back to
+    /// `false` on any missing, unreadable, malformed, or wrongly typed value.
+    pub fn read_audio_allow_overdrive(explicit_path: Option<&Path>) -> bool {
+        fn read_policy(path: &Path) -> Option<bool> {
+            let contents = std::fs::read_to_string(path).ok()?;
+            let table = contents.parse::<Table>().ok()?;
+            table
+                .get("audio")
+                .and_then(|audio| audio.as_table())
+                .and_then(|audio| audio.get("allow_overdrive"))
+                .and_then(|value| value.as_bool())
+        }
+
+        if let Some(path) = explicit_path {
+            let policy = read_policy(path);
+            if policy.is_none() {
+                tracing::debug!(
+                    path = %path.display(),
+                    "using safe default audio policy for volume command"
+                );
+            }
+            return policy.unwrap_or(false);
+        }
+
+        for path in Self::config_search_paths() {
+            if path.exists() {
+                let policy = read_policy(&path);
+                if policy.is_none() {
+                    tracing::debug!(
+                        path = %path.display(),
+                        "using safe default audio policy for volume command"
+                    );
+                }
+                return policy.unwrap_or(false);
+            }
+        }
+
+        false
+    }
+
     /// Load configuration from an embedded default TOML string.
     pub fn from_default_toml() -> Result<Self> {
         let config: Config = toml::from_str(DEFAULT_CONFIG_TOML)?;
@@ -568,6 +614,9 @@ impl Config {
             "  enabled: {}, position: {}, timeout: {}ms, show_value: {}",
             self.osd.enabled, self.osd.position, self.osd.timeout_ms, self.osd.show_value
         ));
+
+        lines.push("\nAudio:".to_string());
+        lines.push(format!("  allow_overdrive: {}", self.audio.allow_overdrive));
 
         lines.join("\n")
     }
@@ -1375,6 +1424,14 @@ impl Default for OsdConfig {
     }
 }
 
+/// Audio configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioConfig {
+    /// Allow output and microphone volume above 100%, capped at PulseAudio's recommended UI maximum.
+    pub allow_overdrive: bool,
+}
+
 /// Advanced configuration options.
 ///
 /// These settings are for power users and workarounds for specific
@@ -1422,6 +1479,7 @@ mod tests {
         assert_eq!(config.bar.screen_margin, 0);
         assert_eq!(config.bar.background_opacity, 0.0);
         assert_eq!(config.widgets.background_opacity, 1.0);
+        assert!(!config.audio.allow_overdrive);
         assert_eq!(config.advanced.compositor, "auto");
         assert_eq!(config.theme.mode, "auto");
         assert!(config.theme.accent.is_none());
@@ -1497,6 +1555,7 @@ mod tests {
 
         // Default values from embedded config should be inherited
         assert_eq!(config.bar.screen_margin, 0);
+        assert!(!config.audio.allow_overdrive);
 
         // Widgets should come from embedded defaults, not be empty
         assert!(
@@ -1559,6 +1618,17 @@ mod tests {
         assert_eq!(config.theme.icons.theme, "material");
         // bar.background_opacity comes from bar section defaults
         assert_eq!(config.bar.background_opacity, 0.0);
+    }
+
+    #[test]
+    fn test_load_with_defaults_audio_overdrive() {
+        let user_toml = r#"
+            [audio]
+            allow_overdrive = true
+        "#;
+
+        let config = Config::load_with_defaults(user_toml).unwrap();
+        assert!(config.audio.allow_overdrive);
     }
 
     #[test]
