@@ -31,8 +31,9 @@ use crate::services::vpn::VpnService;
 use crate::styles::{qs, state, surface};
 use crate::widgets::layer_shell_popover::{
     ANIM_SCALE_FROM, AnimDirection, AnimState, Dismissible, calculate_bar_exclusive_zone,
-    calculate_popover_bar_margin, calculate_popover_right_margin, create_click_catcher,
-    is_keynav_key, popover_bar_edge, popover_keyboard_mode, setup_esc_handler, snap_anim_shell,
+    calculate_bar_exclusive_zone_from_values, calculate_popover_bar_margin,
+    calculate_popover_right_margin, create_click_catcher, is_keynav_key, popover_bar_edge,
+    popover_keyboard_mode, setup_esc_handler, snap_anim_shell,
 };
 use crate::widgets::scale_box::ScaleBox;
 
@@ -1344,12 +1345,12 @@ impl QuickSettingsWindow {
         let screen_margin = config_mgr.screen_margin() as i32;
         let popover_offset = config_mgr.popover_offset() as i32;
 
-        // Bar exclusive zone (matches bar.rs logic)
-        let bar_exclusive_zone = if bar_opacity > 0.0 {
-            bar_size + 2 * bar_padding + 2 * screen_margin + popover_offset
-        } else {
-            bar_size + 2 * screen_margin + popover_offset
-        };
+        let bar_exclusive_zone = calculate_bar_exclusive_zone_from_values(
+            bar_size,
+            bar_padding,
+            bar_opacity,
+            screen_margin,
+        ) + popover_offset;
 
         // Set bar-edge margin using shared helper
         let bar_margin = calculate_popover_bar_margin();

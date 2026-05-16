@@ -22,7 +22,9 @@ use crate::services::tooltip::TooltipManager;
 use crate::styles::{button, card, color, notification as notif, surface};
 
 use super::css::DISMISS_ANIMATION_MS;
-use super::layer_shell_popover::calculate_popover_bar_margin;
+use super::layer_shell_popover::{
+    calculate_bar_exclusive_zone_from_values, calculate_popover_bar_margin,
+};
 use super::notifications_common::{
     BODY_TRUNCATE_THRESHOLD, POPOVER_WIDTH, create_notification_image_widget, format_timestamp,
     sanitize_body_markup,
@@ -76,12 +78,9 @@ fn compute_max_scroll_height() -> i32 {
     let screen_margin = config_mgr.screen_margin() as i32;
     let popover_offset = config_mgr.popover_offset() as i32;
 
-    // Bar exclusive zone including popover_offset (matches quick settings)
-    let bar_exclusive_zone = if bar_opacity > 0.0 {
-        bar_size + 2 * bar_padding + 2 * screen_margin + popover_offset
-    } else {
-        bar_size + 2 * screen_margin + popover_offset
-    };
+    let bar_exclusive_zone =
+        calculate_bar_exclusive_zone_from_values(bar_size, bar_padding, bar_opacity, screen_margin)
+            + popover_offset;
 
     let bar_margin = calculate_popover_bar_margin();
 

@@ -1058,6 +1058,8 @@ fn config_theme_changed(old: &Config, new: &Config) -> bool {
         || old.bar.background_color != new.bar.background_color
         || old.bar.background_opacity != new.bar.background_opacity
         || old.bar.border_radius != new.bar.border_radius
+        || old.bar.padding != new.bar.padding
+        || old.bar.position != new.bar.position
         || old.bar.size != new.bar.size
         || old.bar.outline != new.bar.outline
         || old.widgets.background_color != new.widgets.background_color
@@ -1316,6 +1318,28 @@ mod tests {
 
         let mut new = old.clone();
         new.bar.outline = Some(false);
+        assert!(config_theme_changed(&old, &new));
+    }
+
+    #[test]
+    fn test_config_theme_changed_detects_bar_padding_tokens() {
+        // bar.padding feeds the cached ThemePalette's --bar-padding-y tokens.
+        // Without a theme reload, a structural rebuild can resize the layer-shell
+        // window while CSS still applies the old screen-edge padding until restart.
+        let old = Config::default();
+
+        let mut new = old.clone();
+        new.bar.padding = old.bar.padding + 1;
+        assert!(config_theme_changed(&old, &new));
+    }
+
+    #[test]
+    fn test_config_theme_changed_detects_bar_position_padding_side() {
+        // bar.position swaps which CSS token is screen-adjacent vs center-adjacent.
+        let old = Config::default();
+
+        let mut new = old.clone();
+        new.bar.position = "bottom".to_string();
         assert!(config_theme_changed(&old, &new));
     }
 

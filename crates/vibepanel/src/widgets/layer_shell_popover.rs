@@ -277,10 +277,19 @@ pub fn calculate_bar_exclusive_zone() -> i32 {
     let bar_opacity = config_mgr.bar_background_opacity();
     let screen_margin = config_mgr.screen_margin() as i32;
 
+    calculate_bar_exclusive_zone_from_values(bar_size, bar_padding, bar_opacity, screen_margin)
+}
+
+pub(crate) fn calculate_bar_exclusive_zone_from_values(
+    bar_size: i32,
+    bar_padding: i32,
+    bar_opacity: f64,
+    screen_margin: i32,
+) -> i32 {
     if bar_opacity > 0.0 {
         bar_size + 2 * bar_padding + 2 * screen_margin
     } else {
-        bar_size + 2 * screen_margin
+        bar_size + bar_padding + 2 * screen_margin
     }
 }
 
