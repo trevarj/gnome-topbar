@@ -2,7 +2,8 @@
 # Subsets MaterialSymbolsRounded to only the glyphs used in icons.rs.
 #
 # Requirements (for subsetting only, not --check):
-#   Python 3 with fonttools: pip install fonttools
+#   Python 3 with fonttools from Guix, for example:
+#     guix shell python python-fonttools -- ./scripts/subset-font.sh
 #
 # The full font is ~14 MB with thousands of glyphs. We only use ~90 icons,
 # so subsetting saves ~13.8 MB from the binary (the font is embedded via
@@ -76,7 +77,8 @@ fi
 
 # Check python + fonttools are available
 if ! "$PYTHON" -c "from fontTools import subset" 2>/dev/null; then
-    echo "ERROR: Python fonttools not found. Install with: pip install fonttools" >&2
+    echo "ERROR: Python fonttools not found." >&2
+    echo "Run with: guix shell python python-fonttools -- ./scripts/subset-font.sh" >&2
     exit 1
 fi
 

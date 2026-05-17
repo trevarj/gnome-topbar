@@ -1,2 +1,4 @@
-#!/bin/bash
-cargo build --release -p gnome-panel && target/release/gnome-panel 2>&1 | tee /tmp/gnome-panel-debug.log
+#!/usr/bin/env bash
+set -euo pipefail
+
+cargo run --release -p gnome-panel -- --config config.toml -v 2>&1 | tee /tmp/gnome-panel-debug.log
