@@ -13,7 +13,7 @@ use std::time::SystemTime;
 use gtk4::glib;
 use tracing::{debug, error, warn};
 
-use crate::services::updates::{PackageManager, UpdatesService, UpdatesSnapshot, has_flatpak};
+use crate::services::updates::{PackageManager, UpdatesService, UpdatesSnapshot};
 
 /// Get the appropriate icon name based on snapshot state.
 pub fn icon_for_state(snapshot: &UpdatesSnapshot) -> &'static str {
@@ -31,7 +31,7 @@ pub fn icon_for_state(snapshot: &UpdatesSnapshot) -> &'static str {
 /// 12 updates available
 /// core: 3
 /// extra: 5
-/// aur: 4
+/// guix profile: 4
 ///
 /// Last check: 5 minutes ago
 /// ```
@@ -270,21 +270,8 @@ pub fn spawn_upgrade_terminal(
 
 /// Build the shell command used for update execution.
 ///
-/// If Flatpak exists and the primary manager is not Flatpak, append a Flatpak
-/// update pass so one click upgrades both system packages and Flatpaks.
 fn build_upgrade_command(package_manager: PackageManager) -> String {
-    let primary = package_manager.upgrade_command();
-
-    if package_manager != PackageManager::Flatpak && has_flatpak() {
-        // Use `;` rather than `&&` so flatpak updates still run even if the
-        // primary package manager fails
-        format!(
-            "{}; echo ''; echo 'Running Flatpak updates...'; flatpak update",
-            primary
-        )
-    } else {
-        primary.to_string()
-    }
+    package_manager.upgrade_command().to_string()
 }
 
 #[cfg(test)]
@@ -316,22 +303,22 @@ mod tests {
             update_count: count,
             updates_by_repo: by_repo,
             last_check: Some(SystemTime::now()),
-            package_manager: Some(PackageManager::Paru),
+            package_manager: Some(PackageManager::Guix),
         }
     }
 
     #[test]
     fn test_format_tooltip_with_updates() {
         let snapshot = make_snapshot(vec![
-            ("official", vec!["linux", "firefox", "systemd"]),
-            ("aur", vec!["paru", "vscode"]),
+            ("guix profile", vec!["linux-libre", "icecat", "guix"]),
+            ("guix channels", vec!["nonguix", "trev-guix"]),
         ]);
 
         let tooltip = format_tooltip(&snapshot);
 
         assert!(tooltip.contains("5 updates available"));
-        assert!(tooltip.contains("aur: 2"));
-        assert!(tooltip.contains("official: 3"));
+        assert!(tooltip.contains("guix channels: 2"));
+        assert!(tooltip.contains("guix profile: 3"));
         assert!(tooltip.contains("Last check:"));
     }
 
@@ -346,7 +333,7 @@ mod tests {
             update_count: 0,
             updates_by_repo: HashMap::new(),
             last_check: Some(SystemTime::now()),
-            package_manager: Some(PackageManager::Paru),
+            package_manager: Some(PackageManager::Guix),
         };
 
         let tooltip = format_tooltip(&snapshot);
@@ -364,7 +351,7 @@ mod tests {
             update_count: 0,
             updates_by_repo: HashMap::new(),
             last_check: None,
-            package_manager: Some(PackageManager::Paru),
+            package_manager: Some(PackageManager::Guix),
         };
 
         let tooltip = format_tooltip(&snapshot);
@@ -375,8 +362,8 @@ mod tests {
     #[test]
     fn test_format_repo_summary() {
         let snapshot = make_snapshot(vec![
-            ("official", vec!["linux", "firefox"]),
-            ("aur", vec!["paru"]),
+            ("guix profile", vec!["linux-libre", "icecat"]),
+            ("guix channels", vec!["guix"]),
         ]);
 
         let summary = format_repo_summary(&snapshot);
@@ -385,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_format_repo_summary_single_repo() {
-        let snapshot = make_snapshot(vec![("official", vec!["linux", "firefox"])]);
+        let snapshot = make_snapshot(vec![("guix profile", vec!["linux-libre", "icecat"])]);
 
         let summary = format_repo_summary(&snapshot);
         assert_eq!(summary, "2 updates");
@@ -393,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_format_repo_summary_single_update() {
-        let snapshot = make_snapshot(vec![("official", vec!["linux"])]);
+        let snapshot = make_snapshot(vec![("guix profile", vec!["linux-libre"])]);
 
         let summary = format_repo_summary(&snapshot);
         assert_eq!(summary, "1 update");
@@ -419,16 +406,8 @@ mod tests {
     }
 
     #[test]
-    fn test_build_upgrade_command_flatpak_primary() {
-        let cmd = build_upgrade_command(PackageManager::Flatpak);
-        assert_eq!(cmd, "flatpak update");
-    }
-
-    #[test]
-    fn test_build_upgrade_command_non_flatpak_contains_primary() {
-        // NOTE: The exact output depends on whether /usr/bin/flatpak exists on
-        // the test machine. We only verify the primary command prefix.
-        let cmd = build_upgrade_command(PackageManager::Paru);
-        assert!(cmd.starts_with("paru -Syu"));
+    fn test_build_upgrade_command_guix() {
+        let cmd = build_upgrade_command(PackageManager::Guix);
+        assert_eq!(cmd, "guix pull && guix package --upgrade");
     }
 }
