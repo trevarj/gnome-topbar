@@ -1,6 +1,7 @@
 (define-module (gnome-topbar)
   #:use-module (guix build-system cargo)
   #:use-module (guix gexp)
+  #:use-module (guix import crate)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (guix packages)
   #:use-module (gnu packages)
@@ -8,11 +9,11 @@
   #:use-module (ice-9 match))
 
 ;; Seed/update dependency inputs with:
-;;   guix import crate --lockfile=Cargo.lock gnome-topbar
+;;   guix import crate --lockfile=Cargo.lock
 ;;
 ;; This local definition intentionally stays in-repo while the package is not
-;; upstreamed to Guix.  The generated crate dependency list is large; keep it
-;; close to Cargo.lock and refresh it before attempting an upstream submission.
+;; upstreamed to Guix.  `cargo-inputs-from-lockfile' reads Cargo.lock directly,
+;; matching the pattern used by the guix-p2p package definition.
 (define-public gnome-topbar
   (package
     (name "gnome-topbar")
@@ -28,27 +29,26 @@
     (arguments
      (list
       #:install-source? #f
-      #:cargo-inputs
-      ;; TODO: populate from `guix import crate --lockfile=Cargo.lock gnome-topbar`.
-      '()))
+      #:cargo-install-paths ''("crates/gnome-topbar")))
     (native-inputs
      (list pkg-config))
     (inputs
-     (map specification->package
-          '("gtk"
-            "gtk4-layer-shell"
-            "glib"
-            "dbus"
-            "eudev"
-            "pango"
-            "gdk-pixbuf"
-            "cairo"
-            "graphene"
-            "pulseaudio"
-            "upower"
-            "power-profiles-daemon"
-            "network-manager"
-            "bluez")))
+     (append (cargo-inputs-from-lockfile)
+             (map specification->package
+                  '("gtk"
+                    "gtk4-layer-shell"
+                    "glib"
+                    "dbus"
+                    "eudev"
+                    "pango"
+                    "gdk-pixbuf"
+                    "cairo"
+                    "graphene"
+                    "pulseaudio"
+                    "upower"
+                    "power-profiles-daemon"
+                    "network-manager"
+                    "bluez"))))
     (home-page "https://github.com/trevarj/gnome-topbar")
     (synopsis "GNOME Shell-inspired GTK top bar for Wayland")
     (description
