@@ -475,6 +475,18 @@ pub mod widget {
     /// Clock label (`.clock-label`).
     pub const CLOCK_LABEL: &str = "clock-label";
 
+    /// Compact media controls beside the clock (`.clock-media`).
+    pub const CLOCK_MEDIA: &str = "clock-media";
+
+    /// Compact media album art beside the clock (`.clock-media-art`).
+    pub const CLOCK_MEDIA_ART: &str = "clock-media-art";
+
+    /// Compact media play/pause button beside the clock (`.clock-media-play-pause`).
+    pub const CLOCK_MEDIA_PLAY_PAUSE: &str = "clock-media-play-pause";
+
+    /// Compact notification indicator beside the clock (`.clock-notifications`).
+    pub const CLOCK_NOTIFICATIONS: &str = "clock-notifications";
+
     // Battery
     /// Battery widget (`.battery`).
     pub const BATTERY: &str = "battery";

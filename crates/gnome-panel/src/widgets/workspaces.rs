@@ -481,9 +481,7 @@ impl WorkspaceContainer {
     fn update_long_indicator_css(&self, labels: &HashMap<i32, Widget>) {
         use std::fmt::Write;
 
-        let sizes = ConfigManager::global().theme_sizes();
-        let wh = sizes.widget_height as f64;
-        let delta = (wh * (INDICATOR_ACTIVE_MULT - INDICATOR_INACTIVE_MULT)).round();
+        let delta = INDICATOR_ACTIVE_WIDTH_PX - INDICATOR_INACTIVE_WIDTH_PX;
 
         let mut css = String::new();
         for (&id, indicator) in labels {
@@ -502,9 +500,8 @@ impl WorkspaceContainer {
                 })
                 .unwrap_or(0);
 
-            let short_inactive = (wh * INDICATOR_INACTIVE_MULT).round() as i32;
-            let inactive_mw = label_width.max(short_inactive);
-            let active_mw = inactive_mw + delta as i32;
+            let inactive_mw = label_width.max(INDICATOR_INACTIVE_WIDTH_PX);
+            let active_mw = inactive_mw + delta;
 
             let cls = ws_mw_class(id);
             let _ = writeln!(css, ".{cls} {{ min-width: {inactive_mw}px; }}");
@@ -765,15 +762,10 @@ fn workspace_label_text(label_type: LabelType, workspace: &Workspace) -> String 
 const DEFAULT_LABEL_TYPE: LabelType = LabelType::None;
 const DEFAULT_SEPARATOR: &str = "";
 
-/// Multiplier for indicator height relative to widget_height.
-/// Used in CSS generation (bar.rs) for min-height on all indicators.
-pub(crate) const INDICATOR_HEIGHT_MULT: f64 = 0.36;
-/// Multiplier for inactive indicator width relative to widget_height.
-/// Used in CSS generation (bar.rs) for min-width on inactive indicators.
-pub(crate) const INDICATOR_INACTIVE_MULT: f64 = 0.36;
-/// Multiplier for active indicator width relative to widget_height.
-/// Used in CSS generation (bar.rs) for min-width on active indicators.
-pub(crate) const INDICATOR_ACTIVE_MULT: f64 = 0.72;
+/// Default inactive indicator width in pixels.
+const INDICATOR_INACTIVE_WIDTH_PX: i32 = 6;
+/// Default active indicator width in pixels.
+const INDICATOR_ACTIVE_WIDTH_PX: i32 = 24;
 /// Horizontal padding per side (px) for long (named) indicators.
 pub(crate) const LONG_INDICATOR_HPAD: i32 = 6;
 
@@ -1710,18 +1702,17 @@ fn update_indicators(
 
                 // Approximate target to start tick callback; accuracy doesn't
                 // matter — tick tracks children_width while suppress_reconcile active.
-                let wh = ConfigManager::global().theme_sizes().widget_height as f64;
                 let gap = wsc.imp().gap.get();
                 let added_width: f64 = display_workspaces
                     .iter()
                     .filter(|ws| !old_ids.contains(&ws.id))
                     .map(|ws| {
-                        let mult = if ws.active {
-                            INDICATOR_ACTIVE_MULT
+                        let width = if ws.active {
+                            INDICATOR_ACTIVE_WIDTH_PX
                         } else {
-                            INDICATOR_INACTIVE_MULT
+                            INDICATOR_INACTIVE_WIDTH_PX
                         };
-                        (wh * mult).floor() + gap as f64
+                        width as f64 + gap as f64
                     })
                     .sum();
                 let initial_target = (seed + added_width).round() as i32;

@@ -41,6 +41,7 @@ pub struct NetworkIconContext {
     pub wifi_enabled: bool,
     pub wired_connected: bool,
     pub has_wifi_device: bool,
+    pub wifi_strength: i32,
     pub mobile_is_primary: bool,
     pub has_modem_device: bool,
     pub mobile_signal_quality: Option<u32>,
@@ -55,6 +56,7 @@ impl NetworkIconContext {
             wifi_enabled: snapshot.wifi_enabled().unwrap_or(false),
             wired_connected: snapshot.wired_connected(),
             has_wifi_device: snapshot.has_wifi_device(),
+            wifi_strength: snapshot.active_strength(),
             mobile_is_primary: snapshot.mobile_is_primary(),
             has_modem_device: snapshot.has_modem_device(),
             mobile_signal_quality: snapshot.mobile_signal_quality(),
@@ -72,6 +74,7 @@ impl NetworkIconContext {
             wifi_enabled: snapshot.wifi_enabled().unwrap_or(false),
             wired_connected: snapshot.wired_connected(),
             has_wifi_device: snapshot.has_wifi_device(),
+            wifi_strength: snapshot.active_strength(),
             mobile_is_primary: false,
             has_modem_device: false,
             mobile_signal_quality: None,
@@ -101,7 +104,7 @@ pub fn network_icon_name(ctx: &NetworkIconContext) -> &'static str {
     } else if !ctx.wifi_enabled {
         "network-wireless-offline-symbolic"
     } else if ctx.connected {
-        "network-wireless-signal-excellent-symbolic"
+        wifi_strength_icon(ctx.wifi_strength)
     } else {
         "network-wireless-offline-symbolic"
     }
@@ -1884,9 +1887,7 @@ pub fn on_network_changed(
                 .is_some_and(|r| r.reveals_child());
             icon_handle.set_spinning(is_connecting && !expanded);
 
-            let icon_active = (enabled && snapshot.connected())
-                || snapshot.wired_connected()
-                || snapshot.mobile_active();
+            let icon_active = snapshot.mobile_active();
             set_icon_active(icon_handle, icon_active);
 
             // Disabled styling: only when actually showing a wifi icon, not
@@ -1945,6 +1946,7 @@ mod tests {
             wifi_enabled: true,
             wired_connected: false,
             has_wifi_device: true,
+            wifi_strength: 100,
             mobile_is_primary: false,
             has_modem_device: false,
             mobile_signal_quality: None,
@@ -1956,9 +1958,26 @@ mod tests {
         assert_eq!(
             network_icon_name(&NetworkIconContext {
                 connected: true,
+                wifi_strength: 80,
                 ..test_icon_ctx()
             }),
             "network-wireless-signal-excellent-symbolic"
+        );
+        assert_eq!(
+            network_icon_name(&NetworkIconContext {
+                connected: true,
+                wifi_strength: 45,
+                ..test_icon_ctx()
+            }),
+            "network-wireless-signal-ok-symbolic"
+        );
+        assert_eq!(
+            network_icon_name(&NetworkIconContext {
+                connected: true,
+                wifi_strength: 15,
+                ..test_icon_ctx()
+            }),
+            "network-wireless-signal-none-symbolic"
         );
     }
 

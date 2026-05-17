@@ -41,6 +41,10 @@ pub fn css(animations: bool) -> String {
     background-color: var(--color-accent-primary);
 }}
 
+.clock-notifications {{
+    margin-left: 8px;
+}}
+
 /* Shared icon styling (row + toast) */
 .notification-row-icon,
 .notification-toast-icon {{

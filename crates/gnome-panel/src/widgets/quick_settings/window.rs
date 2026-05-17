@@ -660,15 +660,13 @@ impl QuickSettingsWindow {
         let snapshot = network_service.snapshot();
 
         let wifi_enabled = snapshot.wifi_enabled().unwrap_or(false);
-        let wifi_connected = snapshot.connected();
         let wired_connected = snapshot.wired_connected();
 
         // Build custom subtitle widget with connection status icons
         let subtitle_result = build_network_subtitle(&snapshot);
 
         let icon_name = resolve_material_network_icon(&snapshot);
-        let icon_active =
-            (wifi_enabled && wifi_connected) || wired_connected || snapshot.mobile_active();
+        let icon_active = snapshot.mobile_active();
 
         // Card title: "Network" if ethernet/modem device exists, "Wi-Fi" otherwise
         let card_title = if snapshot.has_non_wifi_device() {

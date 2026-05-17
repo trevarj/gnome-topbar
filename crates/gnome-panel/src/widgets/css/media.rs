@@ -21,6 +21,25 @@ pub fn css(animations: bool) -> String {
     margin-right: 8px;
 }}
 
+/* Compact active-media companion shown inside the clock widget. */
+.clock-media {{
+    margin-left: 8px;
+}}
+
+.clock-media .media-art-small:not(:last-child) {{
+    margin-right: 4px;
+}}
+
+.clock-media-play-pause {{
+    min-width: 24px;
+    min-height: 24px;
+    border-radius: var(--radius-round);
+}}
+
+.clock-media-play-pause .icon-root {{
+    font-size: calc(var(--icon-size) * 0.95);
+}}
+
 /* Player icon (app icon like Spotify, Firefox) in bar */
 .media-player-icon {{
     min-width: var(--icon-size);

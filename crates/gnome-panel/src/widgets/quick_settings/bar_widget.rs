@@ -281,10 +281,6 @@ impl QuickSettingsWidget {
                 wifi_icon.set_spinning(true);
             }
 
-            if (wifi_enabled && snapshot.connected()) || wired_connected || wifi_connecting {
-                wifi_icon.widget().add_css_class(state::ICON_ACTIVE);
-            }
-
             let wifi_icon_handle = wifi_icon.clone();
             network_wifi_callback_id = Some(NetworkService::global().connect(
                 move |snapshot: &NetworkSnapshot| {
@@ -293,7 +289,6 @@ impl QuickSettingsWidget {
                     if !snapshot.available() {
                         widget.add_css_class(state::SERVICE_UNAVAILABLE);
                         widget.remove_css_class(qs::WIFI_DISABLED_ICON);
-                        widget.remove_css_class(state::ICON_ACTIVE);
                         wifi_icon_handle.set_spinning(false);
                         wifi_icon_handle.set_icon("network-wireless-offline-symbolic");
                         TooltipManager::global()
@@ -303,7 +298,6 @@ impl QuickSettingsWidget {
                     widget.remove_css_class(state::SERVICE_UNAVAILABLE);
 
                     let enabled = snapshot.wifi_enabled().unwrap_or(false);
-                    let connected = snapshot.connected();
                     let wired_connected = snapshot.wired_connected();
 
                     let ctx = NetworkIconContext::for_bar(snapshot);
@@ -318,11 +312,7 @@ impl QuickSettingsWidget {
                         widget.remove_css_class(qs::WIFI_DISABLED_ICON);
                     }
 
-                    if (enabled && connected) || wired_connected || wifi_connecting {
-                        widget.add_css_class(state::ICON_ACTIVE);
-                    } else {
-                        widget.remove_css_class(state::ICON_ACTIVE);
-                    }
+                    widget.remove_css_class(state::ICON_ACTIVE);
 
                     let tooltip = if snapshot.wired_connected() {
                         "Ethernet connected".to_string()

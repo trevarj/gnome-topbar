@@ -13,7 +13,7 @@ use gtk4::{
 use tracing::{debug, warn};
 
 use crate::services::config_manager::ConfigManager;
-use crate::services::icons::{IconHandle, IconsService};
+use crate::services::icons::{IconHandle, IconsService, resolve_app_icon_name};
 use crate::services::media::{MediaService, MediaSnapshot, PlaybackStatus, format_duration};
 use crate::styles::{button, color, icon, media};
 use crate::widgets::marquee_label::MarqueeLabel;
@@ -702,6 +702,42 @@ pub fn load_album_art(
         on_success,
         on_failure,
     );
+}
+
+/// Show the player's app icon as fallback album art.
+pub fn show_player_icon_in_art(
+    art_picture: &RoundedPicture,
+    player_id: Option<&str>,
+    art_state: &Rc<RefCell<ArtState>>,
+    generation: u64,
+    art_size: i32,
+) {
+    if art_state.borrow().generation != generation {
+        return;
+    }
+
+    let icon_name = player_id
+        .map(|id| resolve_app_icon_name(id, crate::styles::media::ICON_AUDIO_GENERIC))
+        .unwrap_or_else(|| crate::styles::media::ICON_AUDIO_GENERIC.to_string());
+
+    let Some(display) = gtk4::gdk::Display::default() else {
+        warn!("No display available for icon lookup");
+        art_picture.set_visible(false);
+        return;
+    };
+    let icon_theme = gtk4::IconTheme::for_display(&display);
+
+    let paintable = icon_theme.lookup_icon(
+        &icon_name,
+        &[],
+        art_size,
+        1,
+        gtk4::TextDirection::None,
+        gtk4::IconLookupFlags::empty(),
+    );
+
+    art_picture.set_paintable(Some(&paintable));
+    art_picture.set_visible(true);
 }
 
 /// Load album art from URL, calling `on_success` or `on_failure` callbacks.

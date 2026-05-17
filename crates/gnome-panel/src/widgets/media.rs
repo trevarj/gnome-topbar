@@ -17,14 +17,14 @@ use tracing::{debug, trace, warn};
 
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
-use crate::services::icons::{IconHandle, resolve_app_icon_name, set_image_from_app_id};
+use crate::services::icons::{IconHandle, set_image_from_app_id};
 use crate::services::media::{MediaService, MediaSnapshot, PlaybackStatus};
 use crate::services::state;
 use crate::services::tooltip::TooltipManager;
 use crate::styles::media;
 use crate::widgets::base::{BaseWidget, MenuHandle};
 use crate::widgets::marquee_label::MarqueeLabel;
-use crate::widgets::media_components::{ArtState, art_radius_percent};
+use crate::widgets::media_components::{ArtState, art_radius_percent, show_player_icon_in_art};
 use crate::widgets::media_popover::{MediaPopoverController, build_media_popover_with_controller};
 use crate::widgets::media_visualizer::BarVisualizer;
 use crate::widgets::media_window::{MediaWindowHandle, create_media_window};
@@ -1132,11 +1132,14 @@ fn update_widgets_from_snapshot_impl(ctx: &WidgetUpdateContext<'_>, snapshot: &M
             // Read generation at call time (not capture time) so
             // show_player_icon_in_art checks against the current generation.
             let generation = art_state_for_failure.borrow().generation;
+            let config = ConfigManager::global();
+            let art_size = (config.bar_size() as f64 * ART_DISPLAY_SCALE) as i32;
             show_player_icon_in_art(
                 &picture_for_failure,
                 player_id.as_deref(),
                 &art_state_for_failure,
                 generation,
+                art_size,
             );
         };
 
@@ -1177,44 +1180,6 @@ fn update_widgets_from_snapshot_impl(ctx: &WidgetUpdateContext<'_>, snapshot: &M
     let tooltip = build_tooltip(snapshot);
     let tooltip_manager = TooltipManager::global();
     tooltip_manager.set_styled_tooltip(ctx.container, &tooltip);
-}
-
-/// Show the player's app icon as fallback for album art.
-fn show_player_icon_in_art(
-    art_picture: &RoundedPicture,
-    player_id: Option<&str>,
-    art_state: &Rc<RefCell<ArtState>>,
-    generation: u64,
-) {
-    if art_state.borrow().generation != generation {
-        return;
-    }
-
-    let icon_name = player_id
-        .map(|id| resolve_app_icon_name(id, media::ICON_AUDIO_GENERIC))
-        .unwrap_or_else(|| media::ICON_AUDIO_GENERIC.to_string());
-
-    let Some(display) = gtk4::gdk::Display::default() else {
-        warn!("No display available for icon lookup");
-        art_picture.set_visible(false);
-        return;
-    };
-    let icon_theme = gtk4::IconTheme::for_display(&display);
-
-    let config = ConfigManager::global();
-    let art_size = (config.bar_size() as f64 * ART_DISPLAY_SCALE) as i32;
-
-    let paintable = icon_theme.lookup_icon(
-        &icon_name,
-        &[],
-        art_size,
-        1,
-        gtk4::TextDirection::None,
-        gtk4::IconLookupFlags::empty(),
-    );
-
-    art_picture.set_paintable(Some(&paintable));
-    art_picture.set_visible(true);
 }
 
 fn build_tooltip(snapshot: &MediaSnapshot) -> String {

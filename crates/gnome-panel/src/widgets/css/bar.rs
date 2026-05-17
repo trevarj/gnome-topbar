@@ -4,9 +4,7 @@
 //! so it returns a formatted String rather than a static str.
 
 use super::{CONTENT_PADDING_X, WIDGET_BG_WITH_OPACITY};
-use crate::widgets::workspaces::{
-    INDICATOR_ACTIVE_MULT, INDICATOR_HEIGHT_MULT, INDICATOR_INACTIVE_MULT, LONG_INDICATOR_HPAD,
-};
+use crate::widgets::workspaces::LONG_INDICATOR_HPAD;
 
 /// Return bar CSS with config values interpolated.
 ///
@@ -17,9 +15,6 @@ use crate::widgets::workspaces::{
 /// alive even when `theme.animations = false`.
 pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> String {
     let widget_bg = WIDGET_BG_WITH_OPACITY;
-    let inactive_mult = INDICATOR_INACTIVE_MULT;
-    let active_mult = INDICATOR_ACTIVE_MULT;
-    let height_mult = INDICATOR_HEIGHT_MULT;
     let long_hpad = LONG_INDICATOR_HPAD;
     let content_pad_x = CONTENT_PADDING_X;
     let content_pad_x_half = CONTENT_PADDING_X / 2;
@@ -280,26 +275,27 @@ sectioned-bar.bar {{
 
 .workspace-indicator {{
     padding: 0;
-    min-width: calc(var(--widget-height) * {inactive_mult});
-    min-height: calc(var(--widget-height) * {height_mult});
-    border-radius: calc(var(--radius-pill) * 1.2);
-    color: var(--color-foreground-faint);
+    min-width: 6px;
+    min-height: 6px;
+    border-radius: var(--radius-round);
+    color: #71717a;
+    background-color: #71717a;
     {workspace_transition}
     /* min-width duration must match INDICATOR_ANIM_DURATION_US in workspaces.rs */
 }}
 
 /* Override ripple overlay fallback radius (overlay.vp-ripple-wrap uses --radius-widget) */
 overlay.workspace-indicator {{
-    border-radius: calc(var(--radius-pill) * 1.2);
+    border-radius: var(--radius-round);
 }}
 
 /* Workspace hover backgrounds use scoped tokens so active hover can differ from global accent hover. */
 .workspace-indicator.clickable:hover {{
-    background-color: var(--color-workspace-indicator-hover-bg, var(--color-workspace-indicator-hover-default-bg));
+    background-color: #d4d4d8;
 }}
 
 .workspace-indicator.active.clickable:hover {{
-    background-color: var(--color-workspace-indicator-active-hover-bg);
+    background-color: #ffffff;
 }}
 
 .workspace-indicator.urgent.clickable:hover {{
@@ -307,19 +303,24 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator-minimal {{
-    --color-workspace-indicator-hover-default-bg: color-mix(in srgb, var(--color-foreground-faint) 80%, var(--widget-hover-tint));
-    background-color: var(--color-foreground-faint);
+    background-color: #71717a;
+    color: #71717a;
+}}
+
+.workspace-indicator.occupied {{
+    background-color: #a1a1aa;
+    color: #a1a1aa;
 }}
 
 .workspace-indicator.active {{
-    color: var(--color-accent-text, #fff);
-    background-color: var(--color-accent-primary);
-    min-width: calc(var(--widget-height) * {active_mult});
+    color: #f4f4f5;
+    background-color: #f4f4f5;
+    min-width: 24px;
 }}
 
 .workspace-indicator.urgent {{
-    color: var(--color-accent-text, #fff);
-    background-color: var(--color-state-urgent);
+    color: #ef4444;
+    background-color: #ef4444;
 }}
 
 .workspace-indicator-long {{
