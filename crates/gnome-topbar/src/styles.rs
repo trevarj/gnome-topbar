@@ -487,6 +487,12 @@ pub mod widget {
     /// Compact notification indicator beside the clock (`.clock-notifications`).
     pub const CLOCK_NOTIFICATIONS: &str = "clock-notifications";
 
+    /// Weather widget (`.weather`).
+    pub const WEATHER: &str = "weather";
+
+    /// Headset widget (`.headset`).
+    pub const HEADSET: &str = "headset";
+
     // Battery
     /// Battery widget (`.battery`).
     pub const BATTERY: &str = "battery";

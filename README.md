@@ -50,6 +50,32 @@ Standalone status widgets such as `battery`, `keyboard_layout`,
 `notifications`, and custom scripts remain available when explicitly added to
 a widget list.
 
+## Native Script Widgets
+
+Weather and headset are first-class widgets with the same script output
+contract as custom widgets:
+
+```toml
+[widgets]
+center = ["clock"] # weather auto-places next to clock
+right = ["headset", "quick_settings"]
+
+[widgets.weather]
+exec = "~/.config/gnome-topbar/scripts/weather.sh"
+interval = 1800
+position = "left" # "left" or "right" of the clock
+tooltip = "Weather"
+
+[widgets.headset]
+exec = "~/.config/gnome-topbar/scripts/headsetcontrol.sh"
+interval = 5
+tooltip = "Headset battery"
+```
+
+Set `disabled = true` under either widget table to hide it. When weather is
+enabled, the clock control panel also uses its `exec` output for the weather
+line.
+
 ## Custom Scripts
 
 Custom widgets are intended for migration and extensibility. They use the
@@ -57,12 +83,12 @@ Custom widgets are intended for migration and extensibility. They use the
 
 ```toml
 [widgets]
-left = ["workspaces", "custom-weather"]
+left = ["workspaces", "custom-crypto"]
 
-[widgets.custom-weather]
-exec = "~/.config/gnome-topbar/scripts/weather.sh"
+[widgets.custom-crypto]
+exec = "~/.config/gnome-topbar/scripts/crypto.sh -r"
 interval = 1800
-tooltip = "Weather"
+tooltip = "Crypto prices"
 ```
 
 Waybar-style custom script output is supported for migration. Scripts may emit

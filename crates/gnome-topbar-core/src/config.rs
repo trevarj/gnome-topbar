@@ -38,6 +38,9 @@ const VALID_POPOVER_MODES: &[&str] = &["dark", "light"];
 /// Known valid values for bar.position.
 const VALID_BAR_POSITIONS: &[&str] = &["top", "bottom"];
 
+/// Known valid values for widgets.weather.position.
+const VALID_WEATHER_POSITIONS: &[&str] = &["left", "right"];
+
 /// Known valid values for osd.position.
 const VALID_OSD_POSITIONS: &[&str] = &["bottom", "left", "right", "top"];
 
@@ -204,6 +207,7 @@ impl Config {
 
         let mut config: Config = base.try_into()?;
         config.normalize_paths();
+        config.apply_widget_layout_preferences();
         Ok(config)
     }
 
@@ -298,6 +302,12 @@ impl Config {
         }
     }
 
+    /// Apply declarative widget placement preferences that are easier to
+    /// express as per-widget options than by manually editing section arrays.
+    fn apply_widget_layout_preferences(&mut self) {
+        self.widgets.apply_weather_clock_position();
+    }
+
     /// Validate the configuration, returning errors for invalid values.
     ///
     /// This performs strict validation - any invalid value causes an error.
@@ -367,6 +377,20 @@ impl Config {
                 "osd.position: invalid value '{}', expected one of: {}",
                 self.osd.position,
                 VALID_OSD_POSITIONS.join(", ")
+            ));
+        }
+
+        if let Some(position) = self
+            .widgets
+            .get_options("weather")
+            .and_then(|opts| opts.options.get("position"))
+            .and_then(toml::Value::as_str)
+            && !VALID_WEATHER_POSITIONS.contains(&position)
+        {
+            errors.push(format!(
+                "widgets.weather.position: invalid value '{}', expected one of: {}",
+                position,
+                VALID_WEATHER_POSITIONS.join(", ")
             ));
         }
 
@@ -941,6 +965,41 @@ impl WidgetsConfig {
     /// Get resolved widgets for the center section.
     pub fn resolved_center(&self) -> Vec<WidgetOrGroup> {
         self.resolve_section(&self.center)
+    }
+
+    /// Apply `[widgets.weather].position` by inserting the weather widget next
+    /// to the clock in the center section when the user has enabled weather
+    /// but has not placed it manually.
+    fn apply_weather_clock_position(&mut self) {
+        if self.is_disabled("weather")
+            || !self.widget_configs.contains_key("weather")
+            || self.all_referenced_widgets().contains("weather")
+        {
+            return;
+        }
+
+        let Some(clock_idx) = self
+            .center
+            .iter()
+            .position(|placement| placement.widget_names().contains(&"clock"))
+        else {
+            return;
+        };
+
+        let position = self
+            .get_options("weather")
+            .and_then(|opts| opts.options.get("position"))
+            .and_then(toml::Value::as_str)
+            .unwrap_or("left");
+
+        let insert_idx = if position == "right" {
+            clock_idx + 1
+        } else {
+            clock_idx
+        };
+
+        self.center
+            .insert(insert_idx, WidgetPlacement::Single("weather".to_string()));
     }
 
     /// Get resolved widgets for the right section.
@@ -2120,6 +2179,95 @@ mod tests {
             WidgetOrGroup::Single(entry) => assert_eq!(entry.name, "clock"),
             WidgetOrGroup::Group { .. } => panic!("expected single widget"),
         }
+    }
+
+    #[test]
+    fn test_weather_position_inserts_left_of_clock() {
+        let toml = r#"
+            [widgets]
+            center = ["clock"]
+
+            [widgets.weather]
+            exec = "weather.sh"
+            position = "left"
+        "#;
+
+        let config = Config::load_with_defaults(toml).unwrap();
+        let names: Vec<_> = config
+            .widgets
+            .center
+            .iter()
+            .flat_map(WidgetPlacement::widget_names)
+            .collect();
+
+        assert_eq!(names, vec!["weather", "clock"]);
+    }
+
+    #[test]
+    fn test_weather_position_inserts_right_of_clock() {
+        let toml = r#"
+            [widgets]
+            center = ["clock"]
+
+            [widgets.weather]
+            exec = "weather.sh"
+            position = "right"
+        "#;
+
+        let config = Config::load_with_defaults(toml).unwrap();
+        let names: Vec<_> = config
+            .widgets
+            .center
+            .iter()
+            .flat_map(WidgetPlacement::widget_names)
+            .collect();
+
+        assert_eq!(names, vec!["clock", "weather"]);
+    }
+
+    #[test]
+    fn test_weather_position_does_not_duplicate_manual_placement() {
+        let toml = r#"
+            [widgets]
+            center = ["weather", "clock"]
+
+            [widgets.weather]
+            exec = "weather.sh"
+            position = "right"
+        "#;
+
+        let config = Config::load_with_defaults(toml).unwrap();
+        let names: Vec<_> = config
+            .widgets
+            .center
+            .iter()
+            .flat_map(WidgetPlacement::widget_names)
+            .collect();
+
+        assert_eq!(names, vec!["weather", "clock"]);
+    }
+
+    #[test]
+    fn test_weather_position_disabled_does_not_insert() {
+        let toml = r#"
+            [widgets]
+            center = ["clock"]
+
+            [widgets.weather]
+            disabled = true
+            exec = "weather.sh"
+            position = "left"
+        "#;
+
+        let config = Config::load_with_defaults(toml).unwrap();
+        let names: Vec<_> = config
+            .widgets
+            .center
+            .iter()
+            .flat_map(WidgetPlacement::widget_names)
+            .collect();
+
+        assert_eq!(names, vec!["clock"]);
     }
 
     #[test]

@@ -65,13 +65,20 @@ background_opacity = 0.0
 #   image = "/usr/share/pixmaps/distro-logo.svg"  # file path (PNG, SVG, etc.)
 #   tooltip = "My Distro"
 #
-#   [widgets.custom-weather]
+# Native weather can auto-place next to the clock and also feeds the control panel:
+#   [widgets.weather]
+#   disabled = false
 #   exec = "curl -s 'wttr.in/?format=1'"
-#   template = " {output}"
 #   interval = 600
-#   on_click = "xdg-open https://wttr.in"
+#   position = "left" # "left" or "right" of the clock
 #   tooltip = "Weather"
 #   max_chars = 30
+#
+# Native headset uses the same script output contract as custom widgets:
+#   [widgets.headset]
+#   exec = "headsetcontrol -bc"
+#   interval = 5
+#   tooltip = "Headset battery"
 #
 # See documentation for all widget options.
 

@@ -22,6 +22,7 @@ mod control_panel;
 mod cpu;
 mod custom;
 mod gpu;
+mod headset;
 mod keyboard_layout;
 pub mod layer_shell_popover;
 mod marquee_label;
@@ -46,6 +47,7 @@ mod taskbar;
 mod tray;
 mod updates;
 mod updates_common;
+mod weather;
 mod window_title;
 mod workspaces;
 
@@ -72,9 +74,11 @@ pub use workspaces::{WorkspacesConfig, WorkspacesWidget};
 pub use cpu::{CpuConfig, CpuWidget};
 pub use custom::{CustomConfig, CustomWidget};
 pub use gpu::{GpuConfig, GpuWidget};
+pub use headset::{HeadsetConfig, HeadsetWidget};
 pub use keyboard_layout::{KeyboardLayoutConfig, KeyboardLayoutWidget};
 pub use memory::{MemoryConfig, MemoryWidget};
 pub use network_speed::{NetworkSpeedConfig, NetworkSpeedWidget};
+pub use weather::{WeatherConfig, WeatherWidget};
 
 pub(crate) use system_popover::SystemPopoverBinding;
 
@@ -340,6 +344,24 @@ impl WidgetFactory {
                 Some(BuiltWidget {
                     widget: root,
                     handle: Box::new(keyboard_layout),
+                })
+            }
+            "weather" => {
+                let cfg = WeatherConfig::from_entry(entry);
+                let weather = WeatherWidget::new(cfg);
+                let root = weather.widget().clone().upcast::<Widget>();
+                Some(BuiltWidget {
+                    widget: root,
+                    handle: Box::new(weather),
+                })
+            }
+            "headset" => {
+                let cfg = HeadsetConfig::from_entry(entry);
+                let headset = HeadsetWidget::new(cfg);
+                let root = headset.widget().clone().upcast::<Widget>();
+                Some(BuiltWidget {
+                    widget: root,
+                    handle: Box::new(headset),
                 })
             }
             "media" => {

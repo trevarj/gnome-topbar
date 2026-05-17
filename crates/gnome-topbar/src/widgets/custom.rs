@@ -62,6 +62,7 @@ const KNOWN_OPTIONS: &[&str] = &[
     "on_click",
     "tooltip",
     "max_chars",
+    "position",
 ];
 
 /// Default exec timeout in seconds.
@@ -292,24 +293,35 @@ impl CustomWidget {
     /// `custom_id` is the part after "custom-" (e.g., "power" from "custom-power").
     /// It's used as the primary CSS class for the widget.
     pub fn new(custom_id: &str, config: CustomConfig) -> Self {
+        let css_class_name = format!("{}{custom_id}", wgt::CUSTOM_PREFIX);
+        Self::new_with_class(custom_id, &css_class_name, config)
+    }
+
+    /// Create a script-backed widget with an explicit widget/CSS class name.
+    ///
+    /// Native widgets such as weather and headset reuse custom-script polling
+    /// without inheriting the `custom-` CSS namespace.
+    pub(crate) fn new_with_class(
+        widget_name: &str,
+        css_class_name: &str,
+        config: CustomConfig,
+    ) -> Self {
         if config.interval > 0 && config.exec.is_none() {
             warn!(
                 "Custom widget '{}': interval is set but no exec command configured",
-                custom_id
+                widget_name
             );
         }
 
-        let css_class_name = format!("{}{custom_id}", wgt::CUSTOM_PREFIX);
-        let mut base = BaseWidget::new(&[&css_class_name]);
+        let mut base = BaseWidget::new(&[css_class_name]);
 
         // Retrieve show_if config from WidgetOptions (not CustomConfig — these
         // are cross-cutting fields parsed at the WidgetOptions level).
-        let (show_if_cmd, show_if_interval) = ConfigManager::global().get_show_if(&css_class_name);
-        let custom_on_click = config.on_click.clone().or_else(|| {
-            ConfigManager::global()
-                .get_click_handlers(&css_class_name)
-                .0
-        });
+        let (show_if_cmd, show_if_interval) = ConfigManager::global().get_show_if(css_class_name);
+        let custom_on_click = config
+            .on_click
+            .clone()
+            .or_else(|| ConfigManager::global().get_click_handlers(css_class_name).0);
 
         // When exec + interval is active, show_if piggybacks on the exec cycle
         // instead of running a separate timer. Cancel BaseWidget's show_if timer.
@@ -321,7 +333,7 @@ impl CustomWidget {
                 warn!(
                     "Custom widget '{}': show_if_interval is ignored when exec + interval \
                      is set (show_if piggybacks on the exec cycle)",
-                    custom_id
+                    widget_name
                 );
             }
         }
@@ -340,7 +352,7 @@ impl CustomWidget {
             if config.icon.is_some() {
                 warn!(
                     "Custom widget '{}': both 'image' and 'icon' are set; using 'image'",
-                    custom_id
+                    widget_name
                 );
             }
 
@@ -350,12 +362,12 @@ impl CustomWidget {
                 warn!(
                     "Custom widget '{}': image path '{}' is not absolute — \
                      use an absolute path, ~/path, or file:// URI",
-                    custom_id, image_path
+                    widget_name, image_path
                 );
             } else if !std::path::Path::new(&resolved).exists() {
                 warn!(
                     "Custom widget '{}': image file '{}' does not exist",
-                    custom_id, resolved
+                    widget_name, resolved
                 );
             }
 
@@ -377,13 +389,13 @@ impl CustomWidget {
                 warn!(
                     "Custom widget '{}': icon '{}' looks like a file path — \
                      use the 'image' field for file-based images instead of 'icon'.",
-                    custom_id, icon_name
+                    widget_name, icon_name
                 );
             } else if !has_material_mapping(icon_name) {
                 warn!(
                     "Custom widget '{}': icon '{}' has no Material Symbol mapping. \
                      Use theme.icons.theme = \"gtk\" or a Nerd Font glyph in the label field.",
-                    custom_id, icon_name
+                    widget_name, icon_name
                 );
             }
             (Some(base.add_icon(icon_name, &[])), None)
@@ -424,7 +436,7 @@ impl CustomWidget {
                 label: label.clone(),
                 fallback_text: config.label,
                 template: config.template,
-                custom_id: custom_id.to_string(),
+                custom_id: widget_name.to_string(),
                 widget: base.widget().clone(),
             };
 
@@ -473,7 +485,7 @@ impl CustomWidget {
             // Right-click and middle-click are handled by BaseWidget via
             // on_click_right / on_click_middle in the widget config.
             let click = GestureClick::new();
-            let click_widget_name = css_class_name.clone();
+            let click_widget_name = css_class_name.to_string();
             click.set_button(gdk::BUTTON_PRIMARY);
             click.connect_released(move |_gesture, _n_press, _x, _y| {
                 let cmd = on_click.to_string();

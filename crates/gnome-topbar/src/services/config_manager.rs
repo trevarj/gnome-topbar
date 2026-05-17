@@ -475,6 +475,11 @@ impl ConfigManager {
             .and_then(|opts| opts.options.get(option_name).cloned())
     }
 
+    /// Return whether a widget is disabled in the current config.
+    pub fn widget_disabled(&self, widget_name: &str) -> bool {
+        self.config.borrow().widgets.is_disabled(widget_name)
+    }
+
     /// Get click handler commands for a widget.
     ///
     /// Returns `(on_click, on_click_right, on_click_middle)` from `[widgets.<name>]`.

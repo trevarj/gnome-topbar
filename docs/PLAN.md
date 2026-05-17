@@ -101,13 +101,14 @@ Current control panel inventory:
 - Clock: opens either calendar-only content or `build_clock_control_panel` when `[widgets.clock].control_panel = true`.
 - Calendar: embedded in the clock control panel through `build_clock_calendar_popover`.
 - Notifications: live in the clock control panel by default. The standalone bell remains opt-in and opens either notification-only content or the clock control panel when `[widgets.notifications].control_panel = true`; `hide_empty` controls bell visibility.
-- Weather: pulled into the clock control panel from a configured custom widget exec via `control_panel_weather_widget`.
+- Weather: native `weather` widget uses the script output contract, auto-places left or right of the clock through `[widgets.weather].position`, and feeds the clock control panel by default. `control_panel_weather_widget` remains for legacy custom-widget routing.
 - Media: embedded in the clock control panel through `build_media_popover_with_controller`; standalone media widget still has its own popover and pop-out window.
+- Headset: native `headset` widget uses the script output contract for headset battery/status scripts.
 - Quick settings: currently opens its own keep-alive window from the bar widget; convergence should happen one behavior slice at a time.
 
 Completed control-panel slice:
 
-- Clock control-panel options and weather-widget integration are covered by config tests.
+- Clock control-panel options, native weather placement, and weather-widget integration are covered by config tests.
 - Notification `hide_empty` and control-panel routing are covered by config tests; the default layout keeps notification access in the clock control panel rather than a standalone bar icon.
 - Popover surface CSS is covered by shared token tests for background, radius, padding, and typography.
 

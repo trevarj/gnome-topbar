@@ -43,7 +43,7 @@ pub fn build_clock_control_panel(
     right_col.set_size_request(360, -1);
     right_col.set_vexpand(true);
 
-    let time_card = build_time_weather_card(weather_widget_name);
+    let time_card = build_time_weather_card(weather_widget_name.or_else(default_weather_widget));
     right_col.append(&time_card.container);
 
     let (media_widget, media_controller) = build_media_popover_with_controller(|| {});
@@ -71,6 +71,18 @@ pub fn build_clock_control_panel(
 
     refresh();
     (root.upcast(), refresh)
+}
+
+pub(crate) fn default_weather_widget() -> Option<String> {
+    let config = ConfigManager::global();
+    if config.widget_disabled("weather") {
+        return None;
+    }
+
+    config
+        .get_widget_option("weather", "exec")
+        .and_then(|v| v.as_str().map(str::to_string))
+        .map(|_| "weather".to_string())
 }
 
 struct TimeWeatherCard {
