@@ -33,10 +33,8 @@ interval = 5
 ```
 
 Battery, network, audio, Bluetooth, and VPN status are shown by
-`quick_settings` by default. Opening that aggregate routes to the clock control
-panel unless `[widgets.quick_settings].control_panel = false`. Add standalone
-widgets such as `battery` only when you intentionally want a Waybar-like module
-split.
+`quick_settings` by default. Add standalone widgets such as `battery` only when
+you intentionally want a Waybar-like module split.
 
 ## Output Formats
 

@@ -109,9 +109,6 @@ font_family = "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
 format = "%a %b %-d  %H:%M"
 control_panel = true
 
-[widgets.quick_settings]
-control_panel = true # Set false for the legacy separate Quick Settings panel.
-
 [osd]
 enabled = true
 position = "bottom" # "bottom", "top", "left", "right"

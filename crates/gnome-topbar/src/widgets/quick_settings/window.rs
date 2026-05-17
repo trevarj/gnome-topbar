@@ -17,7 +17,6 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
-use crate::popover_registry::{self, DispatchAction};
 use crate::popover_tracker::{PopoverId, PopoverTracker};
 use crate::services::audio::AudioService;
 use crate::services::bluetooth::BluetoothService;
@@ -1927,11 +1926,6 @@ impl QuickSettingsWindowHandle {
     }
 
     pub fn toggle_at(&self, x: i32, monitor: Option<Monitor>) {
-        if self.config.control_panel && popover_registry::dispatch("clock", DispatchAction::Toggle)
-        {
-            return;
-        }
-
         // Check logical state, not window visibility — the window may still be
         // visible during a close animation but logically_open is already false.
         let is_visible = self
@@ -1980,10 +1974,6 @@ impl QuickSettingsWindowHandle {
 
 impl crate::popover_registry::PopoverToggleable for QuickSettingsWindowHandle {
     fn ipc_show(&self) {
-        if self.config.control_panel && popover_registry::dispatch("clock", DispatchAction::Show) {
-            return;
-        }
-
         if !self.ipc_is_visible() {
             let (x, monitor) = self.get_anchor_info();
             self.toggle_at(x, monitor);
@@ -1991,10 +1981,6 @@ impl crate::popover_registry::PopoverToggleable for QuickSettingsWindowHandle {
     }
 
     fn ipc_hide(&self) {
-        if self.config.control_panel && popover_registry::dispatch("clock", DispatchAction::Hide) {
-            return;
-        }
-
         if self.ipc_is_visible() {
             if let Some(qs) = self.window.borrow().as_ref() {
                 qs.hide_panel();
@@ -2006,10 +1992,6 @@ impl crate::popover_registry::PopoverToggleable for QuickSettingsWindowHandle {
     }
 
     fn ipc_is_visible(&self) -> bool {
-        if self.config.control_panel {
-            return false;
-        }
-
         self.window
             .borrow()
             .as_ref()
