@@ -7,6 +7,31 @@ pub fn css(animations: bool) -> String {
     } else {
         "transition: none;"
     };
+    let clock_media_pulse = if animations {
+        r#"
+@keyframes clock-media-button-pulse {
+    0%, 100% {
+        color: var(--color-accent-primary);
+        background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-primary) 34%, transparent);
+        transform: scale(1);
+    }
+    50% {
+        color: var(--color-accent-primary);
+        background: color-mix(in srgb, var(--color-accent-primary) 20%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 0%, transparent);
+        transform: scale(1.07);
+    }
+}
+"#
+    } else {
+        ""
+    };
+    let clock_media_pulse_animation = if animations {
+        "animation: clock-media-button-pulse 1200ms ease-in-out infinite;"
+    } else {
+        "animation: none;"
+    };
     format!(
         r#"
 /* ===== MEDIA WIDGET ===== */
@@ -30,19 +55,29 @@ pub fn css(animations: bool) -> String {
     margin-right: 4px;
 }}
 
-.clock-media .media-compact-eq-visualizer:not(:last-child) {{
-    margin-right: 3px;
-}}
-
 .clock-media-play-pause {{
     min-width: 24px;
     min-height: 24px;
     border-radius: var(--radius-round);
 }}
 
+.clock-media-play-pause.media-playing {{
+    color: var(--color-accent-primary);
+    background: color-mix(in srgb, var(--color-accent-primary) 14%, transparent);
+    {clock_media_pulse_animation}
+}}
+
+.clock-media-play-pause.media-paused {{
+    color: var(--color-foreground-secondary);
+    background: color-mix(in srgb, var(--color-foreground-primary) 8%, transparent);
+    animation: none;
+}}
+
 .clock-media-play-pause .icon-root {{
     font-size: calc(var(--icon-size) * 0.95);
 }}
+
+{clock_media_pulse}
 
 /* Player icon (app icon like Spotify, Firefox) in bar */
 .media-player-icon {{

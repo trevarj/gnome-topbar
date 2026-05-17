@@ -109,7 +109,7 @@ font_family = "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
 format = "%a %b %-d  %H:%M"
 control_panel = true
 media_thumbnail = false # Compact bar companion album art beside the clock.
-media_eq = true         # Compact bar companion audio-reactive EQ beside the clock.
+media_eq = true         # Pulse the compact bar play/pause button while playing.
 
 [osd]
 enabled = true

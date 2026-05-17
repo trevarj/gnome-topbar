@@ -70,7 +70,7 @@ right = ["headset", "quick_settings"]
 [widgets.clock]
 control_panel = true
 media_thumbnail = false # compact active-media companion
-media_eq = true
+media_eq = true         # pulse play/pause while playing
 
 [widgets.weather]
 exec = "~/.config/gnome-topbar/scripts/weather.sh"

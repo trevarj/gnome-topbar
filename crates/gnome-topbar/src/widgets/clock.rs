@@ -27,7 +27,6 @@ use crate::widgets::base::{BaseWidget, vp_button};
 use crate::widgets::calendar_popover::build_clock_calendar_popover;
 use crate::widgets::control_panel::build_clock_control_panel;
 use crate::widgets::media_components::{ArtState, art_radius_percent, show_player_icon_in_art};
-use crate::widgets::media_visualizer::CompactEqVisualizer;
 use crate::widgets::notifications_toast::NotificationToastManager;
 use crate::widgets::rounded_picture::RoundedPicture;
 use crate::widgets::warn_unknown_options;
@@ -52,7 +51,7 @@ pub struct ClockConfig {
     pub control_panel_weather_widget: Option<String>,
     /// Whether the compact media companion beside the clock shows album art.
     pub media_thumbnail: bool,
-    /// Whether the compact media companion beside the clock shows an EQ meter.
+    /// Whether the compact media play/pause button pulses while playing.
     pub media_eq: bool,
 }
 
@@ -532,15 +531,15 @@ struct ClockMediaCompanion {
 struct ClockMediaRefs {
     container: GtkBox,
     art_picture: Option<RoundedPicture>,
-    eq_visualizer: Option<CompactEqVisualizer>,
     play_pause_btn: Button,
     play_pause_icon: IconHandle,
+    pulse_enabled: bool,
     art_state: Rc<RefCell<ArtState>>,
     art_size: i32,
 }
 
 impl ClockMediaCompanion {
-    fn new(parent: &GtkBox, show_thumbnail: bool, show_eq: bool) -> Self {
+    fn new(parent: &GtkBox, show_thumbnail: bool, pulse_enabled: bool) -> Self {
         let art_size = clock_media_art_size();
         let art_state = Rc::new(RefCell::new(ArtState::new()));
 
@@ -559,12 +558,6 @@ impl ClockMediaCompanion {
             art_picture.set_visible(false);
             container.append(&art_picture);
             art_picture
-        });
-
-        let eq_visualizer = show_eq.then(|| {
-            let visualizer = CompactEqVisualizer::new();
-            container.append(visualizer.widget());
-            visualizer
         });
 
         let icons = IconsService::global();
@@ -591,9 +584,9 @@ impl ClockMediaCompanion {
         let refs = ClockMediaRefs {
             container,
             art_picture,
-            eq_visualizer,
             play_pause_btn,
             play_pause_icon,
+            pulse_enabled,
             art_state: art_state.clone(),
             art_size,
         };
@@ -630,9 +623,9 @@ fn update_clock_media(refs: &ClockMediaRefs, snapshot: &MediaSnapshot) {
         if let Some(ref art_picture) = refs.art_picture {
             art_picture.set_visible(false);
         }
-        if let Some(ref visualizer) = refs.eq_visualizer {
-            visualizer.stop();
-        }
+        refs.play_pause_btn.remove_css_class(media::PLAYING);
+        refs.play_pause_btn.remove_css_class(media::PAUSED);
+        refs.play_pause_btn.remove_css_class(media::STOPPED);
         return;
     }
 
@@ -644,12 +637,16 @@ fn update_clock_media(refs: &ClockMediaRefs, snapshot: &MediaSnapshot) {
     refs.play_pause_btn
         .set_sensitive(snapshot.can_play || snapshot.can_pause);
 
-    if let Some(ref visualizer) = refs.eq_visualizer {
-        match snapshot.playback_status {
-            PlaybackStatus::Playing => visualizer.start(),
-            PlaybackStatus::Paused => visualizer.pause(),
-            PlaybackStatus::Stopped => visualizer.stop(),
+    refs.play_pause_btn.remove_css_class(media::PLAYING);
+    refs.play_pause_btn.remove_css_class(media::PAUSED);
+    refs.play_pause_btn.remove_css_class(media::STOPPED);
+    match snapshot.playback_status {
+        PlaybackStatus::Playing if refs.pulse_enabled => {
+            refs.play_pause_btn.add_css_class(media::PLAYING);
         }
+        PlaybackStatus::Paused => refs.play_pause_btn.add_css_class(media::PAUSED),
+        PlaybackStatus::Stopped => refs.play_pause_btn.add_css_class(media::STOPPED),
+        PlaybackStatus::Playing => {}
     }
 
     if let Some(ref art_picture) = refs.art_picture {
