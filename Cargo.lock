@@ -652,7 +652,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gnome-panel"
+name = "gnome-topbar"
 version = "0.14.1"
 dependencies = [
  "anyhow",
@@ -660,7 +660,7 @@ dependencies = [
  "chrono",
  "clap",
  "gdk4-wayland",
- "gnome-panel-core",
+ "gnome-topbar-core",
  "gtk4",
  "gtk4-layer-shell",
  "image",
@@ -686,7 +686,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gnome-panel-core"
+name = "gnome-topbar-core"
 version = "0.14.1"
 dependencies = [
  "material-colors",

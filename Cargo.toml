@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/gnome-panel",
-    "crates/gnome-panel-core",
+    "crates/gnome-topbar",
+    "crates/gnome-topbar-core",
 ]
 
 [workspace.package]
 version = "0.14.1"
 edition = "2024"
 license = "MIT"
-authors = ["GNOME Panel contributors"]
+authors = ["GNOME Topbar contributors"]
 
 [workspace.dependencies]
 # Serialization
@@ -67,4 +67,4 @@ material-colors = { version = "0.4.2" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # Internal crates
-gnome-panel-core = { path = "crates/gnome-panel-core" }
+gnome-topbar-core = { path = "crates/gnome-topbar-core" }

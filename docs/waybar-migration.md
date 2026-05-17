@@ -1,6 +1,6 @@
 # Waybar Custom Script Migration
 
-GNOME Panel supports Waybar-style custom script output for common status
+GNOME Topbar supports Waybar-style custom script output for common status
 modules. Use a `custom-` widget name and point `exec` at the existing script.
 Custom widgets are opt-in migration modules; the default bar keeps common
 system status inside Quick Settings.
@@ -12,17 +12,17 @@ center = ["custom-weather", "clock"]
 right = ["custom-headset", "custom-vpn", "tray", "quick_settings"]
 
 [widgets.custom-crypto]
-exec = "~/.config/gnome-panel/scripts/crypto.sh -r"
+exec = "~/.config/gnome-topbar/scripts/crypto.sh -r"
 interval = 1800
 max_chars = 40
 
 [widgets.custom-weather]
-exec = "~/.config/gnome-panel/scripts/weather.sh"
+exec = "~/.config/gnome-topbar/scripts/weather.sh"
 interval = 1800
 tooltip = "Weather"
 
 [widgets.custom-headset]
-exec = "~/.config/gnome-panel/scripts/headsetcontrol.sh"
+exec = "~/.config/gnome-topbar/scripts/headsetcontrol.sh"
 interval = 5
 
 [widgets.custom-vpn]
@@ -62,5 +62,5 @@ Custom widgets support shell click handlers:
 ```toml
 [widgets.custom-weather]
 on_click = "xdg-open https://wttr.in"
-on_click_right = "sh -c 'echo F > /tmp/gnome-panel-weather-unit'"
+on_click_right = "sh -c 'echo F > /tmp/gnome-topbar-weather-unit'"
 ```

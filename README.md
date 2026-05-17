@@ -1,7 +1,7 @@
-# GNOME Panel
+# GNOME Topbar
 
 A Wayland-only GTK top bar inspired by GNOME Shell for compositors such as
-Niri. GNOME Panel provides a continuous system panel, integrated
+Niri. GNOME Topbar provides a continuous system panel, integrated
 notifications, quick settings, media controls, workspaces, and scriptable
 status modules.
 
@@ -21,22 +21,22 @@ or endorsed by the GNOME project.
 
 ## Configuration
 
-GNOME Panel looks for configuration in:
+GNOME Topbar looks for configuration in:
 
 ```sh
-~/.config/gnome-panel/config.toml
+~/.config/gnome-topbar/config.toml
 ```
 
 Print the default configuration:
 
 ```sh
-gnome-panel --print-example-config
+gnome-topbar --print-example-config
 ```
 
 Validate a configuration:
 
 ```sh
-gnome-panel --check-config --config ~/.config/gnome-panel/config.toml
+gnome-topbar --check-config --config ~/.config/gnome-topbar/config.toml
 ```
 
 The shipped default is a GNOME Shell-style top bar:
@@ -60,7 +60,7 @@ Custom widgets are intended for migration and extensibility. They use the
 left = ["workspaces", "custom-weather"]
 
 [widgets.custom-weather]
-exec = "~/.config/gnome-panel/scripts/weather.sh"
+exec = "~/.config/gnome-topbar/scripts/weather.sh"
 interval = 1800
 tooltip = "Weather"
 ```
@@ -95,7 +95,7 @@ cargo test --workspace --all-targets
 Run locally:
 
 ```sh
-cargo run -p gnome-panel -- --config config.toml -v
+cargo run -p gnome-topbar -- --config config.toml -v
 ```
 
 Run the Niri visual smoke check for design changes:
@@ -104,12 +104,12 @@ Run the Niri visual smoke check for design changes:
 guix shell -m manifest.scm -- ./scripts/visual-smoke-niri.sh
 ```
 
-The screenshot is written to `target/visual-smoke/gnome-panel.png`.
+The screenshot is written to `target/visual-smoke/gnome-topbar.png`.
 
 Build the Guix package:
 
 ```sh
-guix build -f guix/gnome-panel.scm
+guix build -f guix/gnome-topbar.scm
 ```
 
 ## License

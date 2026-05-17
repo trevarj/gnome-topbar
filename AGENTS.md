@@ -1,4 +1,4 @@
-# GNOME Panel Agent Rules
+# GNOME Topbar Agent Rules
 
 ## System
 
@@ -35,10 +35,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 ```
 
-Run `guix build -f guix/gnome-panel.scm` for packaging changes.
+Run `guix build -f guix/gnome-topbar.scm` for packaging changes.
 
 For runtime checks:
 
 ```sh
-cargo run -p gnome-panel -- --config config.toml -v
+cargo run -p gnome-topbar -- --config config.toml -v
 ```

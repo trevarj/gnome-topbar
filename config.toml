@@ -1,13 +1,13 @@
 # =============================================================================
-# gnome-panel Configuration
+# gnome-topbar Configuration
 # =============================================================================
 #
 # Minimal starter config. User configuration lives at:
-# ~/.config/gnome-panel/config.toml
+# ~/.config/gnome-topbar/config.toml
 #
 # Commands:
-#   gnome-panel --check-config         Validate configuration
-#   gnome-panel --print-example-config Print this example config
+#   gnome-topbar --check-config         Validate configuration
+#   gnome-topbar --print-example-config Print this example config
 #
 # =============================================================================
 

@@ -12,11 +12,11 @@ for tool in niri grim cargo timeout; do
   fi
 done
 
-cargo build -p gnome-panel
+cargo build -p gnome-topbar
 
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
-binary_abs=$(pwd)/target/debug/gnome-panel
+binary_abs=$(pwd)/target/debug/gnome-topbar
 
 timeout 30s niri -- sh -c '
 set -eu
@@ -24,11 +24,11 @@ export LD_LIBRARY_PATH=${LIBRARY_PATH:-}
 "$1" --config "$2" -v &
 panel_pid=$!
 sleep 2
-grim "$3/gnome-panel.png"
+grim "$3/gnome-topbar.png"
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
 ' sh "$binary_abs" "$config_abs" "$artifact_dir_abs"
 
-test -s "$artifact_dir_abs/gnome-panel.png"
-echo "wrote $artifact_dir_abs/gnome-panel.png"
+test -s "$artifact_dir_abs/gnome-topbar.png"
+echo "wrote $artifact_dir_abs/gnome-topbar.png"

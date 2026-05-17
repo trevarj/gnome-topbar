@@ -1,4 +1,4 @@
-# GNOME Panel Docs
+# GNOME Topbar Docs
 
 - [Plan](PLAN.md)
 - [Waybar custom script migration](waybar-migration.md)

@@ -1,11 +1,11 @@
-# GNOME Panel Plan
+# GNOME Topbar Plan
 
 ## Current State
 
-- Branch: `trev/gnome-panel`.
-- The project has been renamed to GNOME Panel in code, docs, package metadata, and the default config.
+- Branch: `trev/gnome-topbar`.
+- The project has been renamed to GNOME Topbar in code, docs, package metadata, and the default config.
 - The default config is a GNOME Shell-style continuous top panel with Adwaita icons, bold panel text, left-side workspaces, centered clock, a required tray, and one right-side quick settings aggregate.
-- Guix is the only supported packaging path for now. The in-repo package definition lives in `guix/gnome-panel.scm` and reads Cargo inputs from `Cargo.lock`.
+- Guix is the only supported packaging path for now. The in-repo package definition lives in `guix/gnome-topbar.scm` and reads Cargo inputs from `Cargo.lock`.
 - CI runs Guix-backed formatting, clippy, tests, font subset checks, and a Guix package dry run.
 
 ## Direction
@@ -38,13 +38,13 @@ cargo test --workspace --all-targets
 Run this for packaging changes:
 
 ```sh
-guix build -f guix/gnome-panel.scm
+guix build -f guix/gnome-topbar.scm
 ```
 
 Run locally:
 
 ```sh
-cargo run -p gnome-panel -- --config config.toml -v
+cargo run -p gnome-topbar -- --config config.toml -v
 ```
 
 ## Implementation Subtasks
@@ -114,7 +114,7 @@ Completed control-panel slice:
 ### Phase 7: Packaging, CI, And Fork Hardening
 
 - [x] Keep Guix as the only supported packaging path for now.
-- [x] Maintain `guix/gnome-panel.scm` using `cargo-inputs-from-lockfile`.
+- [x] Maintain `guix/gnome-topbar.scm` using `cargo-inputs-from-lockfile`.
 - [x] Keep GitHub Actions focused on fmt, clippy, tests, font subset checks, and Guix package dry runs.
 - [x] Avoid reintroducing AUR, COPR, Nix, distro-specific install docs, or release packaging.
 - [x] Remove stale legacy naming, distro-specific references, old release machinery, and outdated screenshots when encountered during related work.
@@ -122,7 +122,7 @@ Completed control-panel slice:
 
 Packaging and cleanup audit:
 
-- `guix/gnome-panel.scm` uses `cargo-inputs-from-lockfile`.
-- GitHub Actions run Guix-backed fmt, clippy, tests, font subset checks, and `guix build -f guix/gnome-panel.scm --dry-run`.
+- `guix/gnome-topbar.scm` uses `cargo-inputs-from-lockfile`.
+- GitHub Actions run Guix-backed fmt, clippy, tests, font subset checks, and `guix build -f guix/gnome-topbar.scm --dry-run`.
 - No AUR, COPR, Nix, distro-specific packaging files, or release machinery are present in the tracked project files.
 - No stale legacy project names, distro-specific packaging files, or release machinery are present in the tracked project files.
