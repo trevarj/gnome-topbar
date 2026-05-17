@@ -30,9 +30,10 @@
 Run these before committing meaningful code changes:
 
 ```sh
-guix shell -m manifest.scm -- cargo fmt --check
+guix shell -m manifest.scm -- cargo fmt --all -- --check
 guix shell -m manifest.scm -- cargo clippy --workspace --all-targets -- -D warnings
-guix shell -m manifest.scm -- cargo test --workspace --all-targets
+guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo test --workspace --all-targets'
+guix build -f guix/gnome-panel.scm
 ```
 
 For runtime checks:
