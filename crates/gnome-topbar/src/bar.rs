@@ -910,6 +910,14 @@ pub fn load_css(config: &Config) {
     }
 }
 
+/// Generate the complete built-in CSS for a config without reading runtime
+/// wallpaper/material state. Used by the CLI dump command.
+pub(crate) fn generate_builtin_css(config: &Config) -> String {
+    let palette = ThemePalette::from_config(config, None, None);
+    let popover_palette = ThemePalette::popover_palette(config, None, None);
+    generate_css(config, &palette, popover_palette.as_ref())
+}
+
 /// Priority for user CSS - higher than everything else to ensure overrides work.
 /// USER = 800, we use 900 to be above all internal styles (which use USER + 10 max).
 const USER_CSS_PRIORITY: u32 = gtk4::STYLE_PROVIDER_PRIORITY_USER + 100;
@@ -1156,6 +1164,17 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn generate_builtin_css_uses_default_theme_tokens() {
+        let config = Config::from_default_toml().expect("default config parses");
+        let css = super::generate_builtin_css(&config);
+
+        assert!(css.contains(":root"));
+        assert!(css.contains(".bar"));
+        assert!(css.contains("window.quick-settings-window"));
+        assert!(css.contains(".clock-media"));
     }
 
     #[test]

@@ -11,6 +11,7 @@ mod services;
 pub mod styles;
 mod widgets;
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -82,6 +83,11 @@ enum Command {
     Popover {
         #[command(subcommand)]
         action: PopoverAction,
+    },
+    /// Dump built-in defaults to files
+    Dump {
+        #[command(subcommand)]
+        action: DumpAction,
     },
 }
 
@@ -187,6 +193,20 @@ enum PopoverAction {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum DumpAction {
+    /// Write the built-in default config TOML to a file
+    DefaultConfig {
+        /// Output path, or "-" for stdout
+        output: PathBuf,
+    },
+    /// Write the complete built-in CSS generated from the default config to a file
+    DefaultCss {
+        /// Output path, or "-" for stdout
+        output: PathBuf,
+    },
+}
+
 fn main() -> ExitCode {
     let mut args = Args::parse();
 
@@ -265,7 +285,55 @@ fn handle_command(command: Command, config_path: Option<&Path>) -> ExitCode {
         Command::Media { action } => handle_media_command(action),
         Command::Bar { action } => handle_bar_command(action),
         Command::Popover { action } => handle_popover_command(action),
+        Command::Dump { action } => handle_dump_command(action),
     }
+}
+
+fn handle_dump_command(action: DumpAction) -> ExitCode {
+    let result = match action {
+        DumpAction::DefaultConfig { output } => write_dump(
+            &output,
+            gnome_topbar_core::config::DEFAULT_CONFIG_TOML,
+            "default config",
+        ),
+        DumpAction::DefaultCss { output } => {
+            let config = match Config::from_default_toml() {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!("Error: built-in default config is invalid: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            let css = bar::generate_builtin_css(&config);
+            write_dump(&output, &css, "default CSS")
+        }
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn write_dump(path: &Path, contents: &str, label: &str) -> Result<(), String> {
+    if path == Path::new("-") {
+        print!("{}", contents);
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {}", parent.display(), e))?;
+    }
+
+    fs::write(path, contents).map_err(|e| format!("failed to write {}: {}", path.display(), e))?;
+    println!("Wrote {} to {}", label, path.display());
+    Ok(())
 }
 
 /// Handle brightness subcommands using direct sysfs/logind access.
