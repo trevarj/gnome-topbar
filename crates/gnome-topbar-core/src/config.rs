@@ -824,6 +824,13 @@ impl Default for WidgetsConfig {
                 ..Default::default()
             },
         );
+        widget_configs.insert(
+            "quick_settings".to_string(),
+            WidgetOptions {
+                options: HashMap::from([("control_panel".to_string(), toml::Value::Boolean(true))]),
+                ..Default::default()
+            },
+        );
         Self {
             left: vec![WidgetPlacement::Single("workspaces".to_string())],
             center: vec![WidgetPlacement::Single("clock".to_string())],

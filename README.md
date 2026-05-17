@@ -44,7 +44,7 @@ The shipped default is a GNOME Shell-style top bar:
 - left: Niri workspaces
 - center: clock, calendar, notifications, media, and optional weather
 - right: tray plus one Quick Settings aggregate for network, audio, battery,
-  Bluetooth, and VPN
+  Bluetooth, and VPN; opening it routes to the clock control panel by default
 
 Standalone status widgets such as `battery`, `keyboard_layout`,
 `notifications`, and custom scripts remain available when explicitly added to
@@ -59,6 +59,9 @@ contract as custom widgets:
 [widgets]
 center = ["clock"] # weather auto-places next to clock
 right = ["headset", "quick_settings"]
+
+[widgets.quick_settings]
+control_panel = true # set false for the legacy separate Quick Settings panel
 
 [widgets.weather]
 exec = "~/.config/gnome-topbar/scripts/weather.sh"

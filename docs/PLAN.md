@@ -104,7 +104,7 @@ Current control panel inventory:
 - Weather: native `weather` widget uses the script output contract, auto-places left or right of the clock through `[widgets.weather].position`, and feeds the clock control panel by default. `control_panel_weather_widget` remains for legacy custom-widget routing.
 - Media: embedded in the clock control panel through `build_media_popover_with_controller`; standalone media widget still has its own popover and pop-out window.
 - Headset: native `headset` widget uses the script output contract for headset battery/status scripts.
-- Quick settings: currently opens its own keep-alive window from the bar widget; convergence should happen one behavior slice at a time.
+- Quick settings: the bar aggregate opens the clock control panel by default through `[widgets.quick_settings].control_panel = true`; set it to `false` for the legacy keep-alive Quick Settings window.
 
 Completed control-panel slice:
 

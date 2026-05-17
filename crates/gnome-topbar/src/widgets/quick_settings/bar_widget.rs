@@ -1,8 +1,8 @@
-//! Quick Settings bar widget - slim indicator that toggles the
-//! global Quick Settings window.
+//! Quick Settings bar widget - slim indicator that opens the
+//! combined control panel by default.
 //!
-//! Renders status icons (network, audio, battery, bluetooth, VPN) and toggles
-//! the keep-alive QS window on click.
+//! Renders status icons (network, audio, battery, bluetooth, VPN). The old
+//! keep-alive QS window remains available through `control_panel = false`.
 
 use gtk4::gdk::BUTTON_PRIMARY;
 use gtk4::prelude::*;
@@ -81,6 +81,7 @@ impl Default for QuickSettingsCardsConfig {
 ///
 /// ```toml
 /// [widgets.quick_settings]
+/// control_panel = true                 # open the clock control panel
 /// vpn = false                          # hide the VPN card
 /// idle_inhibitor = false               # hide the idle inhibitor card
 /// vpn_close_on_connect = true          # close panel when VPN connects successfully
@@ -90,6 +91,9 @@ impl Default for QuickSettingsCardsConfig {
 pub struct QuickSettingsConfig {
     /// Which cards to show in the Quick Settings panel.
     pub cards: QuickSettingsCardsConfig,
+    /// Whether clicks route to the clock control panel instead of the legacy
+    /// standalone Quick Settings window.
+    pub control_panel: bool,
     /// Whether to show the battery indicator in the bar aggregate.
     pub battery: bool,
     /// Volume delta (percentage points) for scroll on QS widget/window.
@@ -108,6 +112,7 @@ impl WidgetConfig for QuickSettingsConfig {
             "mic",
             "brightness",
             "power",
+            "control_panel",
             "battery",
             "vpn_close_on_connect",
             "audio_scroll_percentage",
@@ -153,6 +158,7 @@ impl WidgetConfig for QuickSettingsConfig {
                 power: get_bool("power"),
                 vpn_close_on_connect: get_bool("vpn_close_on_connect"),
             },
+            control_panel: get_bool("control_panel"),
             battery: get_bool("battery"),
             audio_scroll_percentage,
         }
@@ -163,6 +169,7 @@ impl Default for QuickSettingsConfig {
     fn default() -> Self {
         Self {
             cards: QuickSettingsCardsConfig::default(),
+            control_panel: true,
             battery: true,
             audio_scroll_percentage: Self::DEFAULT_AUDIO_SCROLL_PERCENTAGE,
         }
@@ -779,6 +786,7 @@ mod tests {
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(HashMap::new()));
 
         assert_eq!(config.audio_scroll_percentage, 5);
+        assert!(config.control_panel);
         assert!(config.battery);
         assert_eq!(
             config.enabled_control_panel_cards(),
@@ -803,6 +811,7 @@ mod tests {
     #[test]
     fn test_quick_settings_config_card_toggles_affect_inventory() {
         let mut options = HashMap::new();
+        options.insert("control_panel".to_string(), Value::Boolean(false));
         options.insert("network".to_string(), Value::Boolean(false));
         options.insert("vpn".to_string(), Value::Boolean(false));
         options.insert("audio".to_string(), Value::Boolean(false));
@@ -811,6 +820,7 @@ mod tests {
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
 
+        assert!(!config.control_panel);
         assert_eq!(
             config.enabled_control_panel_cards(),
             vec![
