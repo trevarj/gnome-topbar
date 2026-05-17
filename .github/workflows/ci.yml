@@ -7,39 +7,24 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: '-Dwarnings'
+  RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  fmt:
+  checks:
     runs-on: ubuntu-latest
-    name: Formatting
+    name: Guix Checks
     steps:
       - uses: actions/checkout@v4
-      - run: cargo fmt --check
-
-  check:
-    runs-on: ubuntu-latest
-    container: rust:trixie
-    name: Clippy & Test
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+      - uses: PromyLOPh/guix-install-action@v1
+      - name: Formatting
+        run: guix shell -m manifest.scm -- cargo fmt --all -- --check
+      - name: Clippy
+        run: guix shell -m manifest.scm -- cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
         run: |
-          apt-get update
-          apt-get install -y \
-            libgtk-4-dev \
-            libgtk4-layer-shell-dev \
-            libpulse-dev \
-            libudev-dev \
-            libdbus-1-dev
-          rustup component add clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace --all-targets --verbose
-
-  font-check:
-    runs-on: ubuntu-latest
-    name: Font subset manifest
-    steps:
-      - uses: actions/checkout@v4
-      - run: ./scripts/subset-font.sh --check
+          guix shell -m manifest.scm -- sh -c \
+            'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo test --workspace --all-targets'
+      - name: Font subset manifest
+        run: guix shell -m manifest.scm -- ./scripts/subset-font.sh --check
+      - name: Guix package dry run
+        run: guix build -f guix/gnome-panel.scm --dry-run
