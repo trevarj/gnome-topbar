@@ -212,7 +212,7 @@ crates/gnome-panel/src/
 3. Define `MyWidgetWidget` with `new(config)` and `widget()` methods
 4. Add to `WidgetFactory::build()` match arm
 5. Export from `widgets/mod.rs`
-6. Document in `docs/configuration.md`
+6. Document config examples in `README.md` or `docs/waybar-migration.md`
 
 ## Adding a New Compositor Backend
 

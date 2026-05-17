@@ -72,8 +72,9 @@ Use the Guix manifest:
 
 ```sh
 guix shell -m manifest.scm
-cargo fmt --check
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
+export LD_LIBRARY_PATH=$LIBRARY_PATH
 cargo test --workspace --all-targets
 ```
 
@@ -81,6 +82,12 @@ Run locally:
 
 ```sh
 guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-panel -- --config config.toml -v'
+```
+
+Build the Guix package:
+
+```sh
+guix build -f guix/gnome-panel.scm
 ```
 
 ## License
