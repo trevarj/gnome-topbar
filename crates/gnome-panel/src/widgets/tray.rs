@@ -39,21 +39,15 @@ pub struct TrayConfig {
     /// Maximum number of tray icons to display.
     pub max_icons: usize,
     /// Icon size for pixmap icons (in pixels).
-    pub pixmap_icon_size: i32,
+    /// `None` means "use theme default" and is resolved in `TrayWidget::new()`.
+    pub pixmap_icon_size: Option<i32>,
 }
 
 impl Default for TrayConfig {
     fn default() -> Self {
-        // TODO: Remove catch_unwind — move pixmap_icon_size theme read to
-        // TrayWidget::new() (same pattern as TaskbarConfig/TaskbarLayout).
-        let pixmap_icon_size = std::panic::catch_unwind(|| {
-            ConfigManager::global().theme_sizes().pixmap_icon_size as i32
-        })
-        .unwrap_or(DEFAULT_PIXMAP_ICON_SIZE);
-
         Self {
             max_icons: DEFAULT_MAX_ICONS,
-            pixmap_icon_size,
+            pixmap_icon_size: None,
         }
     }
 }
@@ -75,8 +69,7 @@ impl WidgetConfig for TrayConfig {
             .options
             .get("pixmap_icon_size")
             .and_then(|v| v.as_integer())
-            .map(|v| v as i32)
-            .unwrap_or(defaults.pixmap_icon_size);
+            .map(|v| (v as i32).max(8));
 
         Self {
             max_icons,
@@ -152,8 +145,9 @@ fn compute_contrast_params() -> ContrastParams {
 
 impl TrayWidget {
     /// Create a new system tray widget.
-    pub fn new(config: TrayConfig) -> Self {
+    pub fn new(mut config: TrayConfig) -> Self {
         let base = BaseWidget::new(&[widget::TRAY]);
+        config.pixmap_icon_size = Some(resolve_pixmap_icon_size(&config));
 
         let state = Rc::new(RefCell::new(WidgetState {
             config,
@@ -226,6 +220,12 @@ impl TrayWidget {
             });
         }
     }
+}
+
+fn resolve_pixmap_icon_size(config: &TrayConfig) -> i32 {
+    config
+        .pixmap_icon_size
+        .unwrap_or_else(|| ConfigManager::global().theme_sizes().pixmap_icon_size as i32)
 }
 
 impl Drop for TrayWidget {
@@ -329,7 +329,11 @@ fn create_button(state: &Rc<RefCell<WidgetState>>, identifier: &str) -> Button {
     button.add_css_class(btn::COMPACT); // Remove default button padding
 
     let image = Image::new();
-    let icon_size = state.borrow().config.pixmap_icon_size;
+    let icon_size = state
+        .borrow()
+        .config
+        .pixmap_icon_size
+        .unwrap_or(DEFAULT_PIXMAP_ICON_SIZE);
     image.set_pixel_size(icon_size);
 
     // Wrap in icon-root container for consistent sizing with other icons
@@ -791,7 +795,11 @@ fn get_cached_file_texture(
     }
 
     let contrast_params = state.borrow().contrast_params;
-    let icon_size = state.borrow().config.pixmap_icon_size;
+    let icon_size = state
+        .borrow()
+        .config
+        .pixmap_icon_size
+        .unwrap_or(DEFAULT_PIXMAP_ICON_SIZE);
     let texture = texture_from_file(path, &contrast_params, icon_size)?;
 
     {
@@ -1140,4 +1148,48 @@ fn on_menu_entry_clicked(
         popover.popdown();
     }
     // Note: menu is set to None by the popover's closed signal handler
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use toml::Value;
+
+    fn make_widget_entry(options: HashMap<String, Value>) -> WidgetEntry {
+        WidgetEntry {
+            name: "tray".to_string(),
+            options,
+        }
+    }
+
+    #[test]
+    fn test_tray_config_defaults_defer_pixmap_icon_size_to_widget_init() {
+        let config = TrayConfig::from_entry(&make_widget_entry(HashMap::new()));
+
+        assert_eq!(config.max_icons, DEFAULT_MAX_ICONS);
+        assert_eq!(config.pixmap_icon_size, None);
+    }
+
+    #[test]
+    fn test_tray_config_custom_values() {
+        let mut options = HashMap::new();
+        options.insert("max_icons".to_string(), Value::Integer(4));
+        options.insert("pixmap_icon_size".to_string(), Value::Integer(22));
+
+        let config = TrayConfig::from_entry(&make_widget_entry(options));
+
+        assert_eq!(config.max_icons, 4);
+        assert_eq!(config.pixmap_icon_size, Some(22));
+    }
+
+    #[test]
+    fn test_tray_config_clamps_small_pixmap_icon_size() {
+        let mut options = HashMap::new();
+        options.insert("pixmap_icon_size".to_string(), Value::Integer(2));
+
+        let config = TrayConfig::from_entry(&make_widget_entry(options));
+
+        assert_eq!(config.pixmap_icon_size, Some(8));
+    }
 }

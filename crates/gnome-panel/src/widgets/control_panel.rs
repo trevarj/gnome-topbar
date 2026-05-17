@@ -16,6 +16,7 @@ use crate::services::config_manager::ConfigManager;
 use crate::services::media::MediaService;
 use crate::styles::surface;
 use crate::widgets::calendar_popover::build_clock_calendar_popover;
+use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
 use crate::widgets::notifications_popover::build_popover_content as build_notifications_content;
 
@@ -152,13 +153,56 @@ fn refresh_weather_label(label: &Option<(Label, String)>) {
                         None
                     }
                 })
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
+                .and_then(|s| format_weather_exec_output(&s))
         })
         .await;
 
         if let Ok(Some(text)) = result {
             label.set_label(&text);
+            label.set_visible(true);
+        } else if result.is_ok() {
+            label.set_label("");
+            label.set_visible(false);
         }
     });
+}
+
+fn format_weather_exec_output(raw_output: &str) -> Option<String> {
+    let display = build_exec_display(raw_output.trim(), "", None);
+    display.visible.then_some(display.label_text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_weather_exec_output_plain_text() {
+        assert_eq!(
+            format_weather_exec_output("  72F Clear  \n").as_deref(),
+            Some("72F Clear")
+        );
+    }
+
+    #[test]
+    fn test_format_weather_exec_output_waybar_json_text() {
+        assert_eq!(
+            format_weather_exec_output(r#"{"text":"72F Clear","tooltip":"Sunny"}"#).as_deref(),
+            Some("72F Clear")
+        );
+    }
+
+    #[test]
+    fn test_format_weather_exec_output_waybar_json_label_fallback() {
+        assert_eq!(
+            format_weather_exec_output(r#"{"label":"72F Clear"}"#).as_deref(),
+            Some("72F Clear")
+        );
+    }
+
+    #[test]
+    fn test_format_weather_exec_output_empty_hides() {
+        assert_eq!(format_weather_exec_output(" \n"), None);
+        assert_eq!(format_weather_exec_output(r#"{"text":""}"#), None);
+    }
 }

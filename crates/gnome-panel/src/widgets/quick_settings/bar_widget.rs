@@ -161,6 +161,58 @@ impl Default for QuickSettingsConfig {
 
 impl QuickSettingsConfig {
     const DEFAULT_AUDIO_SCROLL_PERCENTAGE: i32 = 5;
+
+    pub(crate) fn enabled_control_panel_cards(&self) -> Vec<&'static str> {
+        let cards = &self.cards;
+        let mut names = Vec::new();
+        if cards.network {
+            names.push("network");
+        }
+        if cards.bluetooth {
+            names.push("bluetooth");
+        }
+        if cards.vpn {
+            names.push("vpn");
+        }
+        if cards.idle_inhibitor {
+            names.push("idle_inhibitor");
+        }
+        if cards.updates {
+            names.push("updates");
+        }
+        if cards.audio {
+            names.push("audio");
+        }
+        if cards.mic {
+            names.push("mic");
+        }
+        if cards.brightness {
+            names.push("brightness");
+        }
+        if cards.power {
+            names.push("power");
+        }
+        names
+    }
+
+    pub(crate) fn enabled_bar_indicators(&self) -> Vec<&'static str> {
+        let cards = &self.cards;
+        let mut names = Vec::new();
+        if cards.audio {
+            names.push("audio");
+        }
+        if cards.bluetooth {
+            names.push("bluetooth");
+        }
+        if cards.network {
+            names.push("network");
+            names.push("mobile");
+        }
+        if cards.vpn {
+            names.push("vpn");
+        }
+        names
+    }
 }
 
 /// Bar-side Quick Settings indicator.
@@ -180,6 +232,11 @@ impl QuickSettingsWidget {
     pub fn new(cfg: QuickSettingsConfig, qs_window: QuickSettingsWindowHandle) -> Self {
         let cards = &cfg.cards;
         let base = BaseWidget::new(&[widget::QUICK_SETTINGS]);
+        debug!(
+            control_panel_cards = ?cfg.enabled_control_panel_cards(),
+            bar_indicators = ?cfg.enabled_bar_indicators(),
+            "Quick Settings configured"
+        );
 
         let mut audio_callback_id = None;
         let mut bluetooth_callback_id = None;
@@ -625,5 +682,92 @@ impl Drop for QuickSettingsWidget {
         if let Some(id) = self.vpn_callback_id.take() {
             VpnService::global().disconnect(id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use toml::Value;
+
+    fn make_widget_entry(options: HashMap<String, Value>) -> WidgetEntry {
+        WidgetEntry {
+            name: "quick_settings".to_string(),
+            options,
+        }
+    }
+
+    #[test]
+    fn test_quick_settings_config_defaults() {
+        let config = QuickSettingsConfig::from_entry(&make_widget_entry(HashMap::new()));
+
+        assert_eq!(config.audio_scroll_percentage, 5);
+        assert_eq!(
+            config.enabled_control_panel_cards(),
+            vec![
+                "network",
+                "bluetooth",
+                "vpn",
+                "idle_inhibitor",
+                "updates",
+                "audio",
+                "mic",
+                "brightness",
+                "power"
+            ]
+        );
+        assert_eq!(
+            config.enabled_bar_indicators(),
+            vec!["audio", "bluetooth", "network", "mobile", "vpn"]
+        );
+    }
+
+    #[test]
+    fn test_quick_settings_config_card_toggles_affect_inventory() {
+        let mut options = HashMap::new();
+        options.insert("network".to_string(), Value::Boolean(false));
+        options.insert("vpn".to_string(), Value::Boolean(false));
+        options.insert("audio".to_string(), Value::Boolean(false));
+        options.insert("power".to_string(), Value::Boolean(false));
+
+        let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
+
+        assert_eq!(
+            config.enabled_control_panel_cards(),
+            vec![
+                "bluetooth",
+                "idle_inhibitor",
+                "updates",
+                "mic",
+                "brightness"
+            ]
+        );
+        assert_eq!(config.enabled_bar_indicators(), vec!["bluetooth"]);
+    }
+
+    #[test]
+    fn test_quick_settings_config_clamps_audio_scroll_percentage() {
+        let mut low_options = HashMap::new();
+        low_options.insert("audio_scroll_percentage".to_string(), Value::Integer(0));
+        let low = QuickSettingsConfig::from_entry(&make_widget_entry(low_options));
+        assert_eq!(low.audio_scroll_percentage, 1);
+
+        let mut high_options = HashMap::new();
+        high_options.insert("audio_scroll_percentage".to_string(), Value::Integer(50));
+        let high = QuickSettingsConfig::from_entry(&make_widget_entry(high_options));
+        assert_eq!(high.audio_scroll_percentage, 25);
+    }
+
+    #[test]
+    fn test_quick_settings_config_ignores_non_bool_card_values() {
+        let mut options = HashMap::new();
+        options.insert("network".to_string(), Value::String("false".to_string()));
+        options.insert("vpn".to_string(), Value::Integer(0));
+
+        let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
+
+        assert!(config.cards.network);
+        assert!(config.cards.vpn);
     }
 }

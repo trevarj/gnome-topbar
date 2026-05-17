@@ -76,10 +76,10 @@ struct CustomExecOutput {
 
 /// Resolved label/visibility update after applying fallback and template rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CustomExecDisplay {
-    label_text: String,
-    tooltip: Option<String>,
-    visible: bool,
+pub(crate) struct CustomExecDisplay {
+    pub(crate) label_text: String,
+    pub(crate) tooltip: Option<String>,
+    pub(crate) visible: bool,
 }
 
 /// JSON shape emitted by Waybar-style custom scripts.
@@ -716,7 +716,7 @@ fn run_exec(
     });
 }
 
-fn build_exec_display(
+pub(crate) fn build_exec_display(
     raw_output: &str,
     fallback_text: &str,
     template: Option<&str>,
