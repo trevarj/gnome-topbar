@@ -12,15 +12,13 @@ pub fn css(animations: bool) -> String {
 @keyframes clock-media-button-pulse {
     0%, 100% {
         color: var(--color-accent-primary);
-        background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-primary) 34%, transparent);
         transform: scale(1);
+        opacity: 0.9;
     }
     50% {
-        color: var(--color-accent-primary);
-        background: color-mix(in srgb, var(--color-accent-primary) 20%, transparent);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 0%, transparent);
+        color: color-mix(in srgb, var(--color-accent-primary) 72%, var(--color-foreground-primary));
         transform: scale(1.07);
+        opacity: 1;
     }
 }
 "#
@@ -63,13 +61,17 @@ pub fn css(animations: bool) -> String {
 
 .clock-media-play-pause.media-playing {{
     color: var(--color-accent-primary);
-    background: color-mix(in srgb, var(--color-accent-primary) 14%, transparent);
+}}
+
+.clock-media-play-pause.media-playing .icon-root {{
     {clock_media_pulse_animation}
 }}
 
 .clock-media-play-pause.media-paused {{
     color: var(--color-foreground-secondary);
-    background: color-mix(in srgb, var(--color-foreground-primary) 8%, transparent);
+}}
+
+.clock-media-play-pause.media-paused .icon-root {{
     animation: none;
 }}
 
