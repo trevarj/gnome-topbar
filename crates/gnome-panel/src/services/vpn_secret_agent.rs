@@ -1483,7 +1483,7 @@ type SectionMap = Vec<(String, HashMap<String, String>)>;
 /// Search order:
 /// 1. `$NM_VPN_PLUGIN_DIR` (if set)
 /// 2. `/usr/lib/NetworkManager/VPN/`
-/// 3. `/etc/NetworkManager/VPN/` (legacy; NixOS symlinks here)
+/// 3. `/etc/NetworkManager/VPN/` (legacy fallback)
 fn find_vpn_plugin(service_type: &str) -> Option<VpnPluginInfo> {
     // Collect owned env-var value (if any) so we can borrow it alongside the
     // static slices without leaking memory.
