@@ -17,9 +17,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: PromyLOPh/guix-install-action@v1
       - name: Formatting
-        run: guix shell -m manifest.scm -- cargo fmt --all -- --check
+        run: |
+          guix shell -m manifest.scm -- sh -c \
+            'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo fmt --all -- --check'
       - name: Clippy
-        run: guix shell -m manifest.scm -- cargo clippy --workspace --all-targets -- -D warnings
+        run: |
+          guix shell -m manifest.scm -- sh -c \
+            'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo clippy --workspace --all-targets -- -D warnings'
       - name: Tests
         run: |
           guix shell -m manifest.scm -- sh -c \

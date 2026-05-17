@@ -27,17 +27,18 @@
 
 ## Verification
 
-Run these before committing meaningful code changes:
+With direnv loaded, run these before committing meaningful code changes:
 
 ```sh
-guix shell -m manifest.scm -- cargo fmt --all -- --check
-guix shell -m manifest.scm -- cargo clippy --workspace --all-targets -- -D warnings
-guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo test --workspace --all-targets'
-guix build -f guix/gnome-panel.scm
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets
 ```
+
+Run `guix build -f guix/gnome-panel.scm` for packaging changes.
 
 For runtime checks:
 
 ```sh
-guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-panel -- --config config.toml -v'
+cargo run -p gnome-panel -- --config config.toml -v
 ```

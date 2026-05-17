@@ -68,20 +68,20 @@ examples.
 
 ## Development
 
-Use the Guix manifest:
+Use direnv for the Guix development environment:
 
 ```sh
-guix shell -m manifest.scm
+direnv allow
+direnv reload
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-export LD_LIBRARY_PATH=$LIBRARY_PATH
 cargo test --workspace --all-targets
 ```
 
 Run locally:
 
 ```sh
-guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-panel -- --config config.toml -v'
+cargo run -p gnome-panel -- --config config.toml -v
 ```
 
 Build the Guix package:

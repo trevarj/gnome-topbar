@@ -35,15 +35,15 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 gtk4 = { version = "0.10", features = ["v4_12"] }
 pango = { version = "0.21", features = ["v1_56"] }
 gtk4-layer-shell = "0.7"
-gdk4-wayland = { version = "0.10", features = ["wayland_crate"] }
-wayland-client = "0.31"
-wayland-backend = "0.3"
-wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+gdk4-wayland = { version = "0.10", default-features = false, features = ["wayland_crate"] }
+wayland-client = { version = "0.31", default-features = false }
+wayland-backend = { version = "0.3", default-features = false, features = ["client_system"] }
+wayland-protocols = { version = "0.32", default-features = false, features = ["client", "staging"] }
 wayland-scanner = "0.31"
 
 # File watching
 notify = { version = "6.1", default-features = false, features = ["crossbeam-channel"] }
-notify-debouncer-mini = "0.4"
+notify-debouncer-mini = { version = "0.4", default-features = false, features = ["crossbeam-channel"] }
 
 # Hashing
 sha2 = "0.10"
