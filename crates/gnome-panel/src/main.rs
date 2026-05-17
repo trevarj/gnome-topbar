@@ -1,4 +1,4 @@
-//! gnome-panel - A modern Wayland status bar
+//! gnome-panel - GNOME Shell-inspired GTK top panel for Wayland
 //!
 //! This is the main entry point for the gnome-panel bar application.
 
@@ -27,7 +27,7 @@ use crate::services::bar_manager::BarManager;
 use crate::services::compositor::CompositorManager;
 use crate::services::config_manager::ConfigManager;
 
-/// gnome-panel - A modern Wayland status bar
+/// gnome-panel - GNOME Shell-inspired GTK top panel for Wayland
 #[derive(Parser, Debug)]
 #[command(name = "gnome-panel", version, about, long_about = None)]
 struct Args {

@@ -311,7 +311,7 @@ pub struct AudioService {
     ready_at: Cell<Option<Instant>>,
     /// Sender for commands to the Pulse worker thread.
     command_tx: Sender<AudioCommand>,
-    /// Maximum percentage Vibepanel is allowed to request from user-facing controls.
+    /// Maximum percentage GNOME Panel is allowed to request from user-facing controls.
     user_max_percent: Cell<u32>,
 }
 
@@ -1809,7 +1809,7 @@ pub struct AudioCli {
     channel_count: u8,
     /// Whether volume control is currently available (sink not suspended).
     control_available: bool,
-    /// Maximum percentage Vibepanel CLI commands are allowed to request.
+    /// Maximum percentage GNOME Panel CLI commands are allowed to request.
     user_max_percent: u32,
 }
 

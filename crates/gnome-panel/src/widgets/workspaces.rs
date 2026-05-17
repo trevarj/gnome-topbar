@@ -186,7 +186,7 @@ mod ws_container_imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for WorkspaceContainer {
-        const NAME: &'static str = "VibepanelWorkspaceContainer";
+        const NAME: &'static str = "GnomePanelWorkspaceContainer";
         type Type = super::WorkspaceContainer;
         type ParentType = Widget;
 

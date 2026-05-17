@@ -40,7 +40,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for CenterPriorityLayout {
-        const NAME: &'static str = "VibepanelCenterPriorityLayout";
+        const NAME: &'static str = "GnomePanelCenterPriorityLayout";
         type Type = super::CenterPriorityLayout;
         type ParentType = LayoutManager;
     }
@@ -340,7 +340,7 @@ mod bar_imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for SectionedBar {
-        const NAME: &'static str = "VibepanelSectionedBar";
+        const NAME: &'static str = "GnomePanelSectionedBar";
         type Type = super::SectionedBar;
         type ParentType = Widget;
 

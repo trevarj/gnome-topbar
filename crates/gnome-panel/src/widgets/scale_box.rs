@@ -46,7 +46,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for ScaleBox {
-        const NAME: &'static str = "VibepanelScaleBox";
+        const NAME: &'static str = "GnomePanelScaleBox";
         type Type = super::ScaleBox;
         type ParentType = gtk4::Widget;
 

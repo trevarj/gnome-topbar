@@ -86,7 +86,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for MarqueeContainer {
-        const NAME: &'static str = "VibepanelMarqueeContainer";
+        const NAME: &'static str = "GnomePanelMarqueeContainer";
         type Type = super::MarqueeContainer;
         type ParentType = Widget;
 

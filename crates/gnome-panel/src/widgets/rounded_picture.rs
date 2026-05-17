@@ -48,7 +48,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for RoundedPicture {
-        const NAME: &'static str = "VibepanelRoundedPicture";
+        const NAME: &'static str = "GnomePanelRoundedPicture";
         type Type = super::RoundedPicture;
         type ParentType = gtk4::Widget;
         type Interfaces = (gtk4::Accessible, gtk4::Buildable);

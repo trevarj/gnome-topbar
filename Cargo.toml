@@ -9,7 +9,7 @@ members = [
 version = "0.14.1"
 edition = "2024"
 license = "MIT"
-authors = ["David"]
+authors = ["GNOME Panel contributors"]
 
 [workspace.dependencies]
 # Serialization

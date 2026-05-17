@@ -109,7 +109,7 @@ pub fn build_mic_row() -> MicRowWidgets {
         .icon("microphone-sensitivity-high-symbolic")
         .interactive_icon(true) // Mute button is clickable
         // The slider is an interactive control, so keep its range capped to
-        // what Vibepanel is allowed to request. Programmatic updates are
+        // what GNOME Panel is allowed to request. Programmatic updates are
         // guarded to avoid writing external over-cap values back to Pulse.
         .range(0.0, AudioService::global().user_max_percent() as f64)
         .step(1.0)
@@ -128,8 +128,8 @@ pub fn build_mic_row() -> MicRowWidgets {
 
 /// Update the slider from the backend state without causing write-back.
 ///
-/// External mic volume can exceed Vibepanel's configured cap, but this is an
-/// interactive control: keep the range capped to the values Vibepanel may
+/// External mic volume can exceed GNOME Panel's configured cap, but this is an
+/// interactive control: keep the range capped to the values GNOME Panel may
 /// request. GTK will visually saturate over-cap values at the maximum, while
 /// the tooltip preserves the true backend volume.
 pub fn set_mic_slider_display(slider: &Scale, volume: u32) {
