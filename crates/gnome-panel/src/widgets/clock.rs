@@ -359,7 +359,7 @@ impl ClockNotificationInner {
 
         let count = service.history_count();
         self.container
-            .set_visible(!service.backend_available() || count > 0 || service.is_muted());
+            .set_visible(!service.backend_available() || count > 0);
 
         let unread = self.calculate_unread_count(service);
         self.badge.set_visible(unread > 0);
