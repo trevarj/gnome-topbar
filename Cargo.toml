@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/vibepanel",
-    "crates/vibepanel-core",
+    "crates/gnome-topbar",
+    "crates/gnome-topbar-core",
 ]
 
 [workspace.package]
@@ -68,4 +68,4 @@ material-colors = { version = "0.4.2" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # Internal crates
-vibepanel-core = { path = "crates/vibepanel-core" }
+gnome-topbar-core = { path = "crates/gnome-topbar-core" }

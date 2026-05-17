@@ -1,37 +1,39 @@
 # =============================================================================
-# vibepanel Configuration
+# gnome-topbar Configuration
 # =============================================================================
 #
-# Minimal starter config. For all available options, see:
-# https://github.com/prankstr/vibepanel/blob/main/docs/configuration.md
+# Minimal starter config. User configuration lives at:
+# ~/.config/gnome-topbar/config.toml
 #
 # Commands:
-#   vibepanel --check-config         Validate configuration
-#   vibepanel --print-example-config Print this example config
+#   gnome-topbar --check-config         Validate configuration
+#   gnome-topbar --print-example-config Print this example config
 #
 # =============================================================================
 
 [bar]
 position = "top"         # "top" or "bottom"
-size = 32
-border_radius = 30
-background_opacity = 0.0 # 0.0 = transparent (islands), 1.0 = solid
+size = 36
+spacing = 2
+screen_margin = 0
+inset = 4
+padding = 0
+border_radius = 0
+background_color = "#000000"
+background_opacity = 1.0 # GNOME Shell-style continuous top panel
 # outline = true         # Override theme.outline for the bar (omit = inherit)
 
 [widgets]
 left = ["workspaces", "window_title"]
-center = ["media"]
+center = ["clock"]
 right = [
   "tray",
-  "updates",
-  "cpu",
-  "quick_settings",
+  "keyboard_layout",
   "battery",
-  "clock",
-  "notifications",
+  "quick_settings",
 ]
-border_radius = 40
-background_opacity = 1.0
+border_radius = 50
+background_opacity = 0.0
 # popover_background_opacity = 0.9  # Override popover opacity (default: max of bar and widget opacity)
 # outline = true                    # Override theme.outline for widgets (omit = inherit)
 
@@ -78,7 +80,7 @@ mode = "dark" # "auto", "dark", "light", "gtk"
 #scheme = "dark"         # Material You polarity: "dark" or "light" (auto mode only)
 #               Omit to auto-derive from wallpaper luminance (bright → light, dark → dark)
 #wallpaper = "/path/to/image.png"  # Explicit wallpaper for auto mode (default: auto-detect)
-#accent = "#adabe0" # "gtk", "none", or hex color (overrides wallpaper accent in auto mode)
+accent = "#3584e4" # GNOME blue; use "gtk", "none", or a hex color
 #animations = true  # Enable/disable all CSS transitions and animations
 #ripple = true      # Enable/disable Material Design ripple effect on click
 #blur = false       # Enable compositor blur via ext-background-effect-v1 (requires niri with blur)
@@ -88,8 +90,19 @@ mode = "dark" # "auto", "dark", "light", "gtk"
 #outline_opacity = 1.0        # 0.0 = transparent, 1.0 = opaque
 
 [theme.icons]
-theme = "material" # "material" or "gtk"
+theme = "Adwaita"  # "material", "gtk", or a named GTK icon theme
 weight = 400       # Material icon stroke weight (100-700)
+
+[theme.typography]
+font_family = "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
+
+[widgets.clock]
+format = "%a %b %-d  %H:%M"
+control_panel = true
+
+[widgets.notifications]
+hide_empty = true
+control_panel = true
 
 [osd]
 enabled = true

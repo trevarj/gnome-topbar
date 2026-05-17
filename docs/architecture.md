@@ -1,18 +1,18 @@
-# VibePanel Architecture
+# GNOME Topbar Architecture
 
-This document provides a high-level overview of VibePanel's architecture for developers who want to understand or extend the codebase.
+This document provides a high-level overview of GNOME Topbar's architecture for developers who want to understand or extend the codebase.
 
 ## Crate Structure
 
-VibePanel is organized as a Cargo workspace with two crates:
+GNOME Topbar is organized as a Cargo workspace with two crates:
 
 ```
 crates/
-  vibepanel-core/    # Reusable library: config, theming, error types
-  vibepanel/         # Main application: GTK widgets, services, UI
+  gnome-topbar-core/    # Reusable library: config, theming, error types
+  gnome-topbar/         # Main application: GTK widgets, services, UI
 ```
 
-### vibepanel-core
+### gnome-topbar-core
 
 A library crate containing:
 
@@ -23,7 +23,7 @@ A library crate containing:
 
 This crate has no GTK dependencies, making it easier to test and potentially reuse.
 
-### vibepanel
+### gnome-topbar
 
 The main application crate containing:
 
@@ -78,7 +78,7 @@ Key services:
 
 ## Compositor Backend Abstraction
 
-VibePanel supports multiple Wayland compositors through a pluggable backend system:
+GNOME Topbar supports multiple Wayland compositors through a pluggable backend system:
 
 ```
 services/compositor/
@@ -183,7 +183,7 @@ Services use `RwLock` for thread-safe state sharing between IPC threads and the 
 ## Directory Layout
 
 ```
-crates/vibepanel/src/
+crates/gnome-topbar/src/
   main.rs           # Entry point, CLI, GTK app setup
   bar.rs            # Bar window creation, CSS loading
   sectioned_bar.rs  # Layout widget for left/center/right sections
@@ -219,4 +219,4 @@ crates/vibepanel/src/
 1. Create `services/compositor/my_compositor.rs`
 2. Implement `CompositorBackend` trait
 3. Add detection logic to `factory.rs`
-4. Add backend name to config validation in `vibepanel-core/src/config.rs`
+4. Add backend name to config validation in `gnome-topbar-core/src/config.rs`

@@ -16,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-ICONS_RS="$PROJECT_ROOT/crates/vibepanel/src/services/icons.rs"
+ICONS_RS="$PROJECT_ROOT/crates/gnome-topbar/src/services/icons.rs"
 FULL_FONT="$PROJECT_ROOT/assets/fonts/MaterialSymbolsRounded-full.ttf"
 SUBSET_FONT="$PROJECT_ROOT/assets/fonts/MaterialSymbolsRounded.ttf"
 MANIFEST="$PROJECT_ROOT/assets/fonts/glyphs.txt"

@@ -1,2 +1,2 @@
 #!/bin/bash
-cargo build --release -p vibepanel && target/release/vibepanel 2>&1 | tee /tmp/vibepanel-debug.log
+cargo build --release -p gnome-topbar && target/release/gnome-topbar 2>&1 | tee /tmp/gnome-topbar-debug.log
