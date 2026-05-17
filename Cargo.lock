@@ -378,15 +378,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
-name = "fsevent-sys"
-version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "futures-channel"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -678,7 +669,6 @@ dependencies = [
  "material-colors",
  "minreq",
  "notify",
- "notify-debouncer-mini",
  "nvml-wrapper",
  "pango",
  "parking_lot",
@@ -1188,7 +1178,6 @@ dependencies = [
  "bitflags 2.11.0",
  "crossbeam-channel",
  "filetime",
- "fsevent-sys",
  "inotify",
  "kqueue",
  "libc",
@@ -1196,17 +1185,6 @@ dependencies = [
  "mio",
  "walkdir",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "notify-debouncer-mini"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d40b221972a1fc5ef4d858a2f671fb34c75983eb385463dff3780eeff6a9d43"
-dependencies = [
- "crossbeam-channel",
- "log",
- "notify",
 ]
 
 [[package]]

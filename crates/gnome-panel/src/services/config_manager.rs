@@ -22,11 +22,12 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gtk4::{glib, prelude::*};
-use notify_debouncer_mini::{DebounceEventResult, new_debouncer, notify::RecursiveMode};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use tracing::{debug, error, info, warn};
 
@@ -656,42 +657,17 @@ impl ConfigManager {
                 .collect::<Vec<_>>()
         );
 
-        let mut debouncer =
-            match new_debouncer(debounce_duration, move |res: DebounceEventResult| {
-                match res {
-                    Ok(events) => {
-                        // Check if any event is for our config file
-                        let config_changed = events.iter().any(|e| e.path == config_canonical);
-                        if config_changed {
-                            debug!("Config file change detected");
-                            Self::reload_and_send(&config_canonical);
-                        }
-
-                        let style_changed = events.iter().any(|e| {
-                            is_style_change_path(&e.path, symlink_canonical_target.as_deref())
-                        });
-                        if style_changed {
-                            debug!("User style.css change detected");
-                            send_config_message(ConfigMessage::StyleCssChanged);
-                        }
-                    }
-                    Err(err) => {
-                        error!("File watcher error: {}", err);
-                    }
-                }
-            }) {
-                Ok(d) => d,
-                Err(e) => {
-                    error!("Failed to create file watcher: {}", e);
-                    return;
-                }
-            };
+        let (tx, rx) = channel();
+        let mut watcher = match RecommendedWatcher::new(tx, notify::Config::default()) {
+            Ok(watcher) => watcher,
+            Err(e) => {
+                error!("Failed to create file watcher: {}", e);
+                return;
+            }
+        };
 
         // Watch the config file's parent directory (more reliable than watching file directly).
-        if let Err(e) = debouncer
-            .watcher()
-            .watch(&config_watch_dir, RecursiveMode::NonRecursive)
-        {
+        if let Err(e) = watcher.watch(&config_watch_dir, RecursiveMode::NonRecursive) {
             error!("Failed to watch config directory: {}", e);
             return;
         }
@@ -709,10 +685,7 @@ impl ConfigManager {
                 continue;
             }
 
-            if let Err(e) = debouncer
-                .watcher()
-                .watch(&watch_dir, RecursiveMode::NonRecursive)
-            {
+            if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::NonRecursive) {
                 warn!(
                     "Failed to watch style.css directory {}: {}",
                     watch_dir.display(),
@@ -723,10 +696,55 @@ impl ConfigManager {
             }
         }
 
-        // Keep the thread alive until shutdown is signaled
-        // Use shorter sleep intervals to allow responsive shutdown
+        let mut pending_config = false;
+        let mut pending_style = false;
+        let mut last_event_at: Option<Instant> = None;
+
         while !shutdown_flag.load(Ordering::Relaxed) {
-            thread::sleep(Duration::from_millis(500));
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(event)) => {
+                    let WatchedChange {
+                        config_changed,
+                        style_changed,
+                    } = classify_watched_event(
+                        &event,
+                        &config_canonical,
+                        symlink_canonical_target.as_deref(),
+                    );
+                    pending_config |= config_changed;
+                    pending_style |= style_changed;
+                    last_event_at = Some(Instant::now());
+                }
+                Ok(Err(err)) => {
+                    error!("File watcher error: {}", err);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    error!("File watcher channel disconnected");
+                    break;
+                }
+            }
+
+            let Some(last_event) = last_event_at else {
+                continue;
+            };
+            if last_event.elapsed() < debounce_duration {
+                continue;
+            }
+
+            if pending_config {
+                debug!("Config file change detected");
+                Self::reload_and_send(&config_canonical);
+            }
+
+            if pending_style {
+                debug!("User style.css change detected");
+                send_config_message(ConfigMessage::StyleCssChanged);
+            }
+
+            pending_config = false;
+            pending_style = false;
+            last_event_at = None;
         }
 
         debug!("Config file watcher thread shutting down");
@@ -1039,6 +1057,27 @@ impl ConfigManager {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct WatchedChange {
+    config_changed: bool,
+    style_changed: bool,
+}
+
+fn classify_watched_event(
+    event: &Event,
+    config_canonical: &std::path::Path,
+    symlink_canonical_target: Option<&std::path::Path>,
+) -> WatchedChange {
+    event
+        .paths
+        .iter()
+        .fold(WatchedChange::default(), |mut acc, path| {
+            acc.config_changed |= path == config_canonical;
+            acc.style_changed |= is_style_change_path(path, symlink_canonical_target);
+            acc
+        })
+}
+
 /// Drop guard that disconnects a theme callback when dropped.
 ///
 /// Wrap a `CallbackId` from [`ConfigManager::on_theme_change`] in this guard
@@ -1237,6 +1276,47 @@ mod tests {
     #[test]
     fn test_is_style_change_path_target_name_none() {
         assert!(!is_style_change_path(Path::new("/tmp/colors.css"), None));
+    }
+
+    #[test]
+    fn test_classify_watched_event_tracks_config_and_style() {
+        let event = Event::new(notify::EventKind::Any)
+            .add_path(Path::new("/tmp/gnome-panel/config.toml").to_path_buf())
+            .add_path(Path::new("/tmp/gnome-panel/style.css").to_path_buf());
+
+        let change = classify_watched_event(
+            &event,
+            Path::new("/tmp/gnome-panel/config.toml"),
+            Some(Path::new("/tmp/theme/colors.css")),
+        );
+
+        assert_eq!(
+            change,
+            WatchedChange {
+                config_changed: true,
+                style_changed: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_watched_event_tracks_symlink_target() {
+        let event = Event::new(notify::EventKind::Any)
+            .add_path(Path::new("/tmp/theme/colors.css").to_path_buf());
+
+        let change = classify_watched_event(
+            &event,
+            Path::new("/tmp/gnome-panel/config.toml"),
+            Some(Path::new("/tmp/theme/colors.css")),
+        );
+
+        assert_eq!(
+            change,
+            WatchedChange {
+                config_changed: false,
+                style_changed: true,
+            }
+        );
     }
 
     #[cfg(unix)]

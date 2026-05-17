@@ -43,7 +43,6 @@ wayland-scanner = "0.31"
 
 # File watching
 notify = { version = "6.1", default-features = false, features = ["crossbeam-channel"] }
-notify-debouncer-mini = { version = "0.4", default-features = false, features = ["crossbeam-channel"] }
 
 # Hashing
 sha2 = "0.10"

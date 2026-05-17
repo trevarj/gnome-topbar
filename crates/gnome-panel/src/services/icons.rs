@@ -23,13 +23,14 @@ use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
-use std::time::Duration;
+use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::time::{Duration, Instant};
 
 use gtk4::gio::{AppInfo, DesktopAppInfo, prelude::*};
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{IconTheme, Image, Label};
-use notify_debouncer_mini::{DebounceEventResult, new_debouncer, notify::RecursiveMode};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use pango::prelude::FontMapExt;
 use tracing::{debug, error, info, warn};
 
@@ -2047,7 +2048,7 @@ impl IconsService {
     /// Watch system font directories and re-register our embedded Material
     /// Symbols font with Pango when changes are detected.
     ///
-    /// Follows the `notify-debouncer-mini` pattern from `ConfigManager`.
+    /// Follows the debounced watcher pattern from `ConfigManager`.
     /// No shutdown flag — `IconsService` is a process-lifetime singleton.
     fn start_font_dir_watcher() {
         // Guard against multiple calls (e.g. future refactoring of setup_backends).
@@ -2113,44 +2114,57 @@ impl IconsService {
         std::thread::spawn(move || {
             let debounce_duration = Duration::from_millis(FONT_DIR_DEBOUNCE_MS);
 
-            let mut debouncer =
-                match new_debouncer(debounce_duration, move |res: DebounceEventResult| {
-                    match res {
-                        Ok(_events) => {
-                            debug!(
-                                "Font directory change detected, scheduling font re-registration"
-                            );
-                            // add_font_file() doesn't deduplicate, but duplicates
-                            // are harmless and font dir changes are rare.
-                            glib::idle_add_once(|| {
-                                let svc = IconsService::global();
-                                if svc.uses_material() {
-                                    svc.re_register_font();
-                                    svc.reapply_all_icons();
-                                }
-                            });
-                        }
-                        Err(err) => {
-                            error!("Font directory watcher error: {}", err);
-                        }
-                    }
-                }) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        error!("Failed to create font directory watcher: {}", e);
-                        return;
-                    }
-                };
+            let (tx, rx) = channel();
+            let mut watcher = match RecommendedWatcher::new(tx, notify::Config::default()) {
+                Ok(watcher) => watcher,
+                Err(e) => {
+                    error!("Failed to create font directory watcher: {}", e);
+                    return;
+                }
+            };
 
             for dir in &dirs {
-                if let Err(e) = debouncer.watcher().watch(dir, RecursiveMode::Recursive) {
+                if let Err(e) = watcher.watch(dir, RecursiveMode::Recursive) {
                     warn!("Failed to watch font directory {}: {}", dir.display(), e);
                 }
             }
 
-            // Keep the thread (and debouncer) alive indefinitely.
+            let mut pending = false;
+            let mut last_event_at: Option<Instant> = None;
+
+            // Keep the thread (and watcher) alive indefinitely.
             loop {
-                std::thread::park();
+                match rx.recv_timeout(Duration::from_millis(250)) {
+                    Ok(Ok(_event)) => {
+                        pending = true;
+                        last_event_at = Some(Instant::now());
+                    }
+                    Ok(Err(err)) => {
+                        error!("Font directory watcher error: {}", err);
+                    }
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
+                        error!("Font directory watcher channel disconnected");
+                        break;
+                    }
+                }
+
+                if !pending || last_event_at.is_none_or(|last| last.elapsed() < debounce_duration) {
+                    continue;
+                }
+
+                debug!("Font directory change detected, scheduling font re-registration");
+                // add_font_file() doesn't deduplicate, but duplicates
+                // are harmless and font dir changes are rare.
+                glib::idle_add_once(|| {
+                    let svc = IconsService::global();
+                    if svc.uses_material() {
+                        svc.re_register_font();
+                        svc.reapply_all_icons();
+                    }
+                });
+                pending = false;
+                last_event_at = None;
             }
         });
     }
