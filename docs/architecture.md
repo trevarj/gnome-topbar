@@ -187,7 +187,7 @@ crates/gnome-panel/src/
   main.rs           # Entry point, CLI, GTK app setup
   bar.rs            # Bar window creation, CSS loading
   sectioned_bar.rs  # Layout widget for left/center/right sections
-  layout_math.rs    # Layout calculations for sections/islands
+  layout_math.rs    # Layout calculations for panel sections and groups
   styles.rs         # CSS class name constants
   services.rs       # Service module exports
   services/

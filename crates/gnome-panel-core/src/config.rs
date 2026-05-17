@@ -684,7 +684,7 @@ pub struct BarConfig {
     pub background_color: Option<String>,
 
     /// Bar background opacity (0.0 = fully transparent, 1.0 = fully opaque).
-    /// Default: 0.0 (transparent bar for "islands" look).
+    /// Default: 1.0 (continuous GNOME Shell-style top panel).
     pub background_opacity: f64,
 
     /// Bar outline override. When omitted, inherits `theme.outline`.
@@ -698,16 +698,16 @@ impl Default for BarConfig {
     fn default() -> Self {
         Self {
             position: "top".to_string(),
-            size: 32,
-            spacing: 8,
+            size: 36,
+            spacing: 2,
             screen_margin: 0,
-            inset: 8,
-            padding: 4,
-            border_radius: 30,
+            inset: 4,
+            padding: 0,
+            border_radius: 0,
             popover_offset: 1,
             outputs: Vec::new(),
-            background_color: None,
-            background_opacity: 0.0,
+            background_color: Some("#000000".to_string()),
+            background_opacity: 1.0,
             outline: None,
         }
     }
@@ -765,7 +765,7 @@ pub struct WidgetsConfig {
     pub background_color: Option<String>,
 
     /// Widget background opacity (0.0 = fully transparent, 1.0 = fully opaque).
-    /// Default: 1.0 (fully visible widgets).
+    /// Default: 0.0 (transparent panel buttons with hover fill).
     pub background_opacity: f64,
 
     /// Popover background opacity override (0.0 = fully transparent, 1.0 = fully opaque).
@@ -787,16 +787,49 @@ pub struct WidgetsConfig {
 
 impl Default for WidgetsConfig {
     fn default() -> Self {
+        let mut widget_configs = HashMap::new();
+        widget_configs.insert(
+            "clock".to_string(),
+            WidgetOptions {
+                options: HashMap::from([
+                    (
+                        "format".to_string(),
+                        toml::Value::String("%a %b %-d  %H:%M".to_string()),
+                    ),
+                    ("control_panel".to_string(), toml::Value::Boolean(true)),
+                ]),
+                ..Default::default()
+            },
+        );
+        widget_configs.insert(
+            "notifications".to_string(),
+            WidgetOptions {
+                options: HashMap::from([
+                    ("hide_empty".to_string(), toml::Value::Boolean(true)),
+                    ("control_panel".to_string(), toml::Value::Boolean(true)),
+                ]),
+                ..Default::default()
+            },
+        );
+
         Self {
-            left: Vec::new(),
-            center: Vec::new(),
-            right: Vec::new(),
-            border_radius: 30,
+            left: vec![
+                WidgetPlacement::Single("workspaces".to_string()),
+                WidgetPlacement::Single("window_title".to_string()),
+            ],
+            center: vec![WidgetPlacement::Single("clock".to_string())],
+            right: vec![
+                WidgetPlacement::Single("tray".to_string()),
+                WidgetPlacement::Single("keyboard_layout".to_string()),
+                WidgetPlacement::Single("battery".to_string()),
+                WidgetPlacement::Single("quick_settings".to_string()),
+            ],
+            border_radius: 50,
             background_color: None,
-            background_opacity: 1.0,
+            background_opacity: 0.0,
             popover_background_opacity: None,
             outline: None,
-            widget_configs: HashMap::new(),
+            widget_configs,
         }
     }
 }
@@ -1222,7 +1255,7 @@ pub struct ThemeIconsConfig {
 impl Default for ThemeIconsConfig {
     fn default() -> Self {
         Self {
-            theme: "material".to_string(),
+            theme: "Adwaita".to_string(),
             weight: 400,
         }
     }
@@ -1340,12 +1373,11 @@ pub struct ThemeConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            // "auto" here; the shipped config.toml overrides to "dark" via deep-merge
-            mode: "auto".to_string(),
+            mode: "dark".to_string(),
             scheme: None,
             wallpaper: None,
             popover: None,
-            accent: None,
+            accent: Some("#3584e4".to_string()),
             animations: true,
             ripple: true,
             shadows: true,
@@ -1396,7 +1428,7 @@ pub struct ThemeTypography {
 impl Default for ThemeTypography {
     fn default() -> Self {
         Self {
-            font_family: "monospace".to_string(),
+            font_family: "Adwaita Sans, Cantarell, Noto Sans, sans-serif".to_string(),
         }
     }
 }
@@ -1480,16 +1512,23 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.bar.size, 32);
+        assert_eq!(config.bar.size, 36);
         assert_eq!(config.bar.screen_margin, 0);
-        assert_eq!(config.bar.background_opacity, 0.0);
-        assert_eq!(config.widgets.background_opacity, 1.0);
+        assert_eq!(config.bar.background_color.as_deref(), Some("#000000"));
+        assert_eq!(config.bar.background_opacity, 1.0);
+        assert_eq!(config.widgets.background_opacity, 0.0);
+        assert_eq!(config.widgets.left.len(), 2);
+        assert_eq!(config.widgets.center.len(), 1);
+        assert_eq!(config.widgets.right.len(), 4);
         assert!(!config.audio.allow_overdrive);
         assert_eq!(config.advanced.compositor, "auto");
-        assert_eq!(config.theme.mode, "auto");
-        assert!(config.theme.accent.is_none());
-        assert_eq!(config.theme.typography.font_family, "monospace");
-        assert_eq!(config.theme.icons.theme, "material");
+        assert_eq!(config.theme.mode, "dark");
+        assert_eq!(config.theme.accent.as_deref(), Some("#3584e4"));
+        assert_eq!(
+            config.theme.typography.font_family,
+            "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
+        );
+        assert_eq!(config.theme.icons.theme, "Adwaita");
         assert_eq!(config.theme.icons.weight, 400);
     }
 
@@ -1504,9 +1543,8 @@ mod tests {
         let from_toml = Config::from_default_toml().expect("embedded default config should parse");
         let from_struct = Config::default();
 
-        // We verify that both configs are valid and have the same fundamental structure.
-        // Widget lists can differ since the embedded config is a user-facing example
-        // with populated widgets, while struct defaults start empty.
+        // We verify that both configs are valid and describe the same
+        // user-facing fallback panel.
         assert!(
             from_toml.validate().is_ok(),
             "embedded config should validate"
@@ -1520,6 +1558,24 @@ mod tests {
         assert_eq!(
             from_toml.advanced.compositor,
             from_struct.advanced.compositor
+        );
+        assert_eq!(from_toml.bar.size, from_struct.bar.size);
+        assert_eq!(
+            from_toml.bar.background_opacity,
+            from_struct.bar.background_opacity
+        );
+        assert_eq!(
+            from_toml.widgets.background_opacity,
+            from_struct.widgets.background_opacity
+        );
+        assert_eq!(from_toml.widgets.left.len(), from_struct.widgets.left.len());
+        assert_eq!(
+            from_toml.widgets.center.len(),
+            from_struct.widgets.center.len()
+        );
+        assert_eq!(
+            from_toml.widgets.right.len(),
+            from_struct.widgets.right.len()
         );
     }
 
@@ -1541,8 +1597,15 @@ mod tests {
         assert_eq!(config.bar.size, 40);
         // Struct defaults should be applied
         assert_eq!(config.bar.screen_margin, 0);
-        // Without merge, widgets are empty (struct default)
-        assert!(config.widgets.left.is_empty());
+        // Struct defaults provide the same user-facing fallback panel.
+        assert!(
+            !config.widgets.left.is_empty(),
+            "left widgets should inherit from struct defaults"
+        );
+        assert!(
+            !config.widgets.right.is_empty(),
+            "right widgets should inherit from struct defaults"
+        );
     }
 
     #[test]

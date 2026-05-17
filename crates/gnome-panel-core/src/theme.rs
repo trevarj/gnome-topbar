@@ -1786,14 +1786,14 @@ mod tests {
 
     #[test]
     fn test_accent_default_is_custom() {
-        // Default accent = None with mode = "dark" means use "#adabe0" as custom hex color
+        // GNOME Panel's shipped default uses GNOME blue as the custom accent.
         let mut config = Config::default();
         config.theme.mode = "dark".to_string();
         let palette = ThemePalette::from_config(&config, None, None);
 
         assert_eq!(
             palette.accent_source,
-            AccentSource::Custom("#adabe0".to_string())
+            AccentSource::Custom("#3584e4".to_string())
         );
     }
 
@@ -1802,7 +1802,7 @@ mod tests {
         // When mode = "gtk" and accent is not specified, accent should default to "gtk"
         let mut config = Config::default();
         config.theme.mode = "gtk".to_string();
-        // accent remains None
+        config.theme.accent = None;
 
         let palette = ThemePalette::from_config(&config, None, None);
 
@@ -2142,10 +2142,10 @@ mod tests {
             let mut config = Config::default();
             config.bar.size = bar_size;
             config.bar.border_radius = 100; // Request maximum radius
+            config.widgets.border_radius = 100;
             let palette = ThemePalette::from_config(&config, None, None);
 
             // Bar radius is computed from rendered height (bar_size + 2*padding config)
-            // With default padding=4, max radius = (bar_size + 8) / 2
             let bar_rendered_height = bar_size + 2 * config.bar.padding;
             let max_possible_bar_radius = bar_rendered_height / 2;
             assert!(
@@ -2156,9 +2156,7 @@ mod tests {
                 bar_size
             );
 
-            let widget_rendered_height =
-                palette.sizes.widget_height + 2 * palette.sizes.widget_padding_y;
-            let max_widget_radius = widget_rendered_height / 2;
+            let max_widget_radius = bar_size / 2;
             assert!(
                 palette.widget_border_radius <= max_widget_radius,
                 "Widget radius {} exceeds max {} for bar_size={}",
@@ -2437,8 +2435,8 @@ mod tests {
         // Catches "forgot to wire a scope" regressions in the cascade.
         let mut config = Config::default();
         config.theme.outline = true;
-        // Default bar opacity is 0.0 (islands mode), which suppresses the
-        // inherited bar outline; raise it to verify the propagation path.
+        // Transparent bar mode suppresses the inherited bar outline; set it
+        // explicitly here to verify the normal propagation path.
         config.bar.background_opacity = 1.0;
         let palette = ThemePalette::from_config(&config, None, None);
         assert!(palette.bar_outline_enabled);
