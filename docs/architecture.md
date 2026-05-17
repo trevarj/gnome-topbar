@@ -1,18 +1,18 @@
-# GNOME Topbar Architecture
+# GNOME Panel Architecture
 
-This document provides a high-level overview of GNOME Topbar's architecture for developers who want to understand or extend the codebase.
+This document provides a high-level overview of GNOME Panel's architecture for developers who want to understand or extend the codebase.
 
 ## Crate Structure
 
-GNOME Topbar is organized as a Cargo workspace with two crates:
+GNOME Panel is organized as a Cargo workspace with two crates:
 
 ```
 crates/
-  gnome-topbar-core/    # Reusable library: config, theming, error types
-  gnome-topbar/         # Main application: GTK widgets, services, UI
+  gnome-panel-core/    # Reusable library: config, theming, error types
+  gnome-panel/         # Main application: GTK widgets, services, UI
 ```
 
-### gnome-topbar-core
+### gnome-panel-core
 
 A library crate containing:
 
@@ -23,7 +23,7 @@ A library crate containing:
 
 This crate has no GTK dependencies, making it easier to test and potentially reuse.
 
-### gnome-topbar
+### gnome-panel
 
 The main application crate containing:
 
@@ -78,7 +78,7 @@ Key services:
 
 ## Compositor Backend Abstraction
 
-GNOME Topbar supports multiple Wayland compositors through a pluggable backend system:
+GNOME Panel supports multiple Wayland compositors through a pluggable backend system:
 
 ```
 services/compositor/
@@ -183,7 +183,7 @@ Services use `RwLock` for thread-safe state sharing between IPC threads and the 
 ## Directory Layout
 
 ```
-crates/gnome-topbar/src/
+crates/gnome-panel/src/
   main.rs           # Entry point, CLI, GTK app setup
   bar.rs            # Bar window creation, CSS loading
   sectioned_bar.rs  # Layout widget for left/center/right sections
@@ -219,4 +219,4 @@ crates/gnome-topbar/src/
 1. Create `services/compositor/my_compositor.rs`
 2. Implement `CompositorBackend` trait
 3. Add detection logic to `factory.rs`
-4. Add backend name to config validation in `gnome-topbar-core/src/config.rs`
+4. Add backend name to config validation in `gnome-panel-core/src/config.rs`

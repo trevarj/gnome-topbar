@@ -1,4 +1,4 @@
-# GNOME Topbar Agent Rules
+# GNOME Panel Agent Rules
 
 ## System
 
@@ -38,5 +38,5 @@ guix shell -m manifest.scm -- cargo test --workspace --all-targets
 For runtime checks:
 
 ```sh
-guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-topbar -- --config config.toml -v'
+guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-panel -- --config config.toml -v'
 ```

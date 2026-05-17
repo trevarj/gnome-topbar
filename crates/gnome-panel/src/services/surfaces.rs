@@ -1,0 +1,551 @@
+//! Surface styling helpers for gnome-panel.
+//!
+//! This module owns `SurfaceStyles` derived from the theme and provides
+//! helpers to apply consistent styling to popovers, menus, and other
+//! overlay containers. It is intentionally separate from `TooltipManager`
+//! so that tooltip concerns and general surface styling remain decoupled.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use gnome_panel_core::SurfaceStyles;
+use gtk4::Label;
+use gtk4::pango::{AttrFontDesc, AttrList, FontDescription};
+use gtk4::prelude::*;
+use tracing::debug;
+
+use crate::services::config_manager::ConfigManager;
+use crate::styles::{icon, media, notification as notif, osd, surface};
+use crate::widgets::css::{POPOVER_BG_WITH_OPACITY, WIDGET_BG_WITH_OPACITY};
+use crate::widgets::scale_box::ScaleBox;
+
+// GTK 4.10 deprecated widget-scoped style contexts but didn't provide a replacement.
+// We need widget-scoped CSS to style individual surfaces without affecting the entire
+// display. The display-scoped alternative (style_context_add_provider_for_display)
+// would require unique CSS class names for every surface instance, which is impractical.
+// This import is used for StyleContextExt::add_provider().
+#[allow(deprecated)]
+use gtk4::prelude::StyleContextExt;
+
+// Thread-local singleton storage for SurfaceStyleManager
+thread_local! {
+    static SURFACE_STYLES_INSTANCE: RefCell<Option<Rc<SurfaceStyleManager>>> = const { RefCell::new(None) };
+}
+
+/// Default surface styles, used when init_global is not called.
+/// Provides a reasonable dark-mode appearance as fallback.
+fn default_surface_styles() -> SurfaceStyles {
+    SurfaceStyles {
+        background_color: "#111217".to_string(),
+        text_color: "#ffffff".to_string(),
+        font_family: "monospace".to_string(),
+        font_size: 14,
+        border_radius: 8,
+        border_color: "rgba(255, 255, 255, 0.10)".to_string(),
+        opacity: 1.0,
+        shadow: "0 1px 2px rgba(0, 0, 0, 0.20), 0 1px 3px rgba(0, 0, 0, 0.24)".to_string(),
+        is_dark_mode: true,
+        shadows_enabled: true,
+    }
+}
+
+/// Process-wide surface styling manager.
+///
+/// Provides `apply_surface_styles` for popovers, menus, and other containers
+/// that should share the same visual language as widgets.
+pub struct SurfaceStyleManager {
+    styles: RefCell<SurfaceStyles>,
+    /// Whether to use Pango attributes for font rendering instead of CSS.
+    /// When true, applies Pango font attributes to labels as a workaround
+    /// for GTK CSS font rendering issues in layer-shell surfaces.
+    pango_font_rendering: Cell<bool>,
+}
+
+impl SurfaceStyleManager {
+    /// Create a new manager with the given styles.
+    fn new(styles: SurfaceStyles) -> Rc<Self> {
+        Rc::new(Self {
+            styles: RefCell::new(styles),
+            pango_font_rendering: Cell::new(false),
+        })
+    }
+
+    /// Initialize the global SurfaceStyleManager with styles from ThemePalette.
+    ///
+    /// Should be called during application startup after loading config:
+    /// ```ignore
+    /// let palette = ThemePalette::from_config(&config, None, None);
+    /// SurfaceStyleManager::init_global(palette.surface_styles());
+    /// ```
+    #[allow(dead_code)]
+    pub fn init_global(styles: SurfaceStyles) {
+        Self::init_global_with_config(styles, false);
+    }
+
+    /// Initialize the global SurfaceStyleManager with styles and config options.
+    ///
+    /// Should be called during application startup after loading config:
+    /// ```ignore
+    /// let palette = ThemePalette::from_config(&config, None, None);
+    /// SurfaceStyleManager::init_global_with_config(
+    ///     palette.surface_styles(),
+    ///     config.advanced.pango_font_rendering,
+    /// );
+    /// ```
+    pub fn init_global_with_config(styles: SurfaceStyles, pango_font_rendering: bool) {
+        SURFACE_STYLES_INSTANCE.with(|cell| {
+            let mut opt = cell.borrow_mut();
+            if opt.is_some() {
+                debug!("SurfaceStyleManager already initialized, ignoring init_global call");
+                return;
+            }
+            let manager = SurfaceStyleManager::new(styles);
+            manager.pango_font_rendering.set(pango_font_rendering);
+            *opt = Some(manager);
+        });
+    }
+
+    /// Get the global SurfaceStyleManager singleton.
+    ///
+    /// If not initialized via `init_global`, uses default dark-mode styles.
+    pub fn global() -> Rc<Self> {
+        SURFACE_STYLES_INSTANCE.with(|cell| {
+            let mut opt = cell.borrow_mut();
+            if opt.is_none() {
+                debug!("SurfaceStyleManager not initialized, using defaults");
+                *opt = Some(SurfaceStyleManager::new(default_surface_styles()));
+            }
+            opt.as_ref().unwrap().clone()
+        })
+    }
+
+    /// Reconfigure the manager with new styles (for live config reload).
+    ///
+    /// This updates the internal styles. Note that surfaces already styled
+    /// won't be automatically updated - they would need to call
+    /// `apply_surface_styles` again. For most use cases, newly created
+    /// surfaces will pick up the new styles automatically.
+    pub fn reconfigure(&self, styles: SurfaceStyles, pango_font_rendering: bool) {
+        debug!(
+            "SurfaceStyleManager reconfiguring: bg={} -> {}, pango_font_rendering={}",
+            self.styles.borrow().background_color,
+            styles.background_color,
+            pango_font_rendering,
+        );
+        *self.styles.borrow_mut() = styles;
+        self.pango_font_rendering.set(pango_font_rendering);
+    }
+
+    /// Get the current font family.
+    #[allow(dead_code)]
+    pub fn font_family(&self) -> String {
+        self.styles.borrow().font_family.clone()
+    }
+
+    /// Get the current background color.
+    pub fn background_color(&self) -> String {
+        self.styles.borrow().background_color.clone()
+    }
+
+    /// Get the theme's foreground/text color (e.g., "#1a1a1a" for light mode).
+    pub fn text_color(&self) -> String {
+        self.styles.borrow().text_color.clone()
+    }
+
+    /// Whether CSS box-shadows are enabled on surfaces.
+    pub fn shadows_enabled(&self) -> bool {
+        self.styles.borrow().shadows_enabled
+    }
+
+    /// Return `base_margin` when shadows are enabled, otherwise `0`.
+    pub fn shadow_margin(&self, base_margin: i32) -> i32 {
+        if self.shadows_enabled() {
+            base_margin
+        } else {
+            0
+        }
+    }
+
+    /// Apply the temporary ScaleBox outline used while floating surfaces animate.
+    ///
+    /// The real CSS border is suppressed only when there is a GSK outline to
+    /// draw, so disabled outlines keep their normal resting CSS appearance.
+    pub fn apply_animated_surface_outline(
+        &self,
+        shell: &ScaleBox,
+        widget_name: &str,
+        active: bool,
+    ) {
+        let config = ConfigManager::global();
+        let width = config.surface_outline_width();
+        let color = if active && width > 0.0 {
+            debug_assert!(
+                shell.child_has_css_class(surface::SURFACE_POPOVER),
+                "animated surface outline suppression expects a popover surface child"
+            );
+            config.surface_outline_rgba_for_widget(widget_name, shell)
+        } else {
+            gtk4::gdk::RGBA::TRANSPARENT
+        };
+
+        shell.set_animated_outline(
+            active,
+            config.surface_border_radius() as f32,
+            width,
+            color,
+            surface::SUPPRESS_CSS_OUTLINE,
+        );
+    }
+
+    /// Apply shadow-aware margins to a popover/overlay container.
+    ///
+    /// The bar-adjacent side gets 0 margin (tight against bar), the opposite
+    /// side and both horizontal sides get the shadow margin.
+    pub fn apply_shadow_margins(&self, widget: &impl gtk4::prelude::WidgetExt, base_margin: i32) {
+        let m = self.shadow_margin(base_margin);
+        let is_bottom = crate::services::config_manager::ConfigManager::global().bar_is_bottom();
+        if is_bottom {
+            widget.set_margin_top(m);
+            widget.set_margin_bottom(0);
+        } else {
+            widget.set_margin_top(0);
+            widget.set_margin_bottom(m);
+        }
+        widget.set_margin_start(m);
+        widget.set_margin_end(m);
+    }
+
+    /// Get the current font size for bar widgets.
+    fn font_size(&self) -> u32 {
+        self.styles.borrow().font_size
+    }
+
+    /// Get the CSS-computed font size for a label in pixels.
+    ///
+    /// Reads the font size from the label's Pango context, which reflects
+    /// whatever CSS has resolved (including `em`, `%`, etc.). This allows
+    /// preserving relative font sizes when applying Pango attributes.
+    ///
+    /// Returns `None` if the size couldn't be determined (e.g., styles not
+    /// yet resolved, or no explicit size set).
+    fn get_computed_font_size(&self, label: &Label) -> Option<u32> {
+        let pango_context = label.pango_context();
+        let font_desc = pango_context.font_description()?;
+        let pango_size = font_desc.size();
+
+        // size() returns 0 if size wasn't set explicitly
+        if pango_size <= 0 {
+            return None;
+        }
+
+        let size_px = if font_desc.is_size_absolute() {
+            // Size is in device units (pixels * SCALE)
+            pango_size as f64 / gtk4::pango::SCALE as f64
+        } else {
+            // Size is in points * SCALE, convert points to pixels (96 DPI)
+            let size_pt = pango_size as f64 / gtk4::pango::SCALE as f64;
+            size_pt * 96.0 / 72.0
+        };
+
+        Some((size_px.round() as u32).max(1))
+    }
+
+    /// Apply text styling with a specific font size.
+    ///
+    /// Use this for labels that need a different size than the standard bar font.
+    ///
+    /// Note: This is an internal method. External code should use `apply_pango_attrs()`
+    /// which respects the `pango_font_rendering` config flag.
+    fn style_label(&self, label: &Label, font_size_px: u32) {
+        let styles = self.styles.borrow();
+        let attrs = AttrList::new();
+
+        // Use set_size() (DPI-aware, in points) instead of CSS which uses
+        // set_absolute_size() internally. This avoids glyph clipping in
+        // layer-shell surfaces at certain font sizes.
+        //
+        // Convert pixels to points: points = pixels * 72 / 96 (at standard DPI)
+        // This gives us the same visual size as CSS `font-size: Npx`.
+        let font_size_pt = (font_size_px as f64 * 72.0 / 96.0).round() as i32;
+        let pango_size = font_size_pt * gtk4::pango::SCALE;
+
+        let mut font_desc = FontDescription::new();
+        font_desc.set_family(&styles.font_family);
+        font_desc.set_size(pango_size);
+
+        attrs.insert(AttrFontDesc::new(&font_desc));
+
+        label.set_attributes(Some(&attrs));
+    }
+
+    /// Recursively apply Pango font styling to all Label widgets in a tree.
+    ///
+    /// This is useful for fixing font rendering in GTK widgets that have
+    /// internal labels (like Calendar) where you can't easily replace the
+    /// labels with custom ones.
+    ///
+    /// GTK CSS always uses `set_absolute_size()` for fonts, which can cause
+    /// glyph clipping in layer-shell surfaces. This function applies Pango
+    /// attributes with `set_size()` (DPI-aware points) to work around that.
+    ///
+    /// Each label's font size is read from its CSS-computed value, preserving
+    /// relative sizes (em values, subtitles, etc.). Falls back to `base_font_size_px`
+    /// if the computed size can't be determined.
+    ///
+    /// Note: This is an internal method. External code should use `apply_pango_attrs_all()`
+    /// which respects the `pango_font_rendering` config flag.
+    fn style_all_labels(&self, widget: &impl IsA<gtk4::Widget>, base_font_size_px: u32) {
+        self.style_all_labels_recursive(widget.as_ref(), base_font_size_px);
+    }
+
+    fn style_all_labels_recursive(&self, widget: &gtk4::Widget, base_font_size_px: u32) {
+        // If this widget is a Label, style it (unless it's a Material Symbol icon)
+        if let Some(label) = widget.downcast_ref::<Label>() {
+            // Skip Material Symbols icons - they use ligature-based font rendering
+            // and applying Pango attributes breaks the icon→glyph mapping
+            if !label.has_css_class(icon::MATERIAL_SYMBOL) {
+                // Use CSS-computed size if available, otherwise fall back to base size.
+                // This preserves relative sizing (em values, smaller subtitles, etc.)
+                let font_size = self
+                    .get_computed_font_size(label)
+                    .unwrap_or(base_font_size_px);
+                self.style_label(label, font_size);
+            }
+        }
+
+        // Recurse into children
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            self.style_all_labels_recursive(&c, base_font_size_px);
+            child = c.next_sibling();
+        }
+    }
+
+    /// Apply Pango font attributes to a single label if `pango_font_rendering` is enabled.
+    ///
+    /// This is a config-aware wrapper that reads the label's CSS-computed font size
+    /// and applies it via Pango. If the config flag is disabled (default), this is a no-op.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let label = Label::new(Some("Hello"));
+    /// // ... CSS styling applied ...
+    /// SurfaceStyleManager::global().apply_pango_attrs(&label);
+    /// ```
+    pub fn apply_pango_attrs(&self, label: &Label) {
+        if self.pango_font_rendering.get() {
+            // Use CSS-computed size if available, otherwise fall back to base size
+            let font_size = self
+                .get_computed_font_size(label)
+                .unwrap_or_else(|| self.font_size());
+            self.style_label(label, font_size);
+        }
+    }
+
+    /// Apply Pango font attributes to all labels in a widget tree if `pango_font_rendering` is enabled.
+    ///
+    /// This is a config-aware wrapper around `style_all_labels()`. Call this
+    /// after building a widget tree that uses CSS for fonts (e.g., Calendar,
+    /// popovers with multiple labels). If the config flag is disabled (default),
+    /// this is a no-op.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let calendar = Calendar::new();
+    /// // ... CSS styling applied ...
+    /// SurfaceStyleManager::global().apply_pango_attrs_all(&calendar);
+    /// ```
+    pub fn apply_pango_attrs_all(&self, widget: &impl IsA<gtk4::Widget>) {
+        if self.pango_font_rendering.get() {
+            self.style_all_labels(widget, self.font_size());
+        }
+    }
+
+    /// Apply tooltip-like surface styling to a widget.
+    ///
+    /// Use this for popovers, menus, or any container that should have the
+    /// same visual language as widgets: dark background, rounded corners,
+    /// readable text, subtle border.
+    ///
+    /// The styles are applied at base priority so CSS classes can override
+    /// specific properties while GTK themes are still overridden.
+    ///
+    /// Background color is determined by CSS variables:
+    /// - Default: Uses `--widget-background-color` from `:root`
+    /// - Per-widget override: Add a class like `.clock-popover` to the widget,
+    ///   which overrides `--widget-background-color` via generated CSS
+    ///
+    /// # Arguments
+    /// * `widget` - The widget to style
+    /// * `with_padding` - Whether to apply padding to the widget
+    pub fn apply_surface_styles(&self, widget: &impl IsA<gtk4::Widget>, with_padding: bool) {
+        self.apply_surface_styles_inner(widget, with_padding, "var(--radius-surface)");
+    }
+
+    /// Apply surface styles with a custom border radius.
+    ///
+    /// # Arguments
+    /// * `widget` - The widget to style
+    /// * `with_padding` - Whether to apply padding to the widget
+    /// * `radius` - CSS value for border-radius (e.g., "var(--radius-widget)")
+    pub fn apply_surface_styles_with_radius(
+        &self,
+        widget: &impl IsA<gtk4::Widget>,
+        with_padding: bool,
+        radius: &str,
+    ) {
+        self.apply_surface_styles_inner(widget, with_padding, radius);
+    }
+
+    fn apply_surface_styles_inner(
+        &self,
+        widget: &impl IsA<gtk4::Widget>,
+        with_padding: bool,
+        radius: &str,
+    ) {
+        let widget = widget.as_ref();
+
+        let styles = self.styles.borrow();
+        let padding_css = if with_padding {
+            "padding: 16px;".to_string()
+        } else {
+            String::new()
+        };
+
+        // Use inline color-mix() so per-widget overrides work via CSS scoping
+        // (e.g., .clock-popover overrides --widget-background-color)
+
+        // Build CSS targeting the widget's CSS name
+        // For Popover, we need to target both the popover and its contents
+        // Use high-specificity selectors to override GTK themes
+        let css_name = widget.css_name();
+        let css = if css_name == "popover" {
+            let bg = POPOVER_BG_WITH_OPACITY;
+            format!(
+                r#"
+popover.widget-menu,
+popover.widget-menu.background {{
+    background-color: {bg};
+    background: {bg};
+    background-image: none;
+    border: none;
+    border-radius: {radius};
+    box-shadow: none;
+}}
+
+popover.widget-menu > contents,
+popover.widget-menu.background > contents {{
+    background-color: transparent;
+    background: transparent;
+    background-image: none;
+    border: var(--surface-outline-width) solid color-mix(in srgb, var(--surface-outline-color) var(--surface-outline-opacity), transparent);
+    border-radius: {radius};
+    font-family: {font};
+    font-size: var(--font-size);
+    color: var(--color-foreground-primary);
+    {padding}
+    margin: 0 6px 6px 6px;
+    box-shadow: var(--shadow-soft);
+}}
+
+popover.widget-menu > arrow,
+popover.widget-menu.background > arrow {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}}
+
+popover.widget-menu *,
+popover.widget-menu.background * {{
+    font-family: inherit;
+}}
+"#,
+                bg = bg,
+                font = styles.font_family,
+                padding = padding_css,
+                radius = radius,
+            )
+        } else {
+            // Layer-shell popovers are GtkBox, not native Popover widgets.
+            let is_popover_surface = widget.has_css_class(surface::POPOVER);
+            let is_floating_surface = widget.has_css_class(notif::TOAST)
+                || widget.has_css_class(osd::OSD)
+                || widget.has_css_class(media::CONTENT);
+            let bg = if is_popover_surface || is_floating_surface {
+                POPOVER_BG_WITH_OPACITY
+            } else {
+                WIDGET_BG_WITH_OPACITY
+            };
+            // Check if widget has the widget-menu-content class - if so, use
+            // that as the selector for more specific targeting. These inner panels
+            // should NOT get a shadow since popover contents node handles that.
+            let has_menu_content_class = widget.has_css_class(surface::WIDGET_MENU_CONTENT);
+
+            let selector = if has_menu_content_class {
+                format!(".{}", surface::WIDGET_MENU_CONTENT)
+            } else {
+                // Use the widget's first CSS class so the rule only targets
+                // the styled surface, not every descendant GtkBox.
+                let classes = widget.css_classes();
+                if let Some(first) = classes.first() {
+                    format!(".{}", first.as_str())
+                } else {
+                    css_name.to_string()
+                }
+            };
+
+            // Inner popover panels (.widget-menu-content) don't need shadow -
+            // the popover's contents node handles that.
+            let shadow_css = if has_menu_content_class {
+                "none".to_string()
+            } else {
+                "var(--shadow-soft)".to_string()
+            };
+
+            format!(
+                r#"
+{selector} {{
+    background-color: {bg};
+    background-image: none;
+    border: var(--surface-outline-width) solid color-mix(in srgb, var(--surface-outline-color) var(--surface-outline-opacity), transparent);
+    border-radius: {radius};
+    font-family: {font};
+    font-size: var(--font-size);
+    color: var(--color-foreground-primary);
+    {padding}
+    box-shadow: {shadow};
+}}
+
+{selector} * {{
+    font-family: inherit;
+}}
+"#,
+                selector = selector,
+                bg = bg,
+                font = styles.font_family,
+                padding = padding_css,
+                shadow = shadow_css,
+                radius = radius,
+            )
+        };
+
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_string(&css);
+
+        // Apply styles to the widget's style context so they are scoped to
+        // this surface hierarchy instead of the entire display. GTK will
+        // propagate these styles to descendants automatically.
+        //
+        // NOTE: style_context() and add_provider() are deprecated in GTK 4.10+
+        // but GTK provides no replacement for widget-scoped CSS. The alternative
+        // (style_context_add_provider_for_display) applies CSS globally, which
+        // would require unique class names per surface instance. We use the
+        // deprecated API intentionally here as it's the only way to scope CSS
+        // to a specific widget subtree.
+        #[allow(deprecated)]
+        widget
+            .style_context()
+            .add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_USER);
+    }
+}

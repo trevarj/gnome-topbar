@@ -1,0 +1,2655 @@
+//! Configuration types and parsing.
+//!
+//! This module defines the bar configuration schema. The Config type is
+//! intended to be a stable schema that stays relatively simple and
+//! serialization-friendly. More dynamic or derived values (e.g., computed
+//! theme palettes) should live in separate types in future modules.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::env;
+use std::path::{Path, PathBuf};
+use toml::Table;
+
+use crate::error::{Error, Result};
+
+/// Known valid values for advanced.compositor.
+const VALID_COMPOSITORS: &[&str] = &[
+    "auto", "mango", "hyprland", "niri", "sway", "miracle", "scroll",
+];
+
+/// Known valid values for theme.mode.
+const VALID_THEME_MODES: &[&str] = &["auto", "dark", "light", "gtk"];
+
+/// Light or dark polarity for the Material You color scheme.
+///
+/// Used as `theme.scheme` in config — omit to auto-derive from wallpaper luminance
+/// when `mode = "auto"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SchemePolarity {
+    Dark,
+    Light,
+}
+
+/// Known valid values for theme.popover.
+const VALID_POPOVER_MODES: &[&str] = &["dark", "light"];
+
+/// Known valid values for bar.position.
+const VALID_BAR_POSITIONS: &[&str] = &["top", "bottom"];
+
+/// Known valid values for osd.position.
+const VALID_OSD_POSITIONS: &[&str] = &["bottom", "left", "right", "top"];
+
+/// Known symbolic values for outline_color.
+///
+/// Symbolic names map to existing theme tokens at CSS render time (see
+/// `theme::resolve_outline_color`). Hex literals (`#rgb` / `#rrggbb`) are also
+/// accepted.
+const VALID_OUTLINE_COLOR_SYMBOLS: &[&str] = &["subtle", "accent", "foreground"];
+
+/// Maximum outline width in pixels.
+///
+/// Outlines are intended for visual edge definition (1px is the typical case);
+/// thicker decorative borders should be done via user CSS.
+const MAX_OUTLINE_WIDTH: u32 = 4;
+
+/// Validate an outline color value against the symbolic + hex contract.
+///
+/// Accepts: "subtle", "accent", "foreground", or a hex color (`#rgb` / `#rrggbb`).
+fn is_valid_outline_color(value: &str) -> bool {
+    if VALID_OUTLINE_COLOR_SYMBOLS.contains(&value) {
+        return true;
+    }
+    if let Some(hex) = value.strip_prefix('#') {
+        return (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
+    false
+}
+
+/// Embedded default configuration TOML, compiled into the binary.
+pub const DEFAULT_CONFIG_TOML: &str = include_str!("../../../config.toml");
+
+/// Expand a leading `~` to `home` in a path string.
+pub fn expand_tilde(path: &str, home: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        format!("{}/{}", home, rest)
+    } else if path == "~" {
+        home.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+/// Result of loading a configuration file.
+#[derive(Debug)]
+pub struct ConfigLoadResult {
+    /// The loaded configuration.
+    pub config: Config,
+    /// Path where config was found, if any.
+    pub source: Option<PathBuf>,
+    /// Whether defaults were used (no config file found).
+    pub used_defaults: bool,
+}
+
+/// Root configuration structure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+#[derive(Default)]
+pub struct Config {
+    /// Bar-level configuration.
+    pub bar: BarConfig,
+
+    /// Widget configuration (left, center, right sections).
+    pub widgets: WidgetsConfig,
+
+    /// Theme configuration (colors, typography, icons).
+    pub theme: ThemeConfig,
+
+    /// On-screen display configuration.
+    pub osd: OsdConfig,
+
+    /// Audio configuration.
+    pub audio: AudioConfig,
+
+    /// Advanced configuration options.
+    pub advanced: AdvancedConfig,
+}
+
+impl Config {
+    /// Best-effort loader for the standalone volume CLI's overdrive policy.
+    ///
+    /// Volume keybinds should stay reliable even when the full bar config is
+    /// invalid, so this reads only `[audio].allow_overdrive` and falls back to
+    /// `false` on any missing, unreadable, malformed, or wrongly typed value.
+    pub fn read_audio_allow_overdrive(explicit_path: Option<&Path>) -> bool {
+        fn read_policy(path: &Path) -> Option<bool> {
+            let contents = std::fs::read_to_string(path).ok()?;
+            let table = contents.parse::<Table>().ok()?;
+            table
+                .get("audio")
+                .and_then(|audio| audio.as_table())
+                .and_then(|audio| audio.get("allow_overdrive"))
+                .and_then(|value| value.as_bool())
+        }
+
+        if let Some(path) = explicit_path {
+            let policy = read_policy(path);
+            if policy.is_none() {
+                tracing::debug!(
+                    path = %path.display(),
+                    "using safe default audio policy for volume command"
+                );
+            }
+            return policy.unwrap_or(false);
+        }
+
+        for path in Self::config_search_paths() {
+            if path.exists() {
+                let policy = read_policy(&path);
+                if policy.is_none() {
+                    tracing::debug!(
+                        path = %path.display(),
+                        "using safe default audio policy for volume command"
+                    );
+                }
+                return policy.unwrap_or(false);
+            }
+        }
+
+        false
+    }
+
+    /// Load configuration from an embedded default TOML string.
+    pub fn from_default_toml() -> Result<Self> {
+        let config: Config = toml::from_str(DEFAULT_CONFIG_TOML)?;
+        Ok(config)
+    }
+
+    /// Ensure DEFAULT_CONFIG_TOML parses to the same structure as a given Config.
+    /// Useful for tests that compare the raw TOML with the typed defaults.
+    pub fn from_strict_default_toml() -> Result<Self> {
+        let config: Config = toml::from_str(DEFAULT_CONFIG_TOML)?;
+        Ok(config)
+    }
+
+    /// Load configuration from a TOML file, merging with embedded defaults.
+    ///
+    /// User-provided values override defaults, but any missing sections or
+    /// fields fall back to the embedded default config (which includes
+    /// sensible widget definitions).
+    ///
+    /// Returns an error if the file doesn't exist or can't be parsed.
+    pub fn load(path: &Path) -> Result<Self> {
+        if !path.exists() {
+            return Err(Error::NotFound(path.to_path_buf()));
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        Self::load_with_defaults(&content)
+    }
+
+    /// Load configuration from a TOML string, merging with embedded defaults.
+    ///
+    /// This parses both the default config and user config as TOML tables,
+    /// deep-merges them (user values win), then deserializes the result.
+    fn load_with_defaults(user_toml: &str) -> Result<Self> {
+        // This should never fail since it's embedded and tested
+        let mut base: Table = toml::from_str(DEFAULT_CONFIG_TOML)
+            .expect("embedded DEFAULT_CONFIG_TOML should always be valid");
+
+        let user: Table = toml::from_str(user_toml)?;
+
+        deep_merge_toml(&mut base, user);
+
+        let mut config: Config = base.try_into()?;
+        config.normalize_paths();
+        Ok(config)
+    }
+
+    /// Find and load configuration using the XDG lookup chain.
+    ///
+    /// If `explicit_path` is `Some`, that path is used directly and an error
+    /// is returned if it doesn't exist or can't be parsed (no fallback).
+    ///
+    /// If `explicit_path` is `None`, searches in order:
+    /// 1. `$XDG_CONFIG_HOME/gnome-panel/config.toml`
+    /// 2. `~/.config/gnome-panel/config.toml`
+    /// 3. `./config.toml` (current working directory)
+    ///
+    /// If no config file is found in the search chain, returns `Config::default()`.
+    pub fn find_and_load(
+        explicit_path: Option<&Path>,
+    ) -> std::result::Result<ConfigLoadResult, Error> {
+        // If an explicit path was provided, use it strictly (no fallback)
+        if let Some(path) = explicit_path {
+            let config = Self::load(path)?;
+            return Ok(ConfigLoadResult {
+                config,
+                source: Some(path.to_path_buf()),
+                used_defaults: false,
+            });
+        }
+
+        // No explicit path - search the XDG chain
+        // Rule: if a config file exists but fails to load, that's an error (no silent fallback).
+        // Only use defaults when no config files exist at all.
+        let search_paths = Self::config_search_paths();
+
+        for path in &search_paths {
+            if path.exists() {
+                // Found a config file - try to load it
+                // If it fails to parse, return the error immediately (no fallback to other paths)
+                let config = Self::load(path)?;
+                return Ok(ConfigLoadResult {
+                    config,
+                    source: Some(path.clone()),
+                    used_defaults: false,
+                });
+            }
+        }
+
+        // No config files exist anywhere - use embedded default TOML
+        tracing::info!("No config file found, using built-in default config");
+        tracing::debug!(
+            "Searched: {}",
+            search_paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let config: Config = toml::from_str(DEFAULT_CONFIG_TOML)?;
+
+        Ok(ConfigLoadResult {
+            config,
+            source: None,
+            used_defaults: true,
+        })
+    }
+
+    /// Get the list of paths to search for config files.
+    pub fn config_search_paths() -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+
+        // 1. $XDG_CONFIG_HOME/gnome-panel/config.toml
+        if let Ok(xdg_config) = env::var("XDG_CONFIG_HOME") {
+            paths.push(PathBuf::from(xdg_config).join("gnome-panel/config.toml"));
+        }
+
+        // 2. ~/.config/gnome-panel/config.toml
+        if let Ok(home) = env::var("HOME") {
+            paths.push(PathBuf::from(home).join(".config/gnome-panel/config.toml"));
+        }
+
+        // 3. ./config.toml (cwd)
+        paths.push(PathBuf::from("config.toml"));
+
+        paths
+    }
+
+    /// Expand `~` in config fields that accept file paths.
+    fn normalize_paths(&mut self) {
+        if let Some(ref mut wallpaper) = self.theme.wallpaper
+            && let Ok(home) = env::var("HOME")
+        {
+            *wallpaper = expand_tilde(wallpaper, &home);
+        }
+    }
+
+    /// Validate the configuration, returning errors for invalid values.
+    ///
+    /// This performs strict validation - any invalid value causes an error.
+    pub fn validate(&self) -> Result<()> {
+        let mut errors = Vec::new();
+
+        // Validate bar.position
+        if !VALID_BAR_POSITIONS.contains(&self.bar.position.as_str()) {
+            errors.push(format!(
+                "bar.position: invalid value '{}', expected one of: {}",
+                self.bar.position,
+                VALID_BAR_POSITIONS.join(", ")
+            ));
+        }
+
+        // Validate advanced.compositor
+        if !VALID_COMPOSITORS.contains(&self.advanced.compositor.as_str()) {
+            errors.push(format!(
+                "advanced.compositor: invalid value '{}', expected one of: {}",
+                self.advanced.compositor,
+                VALID_COMPOSITORS.join(", ")
+            ));
+        }
+
+        // Validate theme.mode
+        if !VALID_THEME_MODES.contains(&self.theme.mode.as_str()) {
+            errors.push(format!(
+                "theme.mode: invalid value '{}', expected one of: {}",
+                self.theme.mode,
+                VALID_THEME_MODES.join(", ")
+            ));
+        }
+
+        // Validate theme.popover
+        if let Some(ref popover) = self.theme.popover
+            && !VALID_POPOVER_MODES.contains(&popover.as_str())
+        {
+            errors.push(format!(
+                "theme.popover: invalid value '{}', expected one of: {}",
+                popover,
+                VALID_POPOVER_MODES.join(", ")
+            ));
+        }
+
+        // Validate theme.accent: must be "gtk", "none", or a valid hex color (if specified)
+        // In auto mode, an explicit accent overrides the wallpaper-derived one
+        if let Some(ref accent) = self.theme.accent
+            && accent != "gtk"
+            && accent != "none"
+        {
+            // Must be a hex color
+            let is_valid_hex = accent.starts_with('#') && {
+                let hex = accent.trim_start_matches('#');
+                (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit())
+            };
+            if !is_valid_hex {
+                errors.push(format!(
+                    "theme.accent: invalid value '{}', expected 'gtk', 'none', or a hex color like '#3584e4'",
+                    accent
+                ));
+            }
+        }
+
+        // Validate osd.position
+        if !VALID_OSD_POSITIONS.contains(&self.osd.position.as_str()) {
+            errors.push(format!(
+                "osd.position: invalid value '{}', expected one of: {}",
+                self.osd.position,
+                VALID_OSD_POSITIONS.join(", ")
+            ));
+        }
+
+        // Validate numeric ranges
+        if self.bar.size == 0 {
+            errors.push("bar.size: must be greater than 0".to_string());
+        }
+
+        if self.osd.timeout_ms == 0 {
+            errors.push("osd.timeout_ms: must be greater than 0".to_string());
+        }
+
+        // Validate opacity ranges (0.0 to 1.0)
+        if !(0.0..=1.0).contains(&self.bar.background_opacity) {
+            errors.push(format!(
+                "bar.background_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                self.bar.background_opacity
+            ));
+        }
+
+        if !(0.0..=1.0).contains(&self.widgets.background_opacity) {
+            errors.push(format!(
+                "widgets.background_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                self.widgets.background_opacity
+            ));
+        }
+
+        if let Some(opacity) = self.widgets.popover_background_opacity
+            && !(0.0..=1.0).contains(&opacity)
+        {
+            errors.push(format!(
+                "widgets.popover_background_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                opacity
+            ));
+        }
+
+        // Outline validation (theme-level)
+        if self.theme.outline_width > MAX_OUTLINE_WIDTH {
+            errors.push(format!(
+                "theme.outline_width: invalid value '{}', must be between 0 and {}",
+                self.theme.outline_width, MAX_OUTLINE_WIDTH
+            ));
+        }
+
+        if !(0.0..=1.0).contains(&self.theme.outline_opacity) {
+            errors.push(format!(
+                "theme.outline_opacity: invalid value '{}', must be between 0.0 and 1.0",
+                self.theme.outline_opacity
+            ));
+        }
+
+        if !is_valid_outline_color(&self.theme.outline_color) {
+            errors.push(format!(
+                "theme.outline_color: invalid value '{}', expected one of: {}, or a hex color like '#3584e4'",
+                self.theme.outline_color,
+                VALID_OUTLINE_COLOR_SYMBOLS.join(", ")
+            ));
+        }
+
+        // Per-widget outline_color validation
+        for (name, opts) in &self.widgets.widget_configs {
+            if let Some(ref color) = opts.outline_color
+                && !is_valid_outline_color(color)
+            {
+                errors.push(format!(
+                    "widgets.{}.outline_color: invalid value '{}', expected one of: {}, or a hex color like '#3584e4'",
+                    name,
+                    color,
+                    VALID_OUTLINE_COLOR_SYMBOLS.join(", ")
+                ));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Validation(errors))
+        }
+    }
+
+    /// Check for potential configuration issues and return warnings.
+    ///
+    /// Unlike `validate()`, these are non-fatal issues that might indicate
+    /// typos or unused configuration.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        // Check for widget configs that aren't referenced in any placement array
+        let unreferenced = self.widgets.unreferenced_configs();
+        for name in unreferenced {
+            warnings.push(format!(
+                "widgets.{}: config defined but widget not used in any section (possible typo?)",
+                name
+            ));
+        }
+
+        // Check for spacer widgets in center section (they have no effect there)
+        for placement in &self.widgets.center {
+            for name in placement.widget_names() {
+                let base_name = name.split(':').next().unwrap_or(name);
+                if base_name == "spacer" {
+                    warnings.push(
+                        "widgets.center: spacer widget has no effect in center section; \
+                         use spacer in left/right sections to push widgets toward the center"
+                            .to_string(),
+                    );
+                    break;
+                }
+            }
+        }
+
+        for (name, opts) in &self.widgets.widget_configs {
+            if opts.show_if_interval.is_some() && opts.show_if.is_none() {
+                warnings.push(format!(
+                    "widgets.{}: show_if_interval has no effect without show_if",
+                    name
+                ));
+            }
+        }
+
+        // Warn about auto-mode-only fields set when mode != "auto"
+        if self.theme.mode != "auto" {
+            if self.theme.scheme.is_some() {
+                warnings.push("theme.scheme: has no effect when mode is not \"auto\"".to_string());
+            }
+            if self.theme.wallpaper.is_some() {
+                warnings
+                    .push("theme.wallpaper: has no effect when mode is not \"auto\"".to_string());
+            }
+        }
+
+        // Warn about popover with gtk mode (not supported)
+        if self.theme.popover.is_some() && self.theme.mode == "gtk" {
+            warnings.push(
+                "theme.popover: has no effect when mode is \"gtk\" (GTK theme colors cannot be split by surface)"
+                    .to_string(),
+            );
+        }
+
+        // Warn about popover set to the same polarity as the current mode.
+        // When mode = "auto" and scheme is omitted, the effective polarity depends on
+        // wallpaper luminance which is only known at runtime — skip the warning in that case
+        // to avoid false positives.
+        if let Some(ref popover) = self.theme.popover {
+            let effective_mode = match self.theme.mode.as_str() {
+                "dark" => Some("dark"),
+                "light" => Some("light"),
+                "auto" => self.theme.scheme.map(|s| match s {
+                    SchemePolarity::Dark => "dark",
+                    SchemePolarity::Light => "light",
+                }),
+                _ => None,
+            };
+            if effective_mode == Some(popover.as_str()) {
+                warnings.push(format!(
+                    "theme.popover: value \"{}\" matches the current theme polarity (has no effect)",
+                    popover
+                ));
+            }
+        }
+
+        // Warn if explicit wallpaper path doesn't exist
+        if let Some(ref wallpaper) = self.theme.wallpaper
+            && !std::path::Path::new(wallpaper).exists()
+        {
+            warnings.push(format!("theme.wallpaper: file '{}' not found", wallpaper));
+        }
+
+        warnings
+    }
+
+    /// Print a human-readable summary of the configuration.
+    pub fn summary(&self) -> String {
+        let mut lines = Vec::new();
+
+        lines.push("Bar Configuration:".to_string());
+        lines.push(format!("  position: {}", self.bar.position));
+        lines.push(format!("  size: {}px", self.bar.size));
+        lines.push(format!("  spacing: {}px", self.bar.spacing));
+        lines.push(format!("  screen_margin: {}px", self.bar.screen_margin));
+        lines.push(format!(
+            "  background_opacity: {}",
+            self.bar.background_opacity
+        ));
+        if let Some(ref color) = self.bar.background_color {
+            lines.push(format!("  background_color: {}", color));
+        }
+        if !self.bar.outputs.is_empty() {
+            lines.push(format!("  outputs: {:?}", self.bar.outputs));
+        }
+
+        lines.push("\nWidgets:".to_string());
+        lines.push(format!(
+            "  left: {} widget(s)",
+            count_widgets(&self.widgets.left)
+        ));
+        for name in format_widget_section(&self.widgets.left) {
+            lines.push(format!("    - {}", name));
+        }
+
+        lines.push(format!(
+            "  center: {} widget(s)",
+            count_widgets(&self.widgets.center)
+        ));
+        for name in format_widget_section(&self.widgets.center) {
+            lines.push(format!("    - {}", name));
+        }
+
+        lines.push(format!(
+            "  right: {} widget(s)",
+            count_widgets(&self.widgets.right)
+        ));
+        for name in format_widget_section(&self.widgets.right) {
+            lines.push(format!("    - {}", name));
+        }
+        lines.push(format!(
+            "  background_opacity: {}",
+            self.widgets.background_opacity
+        ));
+        if let Some(ref color) = self.widgets.background_color {
+            lines.push(format!("  background_color: {}", color));
+        }
+        if let Some(opacity) = self.widgets.popover_background_opacity {
+            lines.push(format!("  popover_background_opacity: {}", opacity));
+        }
+
+        lines.push("\nTheme:".to_string());
+        lines.push(format!("  mode: {}", self.theme.mode));
+        lines.push(format!(
+            "  accent: {}",
+            self.theme.accent.as_deref().unwrap_or("(auto)")
+        ));
+        lines.push(format!(
+            "  font_family: {}",
+            self.theme.typography.font_family
+        ));
+        lines.push(format!("  icon_theme: {}", self.theme.icons.theme));
+        lines.push(format!("  icon_weight: {}", self.theme.icons.weight));
+
+        lines.push("\nAdvanced:".to_string());
+        lines.push(format!("  compositor: {}", self.advanced.compositor));
+
+        lines.push("\nOSD:".to_string());
+        lines.push(format!(
+            "  enabled: {}, position: {}, timeout: {}ms, show_value: {}",
+            self.osd.enabled, self.osd.position, self.osd.timeout_ms, self.osd.show_value
+        ));
+
+        lines.push("\nAudio:".to_string());
+        lines.push(format!("  allow_overdrive: {}", self.audio.allow_overdrive));
+
+        lines.join("\n")
+    }
+}
+
+/// Deep merge two TOML tables, with `overlay` values taking precedence.
+///
+/// For nested tables, recursively merges. For arrays and other values,
+/// the overlay value completely replaces the base value.
+fn deep_merge_toml(base: &mut Table, overlay: Table) {
+    for (key, overlay_value) in overlay {
+        match (base.get_mut(&key), overlay_value) {
+            // Both are tables: recursively merge
+            (Some(toml::Value::Table(base_table)), toml::Value::Table(overlay_table)) => {
+                deep_merge_toml(base_table, overlay_table);
+            }
+            // Otherwise: overlay value wins (insert or replace)
+            (_, overlay_value) => {
+                base.insert(key, overlay_value);
+            }
+        }
+    }
+}
+
+/// Bar-level configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BarConfig {
+    /// Bar position on screen: "top" or "bottom".
+    /// Default: "top"
+    pub position: String,
+
+    /// Base height of the bar in pixels.
+    pub size: u32,
+
+    /// Spacing between widgets in pixels.
+    pub spacing: u32,
+
+    /// Distance from screen edge to bar window in pixels.
+    pub screen_margin: u32,
+
+    /// Distance from bar edge to first/last section in pixels.
+    pub inset: u32,
+
+    /// Vertical padding inside the bar (extends bar height without shrinking widgets).
+    /// Default: 4
+    pub padding: u32,
+
+    /// Border radius (percentage of bar height).
+    pub border_radius: u32,
+
+    /// Vertical offset between widgets and their popovers/quick settings (in pixels).
+    /// This creates a gap between the bar and any popover or panel that opens
+    /// adjacent to it.
+    /// Default: 1
+    pub popover_offset: u32,
+
+    /// Output allow-list for bar windows.
+    /// If empty, bars are created on all monitors.
+    /// Example: ["eDP-1", "DP-1"]
+    pub outputs: Vec<String>,
+
+    /// Bar background color override (CSS format, e.g., "#1a1a2e").
+    /// If not set, derived from theme mode.
+    pub background_color: Option<String>,
+
+    /// Bar background opacity (0.0 = fully transparent, 1.0 = fully opaque).
+    /// Default: 0.0 (transparent bar for "islands" look).
+    pub background_opacity: f64,
+
+    /// Bar outline override. When omitted, inherits `theme.outline`.
+    /// `true` forces an outline on the bar; `false` suppresses it even when
+    /// the theme default is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<bool>,
+}
+
+impl Default for BarConfig {
+    fn default() -> Self {
+        Self {
+            position: "top".to_string(),
+            size: 32,
+            spacing: 8,
+            screen_margin: 0,
+            inset: 8,
+            padding: 4,
+            border_radius: 30,
+            popover_offset: 1,
+            outputs: Vec::new(),
+            background_color: None,
+            background_opacity: 0.0,
+            outline: None,
+        }
+    }
+}
+
+impl BarConfig {
+    /// Returns true if the bar is positioned at the bottom of the screen.
+    pub fn is_bottom(&self) -> bool {
+        self.position == "bottom"
+    }
+}
+
+/// Widget section configuration.
+///
+/// Widget placement is defined using simple name strings or groups of names.
+/// Widget-specific options are configured in separate `[widgets.<name>]` tables.
+///
+/// # Example
+///
+/// ```toml
+/// [widgets]
+/// left = ["workspaces", "window_title"]
+/// right = [
+///   "tray",
+///   { group = ["battery", "clock"] },
+///   "notifications",
+/// ]
+///
+/// [widgets.clock]
+/// format = "%H:%M"
+///
+/// [widgets.battery]
+/// disabled = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WidgetsConfig {
+    /// Widgets in the left section.
+    /// Each entry is a widget name string or a group of widget names.
+    pub left: Vec<WidgetPlacement>,
+
+    /// Widgets in the center section.
+    /// Each entry is a widget name string or a group of widget names.
+    pub center: Vec<WidgetPlacement>,
+
+    /// Widgets in the right section.
+    /// Each entry is a widget name string or a group of widget names.
+    pub right: Vec<WidgetPlacement>,
+
+    /// Border radius (percentage of widget height).
+    pub border_radius: u32,
+
+    /// Widget background color override (CSS format, e.g., "#1a1a2e").
+    /// If not set, derived from theme mode.
+    pub background_color: Option<String>,
+
+    /// Widget background opacity (0.0 = fully transparent, 1.0 = fully opaque).
+    /// Default: 1.0 (fully visible widgets).
+    pub background_opacity: f64,
+
+    /// Popover background opacity override (0.0 = fully transparent, 1.0 = fully opaque).
+    /// If not set, uses max(bar, widget) opacity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover_background_opacity: Option<f64>,
+
+    /// Widget outline override. When omitted, inherits `theme.outline`.
+    /// `true` forces outlines on widget islands/groups; `false` suppresses
+    /// them even when the theme default is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<bool>,
+
+    /// Per-widget configuration tables.
+    /// Keys are widget names, values are widget-specific options.
+    #[serde(flatten)]
+    pub widget_configs: HashMap<String, WidgetOptions>,
+}
+
+impl Default for WidgetsConfig {
+    fn default() -> Self {
+        Self {
+            left: Vec::new(),
+            center: Vec::new(),
+            right: Vec::new(),
+            border_radius: 30,
+            background_color: None,
+            background_opacity: 1.0,
+            popover_background_opacity: None,
+            outline: None,
+            widget_configs: HashMap::new(),
+        }
+    }
+}
+
+impl WidgetsConfig {
+    /// Check if a widget is disabled via its `[widgets.<name>]` config.
+    pub fn is_disabled(&self, name: &str) -> bool {
+        self.get_options(name)
+            .map(|opts| opts.disabled)
+            .unwrap_or(false)
+    }
+
+    /// Get widget options for a given widget name.
+    /// Returns None if no `[widgets.<name>]` section exists.
+    ///
+    /// Normalizes hyphens to underscores so CSS class names (e.g. "quick-settings")
+    /// resolve to TOML config keys (e.g. "quick_settings").
+    pub fn get_options(&self, name: &str) -> Option<&WidgetOptions> {
+        // Fast path: try exact match first (most names have no hyphens)
+        if let Some(opts) = self.widget_configs.get(name) {
+            return Some(opts);
+        }
+        // Fallback: normalize hyphens to underscores for CSS-class lookups
+        if name.contains('-') {
+            let normalized = name.replace('-', "_");
+            return self.widget_configs.get(&normalized);
+        }
+        None
+    }
+
+    /// Parse inline argument from widget name.
+    ///
+    /// Supports syntax like `"spacer:50"` where the part after the colon is the inline arg.
+    /// Empty args (e.g., `"spacer:"`) are treated as None.
+    ///
+    /// Returns `(base_name, inline_arg)`.
+    ///
+    /// # Examples
+    /// - `"spacer"` -> `("spacer", None)`
+    /// - `"spacer:50"` -> `("spacer", Some("50"))`
+    /// - `"spacer:"` -> `("spacer", None)`
+    fn parse_inline_arg(name: &str) -> (&str, Option<&str>) {
+        if let Some(pos) = name.find(':') {
+            let arg = &name[pos + 1..];
+            let arg = if arg.is_empty() { None } else { Some(arg) };
+            (&name[..pos], arg)
+        } else {
+            (name, None)
+        }
+    }
+
+    /// Resolve a single widget name to a WidgetEntry, applying options from config.
+    /// Returns None if the widget is disabled.
+    ///
+    /// Supports inline spacer width syntax like "spacer:50".
+    /// This is intentionally special-cased: the inline value is parsed and injected
+    /// into the resolved entry as `options["width"]`.
+    fn resolve_widget(&self, name: &str) -> Option<WidgetEntry> {
+        let (base_name, inline_arg) = Self::parse_inline_arg(name);
+
+        if self.is_disabled(base_name) {
+            return None;
+        }
+
+        let mut entry = if let Some(opts) = self.get_options(base_name) {
+            WidgetEntry::with_options(base_name, opts)
+        } else {
+            WidgetEntry::new(base_name)
+        };
+
+        if base_name == "spacer"
+            && let Some(arg) = inline_arg
+            && !arg.is_empty()
+        {
+            match arg.parse::<i64>() {
+                Ok(width) if width > 0 => {
+                    entry
+                        .options
+                        .insert("width".to_string(), toml::Value::Integer(width));
+                }
+                _ => {
+                    tracing::warn!(
+                        "Invalid spacer width '{}' - expected a positive integer",
+                        arg
+                    );
+                }
+            }
+        }
+
+        Some(entry)
+    }
+
+    /// Resolve a placement to a WidgetOrGroup, applying options and filtering disabled widgets.
+    /// Returns None if all widgets in the placement are disabled.
+    pub fn resolve_placement(&self, placement: &WidgetPlacement) -> Option<WidgetOrGroup> {
+        match placement {
+            WidgetPlacement::Single(name) => self.resolve_widget(name).map(WidgetOrGroup::Single),
+            WidgetPlacement::Group { group } => {
+                let resolved: Vec<WidgetEntry> = group
+                    .iter()
+                    .filter_map(|name| self.resolve_widget(name))
+                    .collect();
+
+                if resolved.is_empty() {
+                    None
+                } else {
+                    Some(WidgetOrGroup::Group { group: resolved })
+                }
+            }
+        }
+    }
+
+    /// Resolve all placements in a section to WidgetOrGroup items.
+    pub fn resolve_section(&self, placements: &[WidgetPlacement]) -> Vec<WidgetOrGroup> {
+        placements
+            .iter()
+            .filter_map(|p| self.resolve_placement(p))
+            .collect()
+    }
+
+    /// Get resolved widgets for the left section.
+    pub fn resolved_left(&self) -> Vec<WidgetOrGroup> {
+        self.resolve_section(&self.left)
+    }
+
+    /// Get resolved widgets for the center section.
+    pub fn resolved_center(&self) -> Vec<WidgetOrGroup> {
+        self.resolve_section(&self.center)
+    }
+
+    /// Get resolved widgets for the right section.
+    pub fn resolved_right(&self) -> Vec<WidgetOrGroup> {
+        self.resolve_section(&self.right)
+    }
+
+    /// Check if a widget name refers to a flexible (expandable) spacer.
+    ///
+    /// Returns `true` only for spacer widgets that will expand to fill available space.
+    /// Returns `false` for:
+    /// - Non-spacer widgets
+    /// - Disabled spacers
+    /// - Spacers with fixed width (via inline arg like `"spacer:50"` or TOML `width` option)
+    fn is_flexible_spacer(&self, name: &str) -> bool {
+        let (base_name, inline_arg) = Self::parse_inline_arg(name);
+
+        if base_name != "spacer" || self.is_disabled(base_name) {
+            return false;
+        }
+
+        // Fixed width via inline arg (e.g., "spacer:50")
+        if inline_arg.is_some() {
+            return false;
+        }
+
+        // Fixed width via TOML options (e.g., [widgets.spacer] width = 50)
+        if let Some(opts) = self.get_options(base_name)
+            && opts.options.contains_key("width")
+        {
+            return false;
+        }
+
+        true
+    }
+
+    /// Check if a section contains any expandable widgets (like spacer without fixed width).
+    ///
+    /// A flexible spacer ("spacer" or "spacer:") expands to fill available space,
+    /// while a fixed spacer ("spacer:50" or with `width` in options) has a fixed width.
+    ///
+    /// Disabled widgets are not considered expanders.
+    pub fn section_has_expander(&self, section: &[WidgetPlacement]) -> bool {
+        section.iter().any(|placement| {
+            placement
+                .widget_names()
+                .iter()
+                .any(|name| self.is_flexible_spacer(name))
+        })
+    }
+
+    /// Check if the left section contains an expandable widget.
+    pub fn left_has_expander(&self) -> bool {
+        self.section_has_expander(&self.left)
+    }
+
+    /// Check if the right section contains an expandable widget.
+    pub fn right_has_expander(&self) -> bool {
+        self.section_has_expander(&self.right)
+    }
+
+    /// Get all widget names referenced in any placement array.
+    pub fn all_referenced_widgets(&self) -> std::collections::HashSet<String> {
+        let mut names = std::collections::HashSet::new();
+        for section in [&self.left, &self.center, &self.right] {
+            for placement in section {
+                for name in placement.widget_names() {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    /// Check for widget configs that aren't referenced in any placement array.
+    /// Returns a list of unreferenced widget names (potential typos).
+    pub fn unreferenced_configs(&self) -> Vec<String> {
+        let referenced = self.all_referenced_widgets();
+        self.widget_configs
+            .keys()
+            .filter(|name| !referenced.contains(*name))
+            .cloned()
+            .collect()
+    }
+}
+
+/// Widget placement in a section: either a single widget name or a group of names.
+///
+/// # Example
+///
+/// ```toml
+/// [widgets]
+/// right = [
+///   "clock",                              # single widget
+///   { group = ["battery", "volume"] },    # grouped widgets sharing one island
+/// ]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WidgetPlacement {
+    /// A group of widgets sharing one island.
+    /// Must come first for untagged deserialization to work correctly.
+    Group {
+        /// The widget names in this group.
+        group: Vec<String>,
+    },
+    /// A single widget name.
+    Single(String),
+}
+
+impl WidgetPlacement {
+    /// Returns the total number of widgets (1 for single, N for group).
+    pub fn widget_count(&self) -> usize {
+        match self {
+            WidgetPlacement::Single(_) => 1,
+            WidgetPlacement::Group { group } => group.len(),
+        }
+    }
+
+    /// Returns widget names for iteration.
+    pub fn widget_names(&self) -> Vec<&str> {
+        match self {
+            WidgetPlacement::Single(name) => vec![name.as_str()],
+            WidgetPlacement::Group { group } => group.iter().map(|s| s.as_str()).collect(),
+        }
+    }
+
+    /// Returns a display representation for the summary.
+    pub fn display_names(&self) -> Vec<String> {
+        match self {
+            WidgetPlacement::Single(name) => vec![name.clone()],
+            WidgetPlacement::Group { group } => {
+                vec![format!("[group: {}]", group.join(", "))]
+            }
+        }
+    }
+}
+
+/// Per-widget configuration options.
+///
+/// Each widget can have a `[widgets.<name>]` table with widget-specific options.
+/// The `disabled` field is common to all widgets; other fields are widget-specific.
+///
+/// # Example
+///
+/// ```toml
+/// [widgets.clock]
+/// format = "%H:%M"
+/// color = "#f5c2e7"
+///
+/// [widgets.battery]
+/// disabled = true
+/// show_percentage = true
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct WidgetOptions {
+    /// If true, this widget is hidden from all sections where it would appear.
+    #[serde(default)]
+    pub disabled: bool,
+
+    /// Background color override for this widget (hex like "#f5c2e7").
+    /// If invalid or not set, uses the theme's default widget background.
+    #[serde(default)]
+    pub background_color: Option<String>,
+
+    /// Outline color override for this widget.
+    ///
+    /// Accepts the same values as `theme.outline_color`: `"subtle"`,
+    /// `"accent"`, `"foreground"`, or a hex color (`#rgb` / `#rrggbb`).
+    /// Applies to standalone widgets on the bar and the widget's popover
+    /// surface. In merge groups, the group pill uses the first widget's
+    /// outline color. Width and opacity remain theme-level only in v1.
+    #[serde(default)]
+    pub outline_color: Option<String>,
+
+    /// Shell command to execute on left-click. Runs via `sh -c`.
+    /// If set, it takes precedence over the widget's native left-click popover.
+    #[serde(default)]
+    pub on_click: Option<String>,
+
+    /// Shell command to execute on right-click. Runs via `sh -c`.
+    #[serde(default)]
+    pub on_click_right: Option<String>,
+
+    /// Shell command to execute on middle-click. Runs via `sh -c`.
+    #[serde(default)]
+    pub on_click_middle: Option<String>,
+
+    /// Shell command that controls widget visibility. Runs via `sh -c`.
+    /// Exit 0 = show, non-zero or failure = hide. Unset = always show.
+    /// Evaluated asynchronously — the widget starts hidden and appears when
+    /// the command succeeds. Not supported on spacer widgets.
+    #[serde(default)]
+    pub show_if: Option<String>,
+
+    /// Interval in seconds to re-evaluate `show_if`. Requires `show_if` to be set.
+    /// If unset (or zero), `show_if` is checked once at bar creation.
+    /// When set, the widget's visibility is toggled periodically based on the
+    /// `show_if` command's exit status.
+    #[serde(default)]
+    pub show_if_interval: Option<u64>,
+
+    /// Widget-specific options (format, show_icon, etc.).
+    #[serde(flatten)]
+    pub options: HashMap<String, toml::Value>,
+}
+
+/// A resolved widget entry with name and options, ready for the widget factory.
+///
+/// This is the internal representation used after resolving placements
+/// against per-widget configuration tables.
+#[derive(Debug, Clone)]
+pub struct WidgetEntry {
+    /// Widget type name (e.g., "clock", "battery", "workspaces").
+    pub name: String,
+
+    /// Merged widget-specific options from `[widgets.<name>]`.
+    pub options: HashMap<String, toml::Value>,
+}
+
+impl WidgetEntry {
+    /// Create a new widget entry with the given name and empty options.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            options: HashMap::new(),
+        }
+    }
+
+    /// Create a widget entry with options from WidgetOptions.
+    pub fn with_options(name: impl Into<String>, widget_options: &WidgetOptions) -> Self {
+        Self {
+            name: name.into(),
+            options: widget_options.options.clone(),
+        }
+    }
+}
+
+/// A resolved widget or group, ready for the widget factory.
+///
+/// This mirrors `WidgetPlacement` but with resolved `WidgetEntry` objects
+/// instead of just names.
+#[derive(Debug, Clone)]
+pub enum WidgetOrGroup {
+    /// A single widget with its own island.
+    Single(WidgetEntry),
+    /// A group of widgets sharing one island.
+    Group { group: Vec<WidgetEntry> },
+}
+
+impl WidgetOrGroup {
+    /// Returns the total number of widgets (1 for single, N for group).
+    pub fn widget_count(&self) -> usize {
+        match self {
+            WidgetOrGroup::Single(_) => 1,
+            WidgetOrGroup::Group { group } => group.len(),
+        }
+    }
+
+    /// Returns a display representation for the summary.
+    pub fn display_names(&self) -> Vec<String> {
+        match self {
+            WidgetOrGroup::Single(entry) => vec![entry.name.clone()],
+            WidgetOrGroup::Group { group } => {
+                let names: Vec<_> = group.iter().map(|e| e.name.clone()).collect();
+                vec![format!("[group: {}]", names.join(", "))]
+            }
+        }
+    }
+}
+
+/// Helper to count total widgets in a section (handles both single and grouped).
+fn count_widgets(items: &[WidgetPlacement]) -> usize {
+    items.iter().map(|item| item.widget_count()).sum()
+}
+
+/// Helper to format widget section for summary display.
+fn format_widget_section(items: &[WidgetPlacement]) -> Vec<String> {
+    items.iter().flat_map(|item| item.display_names()).collect()
+}
+
+/// Icon theme configuration (nested under [theme.icons]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeIconsConfig {
+    /// Icon set: "material" for bundled Material Symbols, "gtk" for the
+    /// system GTK icon theme, or a named GTK icon theme such as "Adwaita".
+    pub theme: String,
+
+    /// Icon stroke weight for Material Symbols (100-700). Lower = thinner strokes.
+    /// Only applies when theme = "material". Default: 400.
+    pub weight: u16,
+}
+
+impl Default for ThemeIconsConfig {
+    fn default() -> Self {
+        Self {
+            theme: "material".to_string(),
+            weight: 400,
+        }
+    }
+}
+
+/// Theme configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeConfig {
+    /// Theme mode: "auto", "dark", "light", "gtk".
+    /// - "auto": wallpaper-adaptive Material You theming
+    ///   (detects from hyprpaper, awww/swww, wpaperd, or waypaper)
+    /// - "dark": forces dark mode (light text on dark backgrounds)
+    /// - "light": forces light mode (dark text on light backgrounds)
+    /// - "gtk": derive colors from GTK theme where possible
+    pub mode: String,
+
+    /// Material You color scheme polarity: "dark" or "light".
+    ///
+    /// Only meaningful when `mode = "auto"`. When omitted, the polarity is
+    /// automatically derived from the wallpaper's average WCAG relative
+    /// luminance, using the perceptual midpoint (CIELAB L*=50, linear ≈ 0.184)
+    /// as the threshold: bright wallpaper → light scheme, dark wallpaper →
+    /// dark scheme. Set explicitly to override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheme: Option<SchemePolarity>,
+
+    /// Explicit wallpaper image path for auto mode.
+    ///
+    /// Only meaningful when `mode = "auto"`. When set, uses this image instead
+    /// of auto-detecting from wallpaper daemons. Supports PNG and JPEG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wallpaper: Option<String>,
+
+    /// Popover color polarity override: "dark" or "light".
+    ///
+    /// When set, popover surfaces use the specified polarity instead of
+    /// inheriting from the bar's theme mode. For example, `popover = "light"`
+    /// with `mode = "dark"` gives a dark bar with light popovers.
+    ///
+    /// In "auto" mode, uses the opposite Material You color scheme polarity
+    /// for popovers. Not supported with `mode = "gtk"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover: Option<String>,
+
+    /// Accent color configuration: "gtk", "none", or a hex color like "#3584e4".
+    /// - "gtk": use the GTK theme's accent color (don't override @accent_color)
+    /// - "none": monochrome mode (no colored accents)
+    /// - "#rrggbb": use this specific color as the accent
+    ///
+    /// When not specified, defaults to "gtk" if mode is "gtk", otherwise "#adabe0".
+    /// In "auto" mode, defaults to wallpaper-derived accent; set explicitly to override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+
+    /// Enable or disable all CSS transitions and animations globally.
+    ///
+    /// When false, hover transitions, popover open/close animations,
+    /// workspace indicator animations, and other motion effects are disabled.
+    /// Default: true
+    pub animations: bool,
+
+    /// Enable or disable the ripple effect on button/widget press.
+    ///
+    /// When false, the Material Design-style ripple that expands from the
+    /// click point is suppressed entirely.
+    /// Default: true
+    pub ripple: bool,
+
+    /// Enable or disable CSS box-shadows on popover surfaces.
+    ///
+    /// Disable to prevent blur artifacts when compositor blur is active.
+    /// Default: true
+    pub shadows: bool,
+
+    /// Enable compositor background blur via ext-background-effect-v1.
+    ///
+    /// When true, gnome-panel sends blur region hints to the compositor for
+    /// the bar, popovers, quick settings, OSD, notification toasts, tray menus,
+    /// and the media pop-out window. Requires a compositor that
+    /// supports the ext-background-effect-v1 protocol (e.g. niri with blur
+    /// enabled). Has no effect on compositors that do not support the protocol.
+    ///
+    /// For the bar: if bar.background_opacity > 0, the visible bar background region is
+    /// blurred. If bar.background_opacity == 0 (transparent/islands mode),
+    /// individual widget island regions are blurred instead.
+    ///
+    /// Default: false
+    pub blur: bool,
+
+    /// Decorative outline (CSS border) on the bar, widgets, and surfaces.
+    /// Per-section overrides: `bar.outline`, `widgets.outline`. Default: false.
+    pub outline: bool,
+
+    /// Outline width in pixels (0..=4). 0 disables visibly. Default: 1.
+    pub outline_width: u32,
+
+    /// Outline color: `"subtle"`, `"accent"`, `"foreground"`, or hex (`#rgb` /
+    /// `#rrggbb`). Default: "accent".
+    pub outline_color: String,
+
+    /// Outline opacity (0.0..=1.0). Default: 1.0.
+    pub outline_opacity: f64,
+
+    /// State colors (success, warning, urgent).
+    pub states: ThemeStates,
+
+    /// Typography settings.
+    pub typography: ThemeTypography,
+
+    /// Icon theme configuration.
+    pub icons: ThemeIconsConfig,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            // "auto" here; the shipped config.toml overrides to "dark" via deep-merge
+            mode: "auto".to_string(),
+            scheme: None,
+            wallpaper: None,
+            popover: None,
+            accent: None,
+            animations: true,
+            ripple: true,
+            shadows: true,
+            blur: false,
+            outline: false,
+            outline_width: 1,
+            outline_color: "accent".to_string(),
+            outline_opacity: 1.0,
+            states: ThemeStates::default(),
+            typography: ThemeTypography::default(),
+            icons: ThemeIconsConfig::default(),
+        }
+    }
+}
+
+/// Theme state colors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeStates {
+    /// Success state color.
+    pub success: String,
+
+    /// Warning state color.
+    pub warning: String,
+
+    /// Urgent state color.
+    pub urgent: String,
+}
+
+impl Default for ThemeStates {
+    fn default() -> Self {
+        Self {
+            success: "#4a7a4a".to_string(),
+            warning: "#e5c07b".to_string(),
+            urgent: "#ff6b6b".to_string(),
+        }
+    }
+}
+
+/// Theme typography settings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeTypography {
+    /// Base font family.
+    pub font_family: String,
+}
+
+impl Default for ThemeTypography {
+    fn default() -> Self {
+        Self {
+            font_family: "monospace".to_string(),
+        }
+    }
+}
+
+/// On-screen display configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OsdConfig {
+    /// Whether OSD is enabled.
+    pub enabled: bool,
+
+    /// OSD position: "bottom", "left", "right".
+    pub position: String,
+
+    /// Whether to show the current value as text next to the bar.
+    pub show_value: bool,
+
+    /// How long the OSD stays visible (milliseconds).
+    pub timeout_ms: u32,
+}
+
+impl Default for OsdConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            position: "bottom".to_string(),
+            show_value: false,
+            timeout_ms: 1500,
+        }
+    }
+}
+
+/// Audio configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioConfig {
+    /// Allow output and microphone volume above 100%, capped at PulseAudio's recommended UI maximum.
+    pub allow_overdrive: bool,
+}
+
+/// Advanced configuration options.
+///
+/// These settings are for power users and workarounds for specific
+/// environments. Most users should not need to change these.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AdvancedConfig {
+    /// Compositor to connect to: "auto", "mango", "hyprland", "niri", "sway".
+    ///
+    /// In most cases, "auto" will correctly detect your compositor.
+    /// Only change this if auto-detection fails or you want to force
+    /// a specific backend for testing.
+    ///
+    /// Default: "auto"
+    pub compositor: String,
+
+    /// Use Pango attributes for font rendering instead of CSS.
+    ///
+    /// When enabled, applies Pango font attributes directly to labels,
+    /// bypassing GTK CSS font handling. This can fix font rendering issues
+    /// in layer-shell surfaces where CSS-based fonts may be clipped or
+    /// rendered incorrectly at certain sizes.
+    ///
+    /// Default: false (use standard GTK/CSS font rendering)
+    pub pango_font_rendering: bool,
+}
+
+impl Default for AdvancedConfig {
+    fn default() -> Self {
+        Self {
+            compositor: "auto".to_string(),
+            pango_font_rendering: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(config.bar.size, 32);
+        assert_eq!(config.bar.screen_margin, 0);
+        assert_eq!(config.bar.background_opacity, 0.0);
+        assert_eq!(config.widgets.background_opacity, 1.0);
+        assert!(!config.audio.allow_overdrive);
+        assert_eq!(config.advanced.compositor, "auto");
+        assert_eq!(config.theme.mode, "auto");
+        assert!(config.theme.accent.is_none());
+        assert_eq!(config.theme.typography.font_family, "monospace");
+        assert_eq!(config.theme.icons.theme, "material");
+        assert_eq!(config.theme.icons.weight, 400);
+    }
+
+    #[test]
+    fn test_embedded_default_config_parses_and_validates() {
+        let config = Config::from_default_toml().expect("embedded default config should parse");
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_embedded_default_matches_struct_defaults_shape() {
+        let from_toml = Config::from_default_toml().expect("embedded default config should parse");
+        let from_struct = Config::default();
+
+        // We verify that both configs are valid and have the same fundamental structure.
+        // Widget lists can differ since the embedded config is a user-facing example
+        // with populated widgets, while struct defaults start empty.
+        assert!(
+            from_toml.validate().is_ok(),
+            "embedded config should validate"
+        );
+        assert!(
+            from_struct.validate().is_ok(),
+            "struct default should validate"
+        );
+
+        // Basic structural fields should match
+        assert_eq!(
+            from_toml.advanced.compositor,
+            from_struct.advanced.compositor
+        );
+    }
+
+    #[test]
+    fn test_default_config_validates() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_parse_minimal_toml() {
+        // Direct TOML parsing (without merge) uses struct defaults
+        let toml = r#"
+            [bar]
+            size = 40
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.bar.size, 40);
+        // Struct defaults should be applied
+        assert_eq!(config.bar.screen_margin, 0);
+        // Without merge, widgets are empty (struct default)
+        assert!(config.widgets.left.is_empty());
+    }
+
+    #[test]
+    fn test_load_with_defaults_minimal_config() {
+        // Minimal config should inherit widgets from embedded defaults
+        let user_toml = r#"
+            [bar]
+            size = 40
+        "#;
+
+        let config = Config::load_with_defaults(user_toml).unwrap();
+
+        // User-specified value should be used
+        assert_eq!(config.bar.size, 40);
+
+        // Default values from embedded config should be inherited
+        assert_eq!(config.bar.screen_margin, 0);
+        assert!(!config.audio.allow_overdrive);
+
+        // Widgets should come from embedded defaults, not be empty
+        assert!(
+            !config.widgets.left.is_empty(),
+            "left widgets should inherit from defaults"
+        );
+        assert!(
+            !config.widgets.right.is_empty(),
+            "right widgets should inherit from defaults"
+        );
+
+        // Verify the config is valid
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_load_with_defaults_override_widgets() {
+        // User can override widgets completely (new format: just names)
+        let user_toml = r#"
+            [widgets]
+            left = ["clock"]
+            right = []
+        "#;
+
+        let config = Config::load_with_defaults(user_toml).unwrap();
+
+        // User-specified widgets should override defaults
+        assert_eq!(config.widgets.left.len(), 1);
+        match &config.widgets.left[0] {
+            WidgetPlacement::Single(name) => assert_eq!(name, "clock"),
+            WidgetPlacement::Group { .. } => panic!("expected single widget"),
+        }
+        assert!(
+            config.widgets.right.is_empty(),
+            "user can set empty widgets"
+        );
+
+        // Center should still come from defaults (clock in default config.toml)
+        assert_eq!(config.widgets.center.len(), 1);
+        match &config.widgets.center[0] {
+            WidgetPlacement::Single(name) => assert_eq!(name, "clock"),
+            WidgetPlacement::Group { .. } => panic!("expected single widget"),
+        }
+    }
+
+    #[test]
+    fn test_load_with_defaults_nested_override() {
+        // User can override nested values while inheriting others
+        let user_toml = r#"
+            [theme]
+            mode = "light"
+        "#;
+
+        let config = Config::load_with_defaults(user_toml).unwrap();
+
+        // User-specified nested value
+        assert_eq!(config.theme.mode, "light");
+
+        // Other theme values should come from defaults
+        assert_eq!(config.theme.icons.theme, "Adwaita");
+        // bar.background_opacity comes from bar section defaults
+        assert_eq!(config.bar.background_opacity, 1.0);
+    }
+
+    #[test]
+    fn test_load_with_defaults_audio_overdrive() {
+        let user_toml = r#"
+            [audio]
+            allow_overdrive = true
+        "#;
+
+        let config = Config::load_with_defaults(user_toml).unwrap();
+        assert!(config.audio.allow_overdrive);
+    }
+
+    #[test]
+    fn test_load_with_defaults_empty_config() {
+        // Completely empty config should use all defaults
+        let user_toml = "";
+
+        let config = Config::load_with_defaults(user_toml).unwrap();
+
+        // Should match the embedded default config
+        let default_config = Config::from_default_toml().unwrap();
+
+        assert_eq!(config.bar.size, default_config.bar.size);
+        assert_eq!(config.widgets.left.len(), default_config.widgets.left.len());
+        assert_eq!(
+            config.widgets.right.len(),
+            default_config.widgets.right.len()
+        );
+    }
+
+    #[test]
+    fn test_deep_merge_toml_tables() {
+        let mut base: Table = toml::from_str(
+            r#"
+            [section]
+            a = 1
+            b = 2
+        "#,
+        )
+        .unwrap();
+
+        let overlay: Table = toml::from_str(
+            r#"
+            [section]
+            b = 99
+            c = 3
+        "#,
+        )
+        .unwrap();
+
+        deep_merge_toml(&mut base, overlay);
+
+        let section = base.get("section").unwrap().as_table().unwrap();
+        assert_eq!(section.get("a").unwrap().as_integer(), Some(1)); // unchanged
+        assert_eq!(section.get("b").unwrap().as_integer(), Some(99)); // overridden
+        assert_eq!(section.get("c").unwrap().as_integer(), Some(3)); // added
+    }
+
+    #[test]
+    fn test_deep_merge_toml_arrays_replace() {
+        // Arrays should be completely replaced, not merged
+        let mut base: Table = toml::from_str(
+            r#"
+            items = [1, 2, 3]
+        "#,
+        )
+        .unwrap();
+
+        let overlay: Table = toml::from_str(
+            r#"
+            items = [99]
+        "#,
+        )
+        .unwrap();
+
+        deep_merge_toml(&mut base, overlay);
+
+        let items = base.get("items").unwrap().as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].as_integer(), Some(99));
+    }
+
+    #[test]
+    fn test_load_with_defaults_rejects_unknown_fields() {
+        // Typo'd keys should be rejected with a helpful error
+        let user_toml = r#"
+            [bar]
+            sizee = 40
+        "#;
+
+        let result = Config::load_with_defaults(user_toml);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("sizee"),
+            "error should mention the unknown field"
+        );
+        assert!(
+            err.contains("size"),
+            "error should suggest the correct field"
+        );
+    }
+
+    #[test]
+    fn test_load_with_defaults_rejects_unknown_section() {
+        // Unknown top-level sections should be rejected
+        let user_toml = r#"
+            [barr]
+            size = 40
+        "#;
+
+        let result = Config::load_with_defaults(user_toml);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("barr"),
+            "error should mention the unknown section"
+        );
+    }
+
+    #[test]
+    fn test_parse_widget_entries() {
+        // New format: widget names as strings, options in separate sections
+        let toml = r#"
+            [widgets]
+            left = ["workspaces", "window_title"]
+            right = ["clock"]
+
+            [widgets.workspaces]
+            label_type = "none"
+
+            [widgets.window_title]
+            format = "{display}"
+
+            [widgets.clock]
+            format = "%H:%M"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.widgets.left.len(), 2);
+        match &config.widgets.left[0] {
+            WidgetPlacement::Single(name) => assert_eq!(name, "workspaces"),
+            WidgetPlacement::Group { .. } => panic!("expected single widget"),
+        }
+        assert_eq!(config.widgets.right.len(), 1);
+        match &config.widgets.right[0] {
+            WidgetPlacement::Single(name) => assert_eq!(name, "clock"),
+            WidgetPlacement::Group { .. } => panic!("expected single widget"),
+        }
+
+        // Verify options are in widget_configs
+        assert_eq!(
+            config
+                .widgets
+                .widget_configs
+                .get("clock")
+                .and_then(|o| o.options.get("format"))
+                .and_then(|v| v.as_str()),
+            Some("%H:%M")
+        );
+    }
+
+    #[test]
+    fn test_validate_invalid_compositor() {
+        let mut config = Config::default();
+        config.advanced.compositor = "kwin".to_string();
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("advanced.compositor"));
+        assert!(msg.contains("kwin"));
+    }
+
+    #[test]
+    fn test_validate_invalid_theme_mode() {
+        let mut config = Config::default();
+        config.theme.mode = "night".to_string();
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("theme.mode"));
+    }
+
+    #[test]
+    fn test_validate_invalid_osd_position() {
+        let mut config = Config::default();
+        config.osd.position = "center".to_string();
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("osd.position"));
+    }
+
+    #[test]
+    fn test_validate_bar_position_top() {
+        let mut config = Config::default();
+        config.bar.position = "top".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_bar_position_bottom() {
+        let mut config = Config::default();
+        config.bar.position = "bottom".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_invalid_bar_position() {
+        let mut config = Config::default();
+        config.bar.position = "left".to_string();
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("bar.position"));
+    }
+
+    #[test]
+    fn test_bar_is_bottom() {
+        let mut config = BarConfig::default();
+        assert!(!config.is_bottom());
+
+        config.position = "bottom".to_string();
+        assert!(config.is_bottom());
+    }
+
+    #[test]
+    fn test_validate_zero_bar_size() {
+        let mut config = Config::default();
+        config.bar.size = 0;
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("bar.size"));
+    }
+
+    #[test]
+    fn test_validate_multiple_errors() {
+        let mut config = Config::default();
+        config.advanced.compositor = "invalid".to_string();
+        config.bar.size = 0;
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        // Should contain both errors
+        assert!(msg.contains("advanced.compositor"));
+        assert!(msg.contains("bar.size"));
+    }
+
+    #[test]
+    fn test_config_search_paths() {
+        let paths = Config::config_search_paths();
+        // Should at least have ./config.toml
+        assert!(!paths.is_empty());
+        assert!(paths.iter().any(|p| p.ends_with("config.toml")));
+    }
+
+    #[test]
+    fn test_validate_center_widgets_ok() {
+        let mut config = Config::default();
+        config
+            .widgets
+            .center
+            .push(WidgetPlacement::Single("clock".to_string()));
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_empty_center_ok() {
+        // Empty center section should be valid
+        let config = Config::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_parse_widget_group() {
+        // New format: groups contain just names as strings
+        let toml = r#"
+            [widgets]
+            right = [
+                "clock",
+                { group = ["battery", "volume"] },
+                "notifications",
+            ]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.widgets.right.len(), 3);
+
+        // First: single widget
+        match &config.widgets.right[0] {
+            WidgetPlacement::Single(name) => assert_eq!(name, "clock"),
+            WidgetPlacement::Group { .. } => panic!("expected single widget"),
+        }
+
+        // Second: group of 2 widgets
+        match &config.widgets.right[1] {
+            WidgetPlacement::Group { group } => {
+                assert_eq!(group.len(), 2);
+                assert_eq!(group[0], "battery");
+                assert_eq!(group[1], "volume");
+            }
+            WidgetPlacement::Single(_) => panic!("expected group"),
+        }
+
+        // Third: single widget
+        match &config.widgets.right[2] {
+            WidgetPlacement::Single(name) => assert_eq!(name, "notifications"),
+            WidgetPlacement::Group { .. } => panic!("expected single widget"),
+        }
+    }
+
+    #[test]
+    fn test_widget_config_options() {
+        // New format: widget options in [widgets.<name>] sections
+        let toml = r#"
+            [widgets]
+            left = [{ group = ["clock", "battery"] }]
+
+            [widgets.clock]
+            format = "%H:%M"
+
+            [widgets.battery]
+            show_percentage = true
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.widgets.left.len(), 1);
+
+        // Verify options are in widget_configs
+        assert_eq!(
+            config
+                .widgets
+                .widget_configs
+                .get("clock")
+                .and_then(|o| o.options.get("format"))
+                .and_then(|v| v.as_str()),
+            Some("%H:%M")
+        );
+        assert_eq!(
+            config
+                .widgets
+                .widget_configs
+                .get("battery")
+                .and_then(|o| o.options.get("show_percentage"))
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn test_get_options_normalizes_hyphens() {
+        let toml = r#"
+            [widgets]
+            left = ["quick_settings"]
+
+            [widgets.quick_settings]
+            on_click_right = "notify-send hello"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+
+        // Exact match (underscore key)
+        assert!(config.widgets.get_options("quick_settings").is_some());
+
+        // Hyphenated CSS class name resolves to underscore config key
+        assert!(config.widgets.get_options("quick-settings").is_some());
+
+        // Non-existent widget still returns None
+        assert!(config.widgets.get_options("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_widget_count_helper() {
+        let single = WidgetPlacement::Single("clock".to_string());
+        assert_eq!(single.widget_count(), 1);
+
+        let group = WidgetPlacement::Group {
+            group: vec!["battery".to_string(), "volume".to_string()],
+        };
+        assert_eq!(group.widget_count(), 2);
+    }
+
+    #[test]
+    fn test_empty_widget_group() {
+        let toml = r#"
+            [widgets]
+            right = [
+                { group = [] },
+            ]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.widgets.right.len(), 1);
+
+        match &config.widgets.right[0] {
+            WidgetPlacement::Group { group } => {
+                assert!(group.is_empty());
+            }
+            WidgetPlacement::Single(_) => panic!("expected group"),
+        }
+    }
+
+    #[test]
+    fn test_widget_disabled() {
+        let toml = r#"
+            [widgets]
+            right = ["clock", "battery"]
+
+            [widgets.battery]
+            disabled = true
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+
+        // Both widgets are in the placement array
+        assert_eq!(config.widgets.right.len(), 2);
+
+        // But battery is disabled
+        assert!(config.widgets.is_disabled("battery"));
+        assert!(!config.widgets.is_disabled("clock"));
+
+        // Resolved section should only have clock
+        let resolved = config.widgets.resolved_right();
+        assert_eq!(resolved.len(), 1);
+        match &resolved[0] {
+            WidgetOrGroup::Single(entry) => assert_eq!(entry.name, "clock"),
+            WidgetOrGroup::Group { .. } => panic!("expected single widget"),
+        }
+    }
+
+    #[test]
+    fn test_widget_resolve_with_options() {
+        let toml = r#"
+            [widgets]
+            right = ["clock"]
+
+            [widgets.clock]
+            format = "%H:%M"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+
+        let resolved = config.widgets.resolved_right();
+        assert_eq!(resolved.len(), 1);
+
+        match &resolved[0] {
+            WidgetOrGroup::Single(entry) => {
+                assert_eq!(entry.name, "clock");
+                assert_eq!(
+                    entry.options.get("format").and_then(|v| v.as_str()),
+                    Some("%H:%M")
+                );
+            }
+            WidgetOrGroup::Group { .. } => panic!("expected single widget"),
+        }
+    }
+
+    #[test]
+    fn test_unreferenced_config_warning() {
+        let toml = r#"
+            [widgets]
+            right = ["clock"]
+
+            [widgets.clokc]
+            format = "%H:%M"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+
+        let unreferenced = config.widgets.unreferenced_configs();
+        assert!(unreferenced.contains(&"clokc".to_string()));
+    }
+
+    #[test]
+    fn test_section_has_expander_flexible_spacer() {
+        let section = vec![WidgetPlacement::Single("spacer".to_string())];
+        let config = WidgetsConfig::default();
+        assert!(config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_fixed_spacer() {
+        // "spacer:50" with arg is NOT expandable
+        let section = vec![WidgetPlacement::Single("spacer:50".to_string())];
+        let config = WidgetsConfig::default();
+        assert!(!config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_empty_arg() {
+        // "spacer:" with empty arg IS expandable (matches resolve_widget behavior)
+        let section = vec![WidgetPlacement::Single("spacer:".to_string())];
+        let config = WidgetsConfig::default();
+        assert!(config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_no_spacer() {
+        let section = vec![
+            WidgetPlacement::Single("clock".to_string()),
+            WidgetPlacement::Single("battery".to_string()),
+        ];
+        let config = WidgetsConfig::default();
+        assert!(!config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_in_group() {
+        // Spacer in a group should still be detected
+        let section = vec![WidgetPlacement::Group {
+            group: vec!["clock".to_string(), "spacer".to_string()],
+        }];
+        let config = WidgetsConfig::default();
+        assert!(config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_mixed() {
+        // Mix of regular widgets and flexible spacer
+        let section = vec![
+            WidgetPlacement::Single("workspaces".to_string()),
+            WidgetPlacement::Single("window_title".to_string()),
+            WidgetPlacement::Single("spacer".to_string()),
+            WidgetPlacement::Single("clock".to_string()),
+        ];
+        let config = WidgetsConfig::default();
+        assert!(config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_disabled_spacer() {
+        // Disabled spacer should NOT count as expander
+        let section = vec![
+            WidgetPlacement::Single("workspaces".to_string()),
+            WidgetPlacement::Single("spacer".to_string()),
+        ];
+
+        let mut config = WidgetsConfig::default();
+        config.widget_configs.insert(
+            "spacer".to_string(),
+            WidgetOptions {
+                disabled: true,
+                ..Default::default()
+            },
+        );
+
+        assert!(!config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_section_has_expander_width_in_options() {
+        // Spacer with width defined in TOML options should NOT count as expander
+        let section = vec![
+            WidgetPlacement::Single("workspaces".to_string()),
+            WidgetPlacement::Single("spacer".to_string()),
+        ];
+
+        let mut config = WidgetsConfig::default();
+        let mut options = HashMap::new();
+        options.insert("width".to_string(), toml::Value::Integer(50));
+        config.widget_configs.insert(
+            "spacer".to_string(),
+            WidgetOptions {
+                options,
+                ..Default::default()
+            },
+        );
+
+        assert!(!config.section_has_expander(&section));
+    }
+
+    #[test]
+    fn test_resolve_widget_spacer_inline_width_injects_option() {
+        let config = WidgetsConfig::default();
+        let entry = config.resolve_widget("spacer:50").unwrap();
+
+        assert_eq!(entry.name, "spacer");
+        assert_eq!(entry.options.get("width"), Some(&toml::Value::Integer(50)));
+    }
+
+    #[test]
+    fn test_resolve_widget_spacer_inline_overrides_config_width() {
+        let mut config = WidgetsConfig::default();
+        let mut options = HashMap::new();
+        options.insert("width".to_string(), toml::Value::Integer(100));
+        config.widget_configs.insert(
+            "spacer".to_string(),
+            WidgetOptions {
+                options,
+                ..Default::default()
+            },
+        );
+
+        let entry = config.resolve_widget("spacer:50").unwrap();
+        assert_eq!(entry.options.get("width"), Some(&toml::Value::Integer(50)));
+    }
+
+    #[test]
+    fn test_resolve_widget_spacer_invalid_inline_width_warns_and_ignores() {
+        let config = WidgetsConfig::default();
+        let entry = config.resolve_widget("spacer:nope").unwrap();
+
+        assert_eq!(entry.name, "spacer");
+        assert!(!entry.options.contains_key("width"));
+    }
+
+    #[test]
+    fn test_widget_options_click_handlers_parsed() {
+        let toml_str = r#"
+            on_click = "notify-send primary"
+            on_click_right = "notify-send hello"
+            on_click_middle = "xdg-open https://example.com"
+            format = "%H:%M"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(opts.on_click, Some("notify-send primary".to_string()));
+        assert_eq!(opts.on_click_right, Some("notify-send hello".to_string()));
+        assert_eq!(
+            opts.on_click_middle,
+            Some("xdg-open https://example.com".to_string())
+        );
+        // Widget-specific options end up in the HashMap
+        assert_eq!(
+            opts.options.get("format"),
+            Some(&toml::Value::String("%H:%M".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_widget_options_click_handlers_not_in_options_map() {
+        let toml_str = r#"
+            on_click = "notify-send primary"
+            on_click_right = "notify-send hello"
+            on_click_middle = "xdg-open https://example.com"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        // Click handler fields should NOT leak into the options HashMap
+        assert!(!opts.options.contains_key("on_click"));
+        assert!(!opts.options.contains_key("on_click_right"));
+        assert!(!opts.options.contains_key("on_click_middle"));
+    }
+
+    #[test]
+    fn test_widget_options_click_handlers_default_to_none() {
+        let toml_str = r#"
+            format = "%H:%M"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert!(opts.on_click_right.is_none());
+        assert!(opts.on_click_middle.is_none());
+        assert!(opts.on_click.is_none());
+    }
+
+    #[test]
+    fn test_widget_options_click_handlers_not_in_widget_entry() {
+        // Verify click handlers don't leak into WidgetEntry.options
+        let opts = WidgetOptions {
+            on_click: Some("notify-send primary".to_string()),
+            on_click_right: Some("notify-send hello".to_string()),
+            on_click_middle: Some("xdg-open https://example.com".to_string()),
+            ..Default::default()
+        };
+
+        let entry = WidgetEntry::with_options("clock", &opts);
+        assert!(!entry.options.contains_key("on_click"));
+        assert!(!entry.options.contains_key("on_click_right"));
+        assert!(!entry.options.contains_key("on_click_middle"));
+    }
+
+    #[test]
+    fn test_show_if_parsed_on_widget_options() {
+        let toml_str = r#"
+            show_if = "command -v foo"
+            format = "%H:%M"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(opts.show_if, Some("command -v foo".to_string()));
+    }
+
+    #[test]
+    fn test_show_if_defaults_to_none() {
+        let toml_str = r#"
+            format = "%H:%M"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert!(opts.show_if.is_none());
+    }
+
+    #[test]
+    fn test_show_if_not_in_options_map() {
+        let toml_str = r#"
+            show_if = "command -v foo"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert!(!opts.options.contains_key("show_if"));
+    }
+
+    #[test]
+    fn test_show_if_not_in_widget_entry() {
+        let opts = WidgetOptions {
+            show_if: Some("true".to_string()),
+            ..Default::default()
+        };
+
+        let entry = WidgetEntry::with_options("clock", &opts);
+        assert!(!entry.options.contains_key("show_if"));
+    }
+
+    #[test]
+    fn test_show_if_disabled_takes_precedence() {
+        let mut config = WidgetsConfig::default();
+        config.widget_configs.insert(
+            "clock".to_string(),
+            WidgetOptions {
+                disabled: true,
+                ..Default::default()
+            },
+        );
+
+        let entry = config.resolve_widget("clock");
+        assert!(entry.is_none());
+    }
+
+    // --- Phase 2: show_if_interval tests ---
+
+    #[test]
+    fn test_show_if_interval_parsed_on_widget_options() {
+        let toml_str = r#"
+            show_if = "command -v foo"
+            show_if_interval = 30
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(opts.show_if_interval, Some(30));
+    }
+
+    #[test]
+    fn test_show_if_interval_defaults_to_none() {
+        let toml_str = r#"
+            show_if = "true"
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert!(opts.show_if_interval.is_none());
+    }
+
+    #[test]
+    fn test_show_if_interval_not_in_options_map() {
+        let toml_str = r#"
+            show_if = "true"
+            show_if_interval = 10
+        "#;
+        let opts: WidgetOptions = toml::from_str(toml_str).unwrap();
+
+        assert!(!opts.options.contains_key("show_if_interval"));
+    }
+
+    #[test]
+    fn test_show_if_interval_not_in_widget_entry() {
+        let opts = WidgetOptions {
+            show_if: Some("true".to_string()),
+            show_if_interval: Some(5),
+            ..Default::default()
+        };
+
+        let entry = WidgetEntry::with_options("clock", &opts);
+        assert!(!entry.options.contains_key("show_if_interval"));
+    }
+
+    #[test]
+    fn test_warning_show_if_interval_without_show_if() {
+        let toml = r#"
+            [widgets]
+            right = ["clock"]
+
+            [widgets.clock]
+            show_if_interval = 30
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("show_if_interval") && w.contains("clock")),
+            "expected warning about show_if_interval without show_if, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_no_warning_show_if_interval_with_show_if() {
+        let toml = r#"
+            [widgets]
+            right = ["clock"]
+
+            [widgets.clock]
+            show_if = "true"
+            show_if_interval = 30
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            !warnings.iter().any(|w| w.contains("show_if_interval")),
+            "unexpected show_if_interval warning when show_if is set: {:?}",
+            warnings
+        );
+    }
+
+    // --- Custom widget show_if config tests ---
+
+    #[test]
+    fn test_show_if_on_custom_widget_parsed() {
+        let toml = r#"
+            [widgets]
+            right = ["custom-power"]
+
+            [widgets.custom-power]
+            icon = "system-shutdown-symbolic"
+            show_if = "command -v wlogout"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let opts = config.widgets.get_options("custom-power").unwrap();
+        assert_eq!(opts.show_if, Some("command -v wlogout".to_string()));
+    }
+
+    #[test]
+    fn test_show_if_with_interval_on_custom_widget() {
+        let toml = r#"
+            [widgets]
+            right = ["custom-weather"]
+
+            [widgets.custom-weather]
+            exec = "curl -s wttr.in"
+            interval = 600
+            show_if = "ping -c1 -W1 1.1.1.1"
+            show_if_interval = 60
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let opts = config.widgets.get_options("custom-weather").unwrap();
+        assert_eq!(opts.show_if, Some("ping -c1 -W1 1.1.1.1".to_string()));
+        assert_eq!(opts.show_if_interval, Some(60));
+        // show_if_interval without show_if warning should NOT fire here
+        let warnings = config.warnings();
+        assert!(
+            !warnings.iter().any(|w| w.contains("show_if_interval")),
+            "unexpected warning: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_with_subpath() {
+        assert_eq!(
+            expand_tilde("~/Pictures/wall.png", "/home/user"),
+            "/home/user/Pictures/wall.png"
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_bare() {
+        assert_eq!(expand_tilde("~", "/home/user"), "/home/user");
+    }
+
+    #[test]
+    fn test_expand_tilde_absolute_unchanged() {
+        assert_eq!(
+            expand_tilde("/usr/share/wall.png", "/home/user"),
+            "/usr/share/wall.png"
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_no_slash_unchanged() {
+        assert_eq!(expand_tilde("~foo", "/home/user"), "~foo");
+    }
+
+    #[test]
+    fn test_normalize_wallpaper_tilde() {
+        let toml = r#"
+            [theme]
+            mode = "auto"
+            wallpaper = "~/Pictures/wall.png"
+        "#;
+        let config = Config::load_with_defaults(toml).unwrap();
+        let home = env::var("HOME").unwrap();
+        assert_eq!(
+            config.theme.wallpaper,
+            Some(format!("{}/Pictures/wall.png", home))
+        );
+    }
+
+    #[test]
+    fn test_normalize_wallpaper_absolute_unchanged() {
+        let toml = r#"
+            [theme]
+            mode = "auto"
+            wallpaper = "/home/user/wall.png"
+        "#;
+        let config = Config::load_with_defaults(toml).unwrap();
+        assert_eq!(
+            config.theme.wallpaper,
+            Some("/home/user/wall.png".to_string())
+        );
+    }
+
+    // ===== Outline configuration =====
+
+    #[test]
+    fn test_outline_section_overrides_round_trip() {
+        // Catches a regression in #[serde(default)] / field renames that
+        // would silently drop user overrides on parse.
+        let toml = r#"
+            [theme]
+            outline = true
+
+            [bar]
+            outline = false
+
+            [widgets]
+            outline = true
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.theme.outline);
+        assert_eq!(config.bar.outline, Some(false));
+        assert_eq!(config.widgets.outline, Some(true));
+    }
+
+    #[test]
+    fn test_is_valid_outline_color() {
+        // Symbolic + 3/6-char hex accepted; everything else rejected.
+        for ok in [
+            "subtle",
+            "accent",
+            "foreground",
+            "#fff",
+            "#ffffff",
+            "#3584e4",
+        ] {
+            assert!(is_valid_outline_color(ok), "expected '{}' to be valid", ok);
+        }
+        for bad in ["", "Subtle", "red", "#gg", "#12345", "ffffff"] {
+            assert!(
+                !is_valid_outline_color(bad),
+                "expected '{}' to be invalid",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::type_complexity)]
+    fn test_validate_outline_rejects_invalid_values() {
+        // One test per validated field; each asserts the error path mentions
+        // the field by name so user-facing messages don't silently regress.
+        let cases: &[(&dyn Fn(&mut Config), &str)] = &[
+            (&|c| c.theme.outline_width = 5, "outline_width"),
+            (&|c| c.theme.outline_opacity = 1.5, "outline_opacity"),
+            (
+                &|c| c.theme.outline_color = "rebeccapurple".to_string(),
+                "outline_color",
+            ),
+        ];
+        for (mutate, field) in cases {
+            let mut config = Config::default();
+            mutate(&mut config);
+            let err = config.validate().unwrap_err();
+            assert!(
+                format!("{:?}", err).contains(field),
+                "error for '{}' missing field name: {:?}",
+                field,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_per_widget_outline_color_rejects_invalid() {
+        // Per-widget validation walks a different code path (loop over
+        // widget_configs); separate test so regressions there don't hide
+        // behind the theme-level cases above.
+        let mut config = Config::default();
+        config.widgets.widget_configs.insert(
+            "clock".to_string(),
+            WidgetOptions {
+                outline_color: Some("not-a-color".to_string()),
+                ..Default::default()
+            },
+        );
+        let err = config.validate().unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("widgets.clock.outline_color"),
+            "error should mention widget path: {}",
+            msg
+        );
+    }
+}

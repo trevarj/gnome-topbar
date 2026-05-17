@@ -1,7 +1,7 @@
-# GNOME Topbar
+# GNOME Panel
 
 A Wayland-only GTK top bar inspired by GNOME Shell for compositors such as
-Niri. GNOME Topbar provides a continuous system panel, integrated
+Niri. GNOME Panel provides a continuous system panel, integrated
 notifications, quick settings, media controls, workspaces, and scriptable
 status modules.
 
@@ -21,22 +21,22 @@ or endorsed by the GNOME project.
 
 ## Configuration
 
-GNOME Topbar looks for configuration in:
+GNOME Panel looks for configuration in:
 
 ```sh
-~/.config/gnome-topbar/config.toml
+~/.config/gnome-panel/config.toml
 ```
 
 Print the default configuration:
 
 ```sh
-gnome-topbar --print-example-config
+gnome-panel --print-example-config
 ```
 
 Validate a configuration:
 
 ```sh
-gnome-topbar --check-config --config ~/.config/gnome-topbar/config.toml
+gnome-panel --check-config --config ~/.config/gnome-panel/config.toml
 ```
 
 ## Custom Scripts
@@ -48,7 +48,7 @@ Custom widgets use the `custom-` prefix and can poll shell commands:
 left = ["workspaces", "custom-weather"]
 
 [widgets.custom-weather]
-exec = "~/.config/gnome-topbar/scripts/weather.sh"
+exec = "~/.config/gnome-panel/scripts/weather.sh"
 interval = 1800
 tooltip = "Weather"
 ```
@@ -80,7 +80,7 @@ cargo test --workspace --all-targets
 Run locally:
 
 ```sh
-guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-topbar -- --config config.toml -v'
+guix shell -m manifest.scm -- sh -c 'export LD_LIBRARY_PATH=$LIBRARY_PATH; cargo run -p gnome-panel -- --config config.toml -v'
 ```
 
 ## License

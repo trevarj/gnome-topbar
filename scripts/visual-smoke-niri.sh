@@ -12,11 +12,11 @@ for tool in niri grim cargo; do
   fi
 done
 
-cargo build -p gnome-topbar
+cargo build -p gnome-panel
 
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
-binary_abs=$(pwd)/target/debug/gnome-topbar
+binary_abs=$(pwd)/target/debug/gnome-panel
 
 niri -- sh -c '
 set -eu
@@ -24,10 +24,10 @@ export LD_LIBRARY_PATH=${LIBRARY_PATH:-}
 "$1" --config "$2" -v &
 panel_pid=$!
 sleep 2
-grim "$3/gnome-topbar.png"
+grim "$3/gnome-panel.png"
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
 ' sh "$binary_abs" "$config_abs" "$artifact_dir_abs"
 
-test -s "$artifact_dir_abs/gnome-topbar.png"
-echo "wrote $artifact_dir_abs/gnome-topbar.png"
+test -s "$artifact_dir_abs/gnome-panel.png"
+echo "wrote $artifact_dir_abs/gnome-panel.png"
