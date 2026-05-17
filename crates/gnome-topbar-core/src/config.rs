@@ -820,6 +820,8 @@ impl Default for WidgetsConfig {
                         toml::Value::String("%a %b %-d  %H:%M".to_string()),
                     ),
                     ("control_panel".to_string(), toml::Value::Boolean(true)),
+                    ("media_thumbnail".to_string(), toml::Value::Boolean(false)),
+                    ("media_eq".to_string(), toml::Value::Boolean(true)),
                 ]),
                 ..Default::default()
             },

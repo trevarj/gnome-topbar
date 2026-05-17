@@ -5,6 +5,7 @@
 //!
 //! - [`MediaVisualizer`] — blob that morphs around album art (popover/window).
 //! - [`BarVisualizer`] — thin waveform underline for the bar widget.
+//! - [`CompactEqVisualizer`] — tiny equalizer for compact bar companions.
 
 use std::cell::{Cell, RefCell};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
@@ -344,6 +345,98 @@ const WAVE_AREA_HEIGHT: i32 = 14;
 pub struct BarVisualizer {
     drawing_area: DrawingArea,
     anim: AnimatedBars,
+}
+
+/// Tiny equalizer bars for compact controls in the clock widget.
+#[derive(Clone)]
+pub struct CompactEqVisualizer {
+    drawing_area: DrawingArea,
+    anim: AnimatedBars,
+}
+
+impl CompactEqVisualizer {
+    pub fn new() -> Self {
+        let drawing_area = DrawingArea::new();
+        drawing_area.set_halign(Align::Center);
+        drawing_area.set_valign(Align::Center);
+        drawing_area.set_size_request(22, 16);
+        drawing_area.set_can_target(false);
+        drawing_area.add_css_class(media::COMPACT_EQ_VISUALIZER);
+        drawing_area.add_css_class(color::ACCENT);
+
+        let anim = AnimatedBars::new(3);
+        let bars_for_draw = anim.bars.clone();
+        drawing_area.set_draw_func(move |da, cr, width, height| {
+            let bars = bars_for_draw.borrow();
+
+            let accent = da.color();
+            let r = accent.red() as f64;
+            let g = accent.green() as f64;
+            let b = accent.blue() as f64;
+
+            draw_compact_eq(cr, &*bars, width as f64, height as f64, (r, g, b));
+        });
+
+        Self { drawing_area, anim }
+    }
+
+    pub fn widget(&self) -> &DrawingArea {
+        &self.drawing_area
+    }
+
+    pub fn start(&self) {
+        self.anim.start(&self.drawing_area);
+    }
+
+    pub fn pause(&self) {
+        self.anim.pause(&self.drawing_area);
+    }
+
+    pub fn stop(&self) {
+        self.anim.stop(&self.drawing_area);
+    }
+}
+
+fn draw_compact_eq(
+    cr: &cairo::Context,
+    bars: &[f64],
+    width: f64,
+    height: f64,
+    (r, g, b): (f64, f64, f64),
+) {
+    if bars.is_empty() || width < 8.0 || height < 8.0 {
+        return;
+    }
+
+    cr.set_source_rgba(r, g, b, 0.92);
+
+    let count = 5usize;
+    let gap = 2.0;
+    let bar_width = ((width - gap * (count as f64 - 1.0)) / count as f64).clamp(2.0, 4.0);
+    let total_width = bar_width * count as f64 + gap * (count as f64 - 1.0);
+    let start_x = ((width - total_width) / 2.0).max(0.0);
+
+    for i in 0..count {
+        let source_index = i * bars.len() / count;
+        let value = bars[source_index].clamp(0.0, 1.0);
+        let min_height = 3.0;
+        let bar_height = min_height + value * (height - min_height);
+        let x = start_x + i as f64 * (bar_width + gap);
+        let y = height - bar_height;
+
+        rounded_rect(cr, x, y, bar_width, bar_height, bar_width / 2.0);
+        let _ = cr.fill();
+    }
+}
+
+fn rounded_rect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+    let r = r.min(w / 2.0).min(h / 2.0);
+    cr.new_sub_path();
+    cr.arc(x + w - r, y + r, r, -FRAC_PI_2, 0.0);
+    cr.arc(x + w - r, y + h - r, r, 0.0, FRAC_PI_2);
+    cr.arc(x + r, y + h - r, r, FRAC_PI_2, PI);
+    cr.arc(x + r, y + r, r, PI, PI + FRAC_PI_2);
+    cr.close_path();
 }
 
 impl BarVisualizer {

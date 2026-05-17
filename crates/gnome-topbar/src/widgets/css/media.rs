@@ -30,6 +30,10 @@ pub fn css(animations: bool) -> String {
     margin-right: 4px;
 }}
 
+.clock-media .media-compact-eq-visualizer:not(:last-child) {{
+    margin-right: 3px;
+}}
+
 .clock-media-play-pause {{
     min-width: 24px;
     min-height: 24px;

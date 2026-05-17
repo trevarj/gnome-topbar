@@ -1161,6 +1161,9 @@ pub mod media {
     /// Bar waveform visualizer underline (`.media-bar-visualizer`).
     pub const BAR_VISUALIZER: &str = "media-bar-visualizer";
 
+    /// Compact equalizer visualizer (`.media-compact-eq-visualizer`).
+    pub const COMPACT_EQ_VISUALIZER: &str = "media-compact-eq-visualizer";
+
     // Icon names (freedesktop naming convention)
     // These are used with IconHandle and BaseWidget.add_icon(), which map
     // freedesktop names to Material Symbols font glyphs internally.

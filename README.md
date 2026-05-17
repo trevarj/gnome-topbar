@@ -60,6 +60,11 @@ contract as custom widgets:
 center = ["clock"] # weather auto-places next to clock
 right = ["headset", "quick_settings"]
 
+[widgets.clock]
+control_panel = true
+media_thumbnail = false # compact active-media companion
+media_eq = true
+
 [widgets.weather]
 exec = "~/.config/gnome-topbar/scripts/weather.sh"
 interval = 1800
