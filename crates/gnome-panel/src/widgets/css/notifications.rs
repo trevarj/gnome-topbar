@@ -29,8 +29,8 @@ pub fn css(animations: bool) -> String {
 
 /* Badge indicator dot */
 .notification-badge {{
-    margin-right: 2px;
-    margin-top: 3px;
+    margin-right: 0;
+    margin-top: 0;
 }}
 
 .notification-badge-dot {{

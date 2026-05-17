@@ -254,6 +254,17 @@ sectioned-bar.bar {{
     margin-right: var(--spacing-widget-gap);
 }}
 
+/* Quick Settings is one aggregate status button; keep its internal
+   indicators tighter than general icon/label widget content. */
+.quick-settings > overlay > .content > *:not(:last-child) {{
+    margin-right: calc(var(--spacing-widget-gap) * 0.55);
+}}
+
+.quick-settings > overlay > .content {{
+    padding-left: calc(var(--spacing-widget-edge) * 0.85);
+    padding-right: calc(var(--spacing-widget-edge) * 0.85);
+}}
+
 /* Section widget spacing via margins (Box spacing=0 to allow spacer to have no gaps) */
 .bar-section--left > *:not(:last-child):not(.spacer),
 .bar-section--right > *:not(:last-child):not(.spacer) {{

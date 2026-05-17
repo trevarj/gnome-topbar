@@ -79,8 +79,8 @@ fn test_widget_names() {
         "Expected workspaces widget in left"
     );
     assert!(
-        left_names.iter().any(|n| n.contains("window_title")),
-        "Expected window_title widget in left"
+        !left_names.iter().any(|n| n.contains("window_title")),
+        "Expected GNOME-like default to omit window_title from left"
     );
 
     assert!(
@@ -88,8 +88,20 @@ fn test_widget_names() {
         "Expected clock widget in center"
     );
     assert!(
-        right_names.iter().any(|n| n.contains("battery")),
-        "Expected battery widget in right"
+        right_names.iter().any(|n| n.contains("tray")),
+        "Expected tray widget in right"
+    );
+    assert!(
+        right_names.iter().any(|n| n.contains("quick_settings")),
+        "Expected quick_settings widget in right"
+    );
+    assert!(
+        !right_names.iter().any(|n| n.contains("battery")),
+        "Expected standalone battery widget to be folded into quick_settings"
+    );
+    assert!(
+        !right_names.iter().any(|n| n.contains("keyboard_layout")),
+        "Expected keyboard_layout to be opt-in, not default"
     );
 }
 

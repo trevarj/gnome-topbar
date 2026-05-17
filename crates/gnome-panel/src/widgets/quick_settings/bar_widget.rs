@@ -1,7 +1,7 @@
 //! Quick Settings bar widget - slim indicator that toggles the
 //! global Quick Settings window.
 //!
-//! Renders status icons (audio, bluetooth, network, VPN) and toggles
+//! Renders status icons (network, audio, battery, bluetooth, VPN) and toggles
 //! the keep-alive QS window on click.
 
 use gtk4::gdk::BUTTON_PRIMARY;
@@ -9,15 +9,20 @@ use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, GestureClick};
 use tracing::{debug, warn};
 
+use super::super::battery::{battery_icon_name, readable_pct, rounded_pct_value};
 use super::QuickSettingsWindowHandle;
 use super::audio_card::volume_icon_name;
 use super::bluetooth_card::bt_icon_name;
 use super::network_card::{NetworkIconContext, mobile_state_icon_name, network_icon_name};
 use super::vpn_card::vpn_icon_name;
 use crate::services::audio::{AudioService, AudioSnapshot};
+use crate::services::battery::{
+    BatteryService, BatterySnapshot, STATE_CHARGING, STATE_FULLY_CHARGED,
+};
 use crate::services::bluetooth::{BluetoothService, BluetoothSnapshot};
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
+use crate::services::icons::IconHandle;
 use crate::services::network::{NetworkService, NetworkSnapshot};
 use crate::services::tooltip::TooltipManager;
 use crate::services::vpn::{VpnService, VpnSnapshot};
@@ -85,6 +90,8 @@ impl Default for QuickSettingsCardsConfig {
 pub struct QuickSettingsConfig {
     /// Which cards to show in the Quick Settings panel.
     pub cards: QuickSettingsCardsConfig,
+    /// Whether to show the battery indicator in the bar aggregate.
+    pub battery: bool,
     /// Volume delta (percentage points) for scroll on QS widget/window.
     pub audio_scroll_percentage: i32,
 }
@@ -101,6 +108,7 @@ impl WidgetConfig for QuickSettingsConfig {
             "mic",
             "brightness",
             "power",
+            "battery",
             "vpn_close_on_connect",
             "audio_scroll_percentage",
         ];
@@ -145,6 +153,7 @@ impl WidgetConfig for QuickSettingsConfig {
                 power: get_bool("power"),
                 vpn_close_on_connect: get_bool("vpn_close_on_connect"),
             },
+            battery: get_bool("battery"),
             audio_scroll_percentage,
         }
     }
@@ -154,6 +163,7 @@ impl Default for QuickSettingsConfig {
     fn default() -> Self {
         Self {
             cards: QuickSettingsCardsConfig::default(),
+            battery: true,
             audio_scroll_percentage: Self::DEFAULT_AUDIO_SCROLL_PERCENTAGE,
         }
     }
@@ -198,15 +208,18 @@ impl QuickSettingsConfig {
     pub(crate) fn enabled_bar_indicators(&self) -> Vec<&'static str> {
         let cards = &self.cards;
         let mut names = Vec::new();
-        if cards.audio {
-            names.push("audio");
-        }
-        if cards.bluetooth {
-            names.push("bluetooth");
-        }
         if cards.network {
             names.push("network");
             names.push("mobile");
+        }
+        if cards.audio {
+            names.push("audio");
+        }
+        if self.battery {
+            names.push("battery");
+        }
+        if cards.bluetooth {
+            names.push("bluetooth");
         }
         if cards.vpn {
             names.push("vpn");
@@ -222,6 +235,7 @@ pub struct QuickSettingsWidget {
     /// on bar teardown, ensuring the window and PopoverTracker are cleaned up.
     qs_window_handle: QuickSettingsWindowHandle,
     audio_callback_id: Option<CallbackId>,
+    battery_callback_id: Option<CallbackId>,
     bluetooth_callback_id: Option<CallbackId>,
     network_wifi_callback_id: Option<CallbackId>,
     network_mobile_callback_id: Option<CallbackId>,
@@ -239,140 +253,13 @@ impl QuickSettingsWidget {
         );
 
         let mut audio_callback_id = None;
+        let mut battery_callback_id = None;
         let mut bluetooth_callback_id = None;
         let mut network_wifi_callback_id = None;
         let mut network_mobile_callback_id = None;
         let mut vpn_callback_id = None;
 
-        // Build icons only for enabled cards (order: Audio, Bluetooth, Wi-Fi, VPN)
-        // Audio icon
-        if cards.audio {
-            let volume_scroll_step = cfg.audio_scroll_percentage;
-            let audio_snapshot = AudioService::global().current();
-            let audio_icon_name_initial =
-                volume_icon_name(audio_snapshot.volume, audio_snapshot.muted);
-            let audio_icon = base.add_icon(audio_icon_name_initial, &[icon::ICON, icon::TEXT]);
-            audio_icon.widget().add_css_class(qs::VOLUME);
-
-            // Subscribe to AudioService updates
-            let audio_icon_handle = audio_icon.clone();
-            audio_callback_id = Some(AudioService::global().connect(
-                move |snapshot: &AudioSnapshot| {
-                    let widget = audio_icon_handle.widget();
-
-                    if !snapshot.available {
-                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
-                        audio_icon_handle.set_icon("audio-volume-muted-symbolic");
-                        TooltipManager::global()
-                            .set_styled_tooltip(&widget, "Audio: Service unavailable");
-                        return;
-                    }
-
-                    // Backend present but volume control unavailable (e.g., Asahi before playback)
-                    if !snapshot.control_available {
-                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
-                        audio_icon_handle.set_icon("audio-volume-muted-symbolic");
-                        TooltipManager::global()
-                            .set_styled_tooltip(&widget, "Volume control unavailable");
-                        return;
-                    }
-
-                    widget.remove_css_class(state::SERVICE_UNAVAILABLE);
-
-                    let icon_name = volume_icon_name(snapshot.volume, snapshot.muted);
-                    audio_icon_handle.set_icon(icon_name);
-
-                    let tooltip = if snapshot.muted {
-                        "Muted".to_string()
-                    } else {
-                        format!("Volume: {}%", snapshot.volume)
-                    };
-                    TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
-                },
-            ));
-
-            // Scroll wheel adjusts volume when hovering the audio icon.
-            super::audio_card::attach_volume_scroll_controller(
-                &audio_icon.widget(),
-                volume_scroll_step,
-            );
-        }
-
-        // Bluetooth icon
-        if cards.bluetooth {
-            let bt_snapshot = BluetoothService::global().snapshot();
-            let bt_powered = bt_snapshot.powered;
-            let bt_connected_devices = bt_snapshot.connected_devices;
-            let bt_icon_name_initial = bt_icon_name(bt_powered, bt_connected_devices);
-            let bt_icon = base.add_icon(bt_icon_name_initial, &[icon::ICON, icon::TEXT]);
-
-            if bt_connected_devices > 0 {
-                bt_icon.widget().add_css_class(state::ICON_ACTIVE);
-            }
-            bt_icon.widget().set_visible(bt_powered);
-            if !bt_powered {
-                bt_icon.widget().add_css_class(qs::BT_DISABLED_ICON);
-            }
-
-            // Subscribe to BluetoothService updates
-            let bt_icon_handle = bt_icon.clone();
-            bluetooth_callback_id = Some(BluetoothService::global().connect(
-                move |snapshot: &BluetoothSnapshot| {
-                    let widget = bt_icon_handle.widget();
-
-                    if !snapshot.has_adapter && snapshot.is_ready {
-                        widget.set_visible(false);
-                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
-                        widget.remove_css_class(state::ICON_ACTIVE);
-                        bt_icon_handle.set_icon("bluetooth-disabled-symbolic");
-                        TooltipManager::global()
-                            .set_styled_tooltip(&widget, "Bluetooth: No adapter found");
-                        return;
-                    }
-
-                    widget.remove_css_class(state::SERVICE_UNAVAILABLE);
-
-                    let powered = snapshot.powered;
-                    let connected_devices = snapshot.connected_devices;
-                    widget.set_visible(powered);
-
-                    let icon_name = bt_icon_name(powered, connected_devices);
-                    bt_icon_handle.set_icon(icon_name);
-
-                    if connected_devices > 0 {
-                        widget.add_css_class(state::ICON_ACTIVE);
-                    } else {
-                        widget.remove_css_class(state::ICON_ACTIVE);
-                    }
-
-                    // Apply disabled styling when Bluetooth is off
-                    if !powered {
-                        widget.add_css_class(qs::BT_DISABLED_ICON);
-                    } else {
-                        widget.remove_css_class(qs::BT_DISABLED_ICON);
-                    }
-
-                    let tooltip = if connected_devices > 0 {
-                        let mut lines: Vec<String> = snapshot
-                            .devices
-                            .iter()
-                            .filter(|d| d.connected)
-                            .map(|d| d.name.clone())
-                            .collect();
-                        if lines.is_empty() {
-                            lines.push("Bluetooth On".to_string());
-                        }
-                        lines.join("\n")
-                    } else if powered {
-                        "Bluetooth On".to_string()
-                    } else {
-                        "Bluetooth Off".to_string()
-                    };
-                    TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
-                },
-            ));
-        }
-
+        // Build icons only for enabled cards (order: network, audio, battery, Bluetooth, VPN)
         // Network icon (Wi-Fi / Ethernet).
         //
         // Shows the primary network connection: ethernet when plugged in,
@@ -537,6 +424,149 @@ impl QuickSettingsWidget {
             ));
         }
 
+        // Audio icon
+        if cards.audio {
+            let volume_scroll_step = cfg.audio_scroll_percentage;
+            let audio_snapshot = AudioService::global().current();
+            let audio_icon_name_initial =
+                volume_icon_name(audio_snapshot.volume, audio_snapshot.muted);
+            let audio_icon = base.add_icon(audio_icon_name_initial, &[icon::ICON, icon::TEXT]);
+            audio_icon.widget().add_css_class(qs::VOLUME);
+
+            // Subscribe to AudioService updates
+            let audio_icon_handle = audio_icon.clone();
+            audio_callback_id = Some(AudioService::global().connect(
+                move |snapshot: &AudioSnapshot| {
+                    let widget = audio_icon_handle.widget();
+
+                    if !snapshot.available {
+                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
+                        audio_icon_handle.set_icon("audio-volume-muted-symbolic");
+                        TooltipManager::global()
+                            .set_styled_tooltip(&widget, "Audio: Service unavailable");
+                        return;
+                    }
+
+                    // Backend present but volume control unavailable (e.g., Asahi before playback)
+                    if !snapshot.control_available {
+                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
+                        audio_icon_handle.set_icon("audio-volume-muted-symbolic");
+                        TooltipManager::global()
+                            .set_styled_tooltip(&widget, "Volume control unavailable");
+                        return;
+                    }
+
+                    widget.remove_css_class(state::SERVICE_UNAVAILABLE);
+
+                    let icon_name = volume_icon_name(snapshot.volume, snapshot.muted);
+                    audio_icon_handle.set_icon(icon_name);
+
+                    let tooltip = if snapshot.muted {
+                        "Muted".to_string()
+                    } else {
+                        format!("Volume: {}%", snapshot.volume)
+                    };
+                    TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
+                },
+            ));
+
+            // Scroll wheel adjusts volume when hovering the audio icon.
+            super::audio_card::attach_volume_scroll_controller(
+                &audio_icon.widget(),
+                volume_scroll_step,
+            );
+        }
+
+        // Battery icon - part of the aggregate status area, but does not create
+        // a separate battery popover. Details live in Quick Settings.
+        if cfg.battery {
+            let snapshot = BatteryService::global().snapshot();
+            let battery_icon = base.add_icon("battery-missing", &[icon::ICON, icon::TEXT]);
+            update_battery_indicator(&battery_icon, &snapshot);
+
+            let battery_icon_handle = battery_icon.clone();
+            battery_callback_id = Some(BatteryService::global().connect(
+                move |snapshot: &BatterySnapshot| {
+                    update_battery_indicator(&battery_icon_handle, snapshot);
+                },
+            ));
+        }
+
+        // Bluetooth icon
+        if cards.bluetooth {
+            let bt_snapshot = BluetoothService::global().snapshot();
+            let bt_powered = bt_snapshot.powered;
+            let bt_connected_devices = bt_snapshot.connected_devices;
+            let bt_icon_name_initial = bt_icon_name(bt_powered, bt_connected_devices);
+            let bt_icon = base.add_icon(bt_icon_name_initial, &[icon::ICON, icon::TEXT]);
+
+            if bt_connected_devices > 0 {
+                bt_icon.widget().add_css_class(state::ICON_ACTIVE);
+            }
+            bt_icon.widget().set_visible(bt_powered);
+            if !bt_powered {
+                bt_icon.widget().add_css_class(qs::BT_DISABLED_ICON);
+            }
+
+            // Subscribe to BluetoothService updates
+            let bt_icon_handle = bt_icon.clone();
+            bluetooth_callback_id = Some(BluetoothService::global().connect(
+                move |snapshot: &BluetoothSnapshot| {
+                    let widget = bt_icon_handle.widget();
+
+                    if !snapshot.has_adapter && snapshot.is_ready {
+                        widget.set_visible(false);
+                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
+                        widget.remove_css_class(state::ICON_ACTIVE);
+                        bt_icon_handle.set_icon("bluetooth-disabled-symbolic");
+                        TooltipManager::global()
+                            .set_styled_tooltip(&widget, "Bluetooth: No adapter found");
+                        return;
+                    }
+
+                    widget.remove_css_class(state::SERVICE_UNAVAILABLE);
+
+                    let powered = snapshot.powered;
+                    let connected_devices = snapshot.connected_devices;
+                    widget.set_visible(powered);
+
+                    let icon_name = bt_icon_name(powered, connected_devices);
+                    bt_icon_handle.set_icon(icon_name);
+
+                    if connected_devices > 0 {
+                        widget.add_css_class(state::ICON_ACTIVE);
+                    } else {
+                        widget.remove_css_class(state::ICON_ACTIVE);
+                    }
+
+                    // Apply disabled styling when Bluetooth is off
+                    if !powered {
+                        widget.add_css_class(qs::BT_DISABLED_ICON);
+                    } else {
+                        widget.remove_css_class(qs::BT_DISABLED_ICON);
+                    }
+
+                    let tooltip = if connected_devices > 0 {
+                        let mut lines: Vec<String> = snapshot
+                            .devices
+                            .iter()
+                            .filter(|d| d.connected)
+                            .map(|d| d.name.clone())
+                            .collect();
+                        if lines.is_empty() {
+                            lines.push("Bluetooth On".to_string());
+                        }
+                        lines.join("\n")
+                    } else if powered {
+                        "Bluetooth On".to_string()
+                    } else {
+                        "Bluetooth Off".to_string()
+                    };
+                    TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
+                },
+            ));
+        }
+
         // VPN icon
         if cards.vpn {
             let vpn_snapshot = VpnService::global().snapshot();
@@ -650,6 +680,7 @@ impl QuickSettingsWidget {
             base,
             qs_window_handle: qs_window,
             audio_callback_id,
+            battery_callback_id,
             bluetooth_callback_id,
             network_wifi_callback_id,
             network_mobile_callback_id,
@@ -670,6 +701,9 @@ impl Drop for QuickSettingsWidget {
         if let Some(id) = self.audio_callback_id.take() {
             AudioService::global().disconnect(id);
         }
+        if let Some(id) = self.battery_callback_id.take() {
+            BatteryService::global().disconnect(id);
+        }
         if let Some(id) = self.bluetooth_callback_id.take() {
             BluetoothService::global().disconnect(id);
         }
@@ -683,6 +717,58 @@ impl Drop for QuickSettingsWidget {
             VpnService::global().disconnect(id);
         }
     }
+}
+
+fn update_battery_indicator(icon_handle: &IconHandle, snapshot: &BatterySnapshot) {
+    let icon_widget = icon_handle.widget();
+
+    if !snapshot.available {
+        icon_widget.set_visible(false);
+        icon_widget.remove_css_class(state::ICON_ACTIVE);
+        icon_widget.remove_css_class(widget::BATTERY_CHARGING);
+        icon_widget.remove_css_class(widget::BATTERY_LOW);
+        return;
+    }
+
+    icon_widget.set_visible(true);
+    icon_widget.remove_css_class(state::SERVICE_UNAVAILABLE);
+    icon_widget.remove_css_class(widget::BATTERY_CHARGING);
+    icon_widget.remove_css_class(widget::BATTERY_LOW);
+
+    let rounded = snapshot.percent.map(rounded_pct_value);
+    let charging = matches!(
+        snapshot.state,
+        Some(STATE_CHARGING) | Some(STATE_FULLY_CHARGED)
+    );
+    let low = matches!(rounded, Some(pct) if pct <= 20);
+
+    if charging {
+        icon_widget.add_css_class(widget::BATTERY_CHARGING);
+    } else if low {
+        icon_widget.add_css_class(widget::BATTERY_LOW);
+    }
+
+    let icon_name = rounded
+        .map(|pct| battery_icon_name(pct, charging))
+        .unwrap_or_else(|| "battery-missing".to_string());
+    icon_handle.set_icon(&icon_name);
+
+    let tooltip = match rounded {
+        Some(pct) => {
+            let state_text = if charging {
+                if snapshot.state == Some(STATE_FULLY_CHARGED) {
+                    "Full"
+                } else {
+                    "Charging"
+                }
+            } else {
+                "Discharging"
+            };
+            format!("Battery: {}\nState: {}", readable_pct(pct), state_text)
+        }
+        None => "Battery: unknown".to_string(),
+    };
+    TooltipManager::global().set_styled_tooltip(&icon_widget, &tooltip);
 }
 
 #[cfg(test)]
@@ -703,6 +789,7 @@ mod tests {
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(HashMap::new()));
 
         assert_eq!(config.audio_scroll_percentage, 5);
+        assert!(config.battery);
         assert_eq!(
             config.enabled_control_panel_cards(),
             vec![
@@ -719,7 +806,7 @@ mod tests {
         );
         assert_eq!(
             config.enabled_bar_indicators(),
-            vec!["audio", "bluetooth", "network", "mobile", "vpn"]
+            vec!["network", "mobile", "audio", "battery", "bluetooth", "vpn"]
         );
     }
 
@@ -729,6 +816,7 @@ mod tests {
         options.insert("network".to_string(), Value::Boolean(false));
         options.insert("vpn".to_string(), Value::Boolean(false));
         options.insert("audio".to_string(), Value::Boolean(false));
+        options.insert("battery".to_string(), Value::Boolean(false));
         options.insert("power".to_string(), Value::Boolean(false));
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
@@ -744,6 +832,20 @@ mod tests {
             ]
         );
         assert_eq!(config.enabled_bar_indicators(), vec!["bluetooth"]);
+    }
+
+    #[test]
+    fn test_quick_settings_config_battery_indicator_toggle() {
+        let mut options = HashMap::new();
+        options.insert("battery".to_string(), Value::Boolean(false));
+
+        let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
+
+        assert!(!config.battery);
+        assert_eq!(
+            config.enabled_bar_indicators(),
+            vec!["network", "mobile", "audio", "bluetooth", "vpn"]
+        );
     }
 
     #[test]
@@ -763,11 +865,13 @@ mod tests {
     fn test_quick_settings_config_ignores_non_bool_card_values() {
         let mut options = HashMap::new();
         options.insert("network".to_string(), Value::String("false".to_string()));
+        options.insert("battery".to_string(), Value::String("false".to_string()));
         options.insert("vpn".to_string(), Value::Integer(0));
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
 
         assert!(config.cards.network);
+        assert!(config.battery);
         assert!(config.cards.vpn);
     }
 }

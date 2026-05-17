@@ -39,9 +39,21 @@ Validate a configuration:
 gnome-panel --check-config --config ~/.config/gnome-panel/config.toml
 ```
 
+The shipped default is a GNOME Shell-style top bar:
+
+- left: Niri workspaces
+- center: clock, calendar, notifications, media, and optional weather
+- right: tray plus one Quick Settings aggregate for network, audio, battery,
+  Bluetooth, and VPN
+
+Standalone status widgets such as `battery`, `keyboard_layout`,
+`notifications`, and custom scripts remain available when explicitly added to
+a widget list.
+
 ## Custom Scripts
 
-Custom widgets use the `custom-` prefix and can poll shell commands:
+Custom widgets are intended for migration and extensibility. They use the
+`custom-` prefix and can poll shell commands:
 
 ```toml
 [widgets]

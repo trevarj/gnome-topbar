@@ -2,12 +2,14 @@
 
 GNOME Panel supports Waybar-style custom script output for common status
 modules. Use a `custom-` widget name and point `exec` at the existing script.
+Custom widgets are opt-in migration modules; the default bar keeps common
+system status inside Quick Settings.
 
 ```toml
 [widgets]
 left = ["workspaces", "custom-crypto"]
 center = ["custom-weather", "clock"]
-right = ["custom-headset", "custom-vpn", "battery", "quick_settings"]
+right = ["custom-headset", "custom-vpn", "tray", "quick_settings"]
 
 [widgets.custom-crypto]
 exec = "~/.config/gnome-panel/scripts/crypto.sh -r"
@@ -27,6 +29,10 @@ interval = 5
 exec = "sh -c 'test -r /sys/class/net/tun0/carrier && grep -qx 1 /sys/class/net/tun0/carrier && echo vpn'"
 interval = 5
 ```
+
+Battery, network, audio, Bluetooth, and VPN status are shown by
+`quick_settings` by default. Add standalone widgets such as `battery` only when
+you intentionally want a Waybar-like module split.
 
 ## Output Formats
 

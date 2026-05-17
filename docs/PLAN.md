@@ -3,8 +3,8 @@
 ## Current State
 
 - Branch: `trev/gnome-panel`.
-- The Vibepanel fork has been renamed to GNOME Panel in code, docs, package metadata, and the default config.
-- The default config is a GNOME Shell-style continuous top panel with Adwaita icons, bold panel text, centered clock, quick settings, notifications, media, workspaces, and custom script support.
+- The project has been renamed to GNOME Panel in code, docs, package metadata, and the default config.
+- The default config is a GNOME Shell-style continuous top panel with Adwaita icons, bold panel text, left-side workspaces, centered clock, a required tray, and one right-side quick settings aggregate.
 - Guix is the only supported packaging path for now. The in-repo package definition lives in `guix/gnome-panel.scm` and reads Cargo inputs from `Cargo.lock`.
 - CI runs Guix-backed formatting, clippy, tests, font subset checks, and a Guix package dry run.
 
@@ -100,7 +100,7 @@ Current control panel inventory:
 
 - Clock: opens either calendar-only content or `build_clock_control_panel` when `[widgets.clock].control_panel = true`.
 - Calendar: embedded in the clock control panel through `build_clock_calendar_popover`.
-- Notifications: opens either notification-only content or the clock control panel when `[widgets.notifications].control_panel = true`; `hide_empty` controls bell visibility.
+- Notifications: live in the clock control panel by default. The standalone bell remains opt-in and opens either notification-only content or the clock control panel when `[widgets.notifications].control_panel = true`; `hide_empty` controls bell visibility.
 - Weather: pulled into the clock control panel from a configured custom widget exec via `control_panel_weather_widget`.
 - Media: embedded in the clock control panel through `build_media_popover_with_controller`; standalone media widget still has its own popover and pop-out window.
 - Quick settings: currently opens its own keep-alive window from the bar widget; convergence should happen one behavior slice at a time.
@@ -108,7 +108,7 @@ Current control panel inventory:
 Completed control-panel slice:
 
 - Clock control-panel options and weather-widget integration are covered by config tests.
-- Notification `hide_empty` and control-panel routing are covered by config tests.
+- Notification `hide_empty` and control-panel routing are covered by config tests; the default layout keeps notification access in the clock control panel rather than a standalone bar icon.
 - Popover surface CSS is covered by shared token tests for background, radius, padding, and typography.
 
 ### Phase 7: Packaging, CI, And Fork Hardening
@@ -117,7 +117,7 @@ Completed control-panel slice:
 - [x] Maintain `guix/gnome-panel.scm` using `cargo-inputs-from-lockfile`.
 - [x] Keep GitHub Actions focused on fmt, clippy, tests, font subset checks, and Guix package dry runs.
 - [x] Avoid reintroducing AUR, COPR, Nix, distro-specific install docs, or release packaging.
-- [x] Remove stale Vibepanel naming, distro-specific references, old release machinery, and outdated screenshots when encountered during related work.
+- [x] Remove stale legacy naming, distro-specific references, old release machinery, and outdated screenshots when encountered during related work.
 - [x] Keep docs concise and current so future agents can pick up work without reconstructing context from commit history.
 
 Packaging and cleanup audit:
@@ -125,4 +125,4 @@ Packaging and cleanup audit:
 - `guix/gnome-panel.scm` uses `cargo-inputs-from-lockfile`.
 - GitHub Actions run Guix-backed fmt, clippy, tests, font subset checks, and `guix build -f guix/gnome-panel.scm --dry-run`.
 - No AUR, COPR, Nix, distro-specific packaging files, or release machinery are present in the tracked project files.
-- The only remaining `Vibepanel` mention is historical context in this plan's current-state summary.
+- No stale legacy project names, distro-specific packaging files, or release machinery are present in the tracked project files.

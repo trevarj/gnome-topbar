@@ -729,11 +729,10 @@ impl BarConfig {
 ///
 /// ```toml
 /// [widgets]
-/// left = ["workspaces", "window_title"]
+/// left = ["workspaces"]
 /// right = [
 ///   "tray",
-///   { group = ["battery", "clock"] },
-///   "notifications",
+///   "quick_settings",
 /// ]
 ///
 /// [widgets.clock]
@@ -801,27 +800,11 @@ impl Default for WidgetsConfig {
                 ..Default::default()
             },
         );
-        widget_configs.insert(
-            "notifications".to_string(),
-            WidgetOptions {
-                options: HashMap::from([
-                    ("hide_empty".to_string(), toml::Value::Boolean(true)),
-                    ("control_panel".to_string(), toml::Value::Boolean(true)),
-                ]),
-                ..Default::default()
-            },
-        );
-
         Self {
-            left: vec![
-                WidgetPlacement::Single("workspaces".to_string()),
-                WidgetPlacement::Single("window_title".to_string()),
-            ],
+            left: vec![WidgetPlacement::Single("workspaces".to_string())],
             center: vec![WidgetPlacement::Single("clock".to_string())],
             right: vec![
                 WidgetPlacement::Single("tray".to_string()),
-                WidgetPlacement::Single("keyboard_layout".to_string()),
-                WidgetPlacement::Single("battery".to_string()),
                 WidgetPlacement::Single("quick_settings".to_string()),
             ],
             border_radius: 50,
@@ -1517,9 +1500,9 @@ mod tests {
         assert_eq!(config.bar.background_color.as_deref(), Some("#000000"));
         assert_eq!(config.bar.background_opacity, 1.0);
         assert_eq!(config.widgets.background_opacity, 0.0);
-        assert_eq!(config.widgets.left.len(), 2);
+        assert_eq!(config.widgets.left.len(), 1);
         assert_eq!(config.widgets.center.len(), 1);
-        assert_eq!(config.widgets.right.len(), 4);
+        assert_eq!(config.widgets.right.len(), 2);
         assert!(!config.audio.allow_overdrive);
         assert_eq!(config.advanced.compositor, "auto");
         assert_eq!(config.theme.mode, "dark");
