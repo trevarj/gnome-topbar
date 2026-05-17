@@ -492,3 +492,49 @@ impl Default for NotificationsWidget {
         Self::new(NotificationsConfig::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use toml::Value;
+
+    fn make_widget_entry(options: HashMap<String, Value>) -> WidgetEntry {
+        WidgetEntry {
+            name: "notifications".to_string(),
+            options,
+        }
+    }
+
+    #[test]
+    fn test_notifications_config_defaults() {
+        let config = NotificationsConfig::from_entry(&make_widget_entry(HashMap::new()));
+
+        assert!(!config.hide_empty);
+        assert!(!config.control_panel);
+    }
+
+    #[test]
+    fn test_notifications_config_hide_empty_and_control_panel() {
+        let mut options = HashMap::new();
+        options.insert("hide_empty".to_string(), Value::Boolean(true));
+        options.insert("control_panel".to_string(), Value::Boolean(true));
+
+        let config = NotificationsConfig::from_entry(&make_widget_entry(options));
+
+        assert!(config.hide_empty);
+        assert!(config.control_panel);
+    }
+
+    #[test]
+    fn test_notifications_config_ignores_non_bool_values() {
+        let mut options = HashMap::new();
+        options.insert("hide_empty".to_string(), Value::String("true".to_string()));
+        options.insert("control_panel".to_string(), Value::Integer(1));
+
+        let config = NotificationsConfig::from_entry(&make_widget_entry(options));
+
+        assert!(!config.hide_empty);
+        assert!(!config.control_panel);
+    }
+}

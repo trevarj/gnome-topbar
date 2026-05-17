@@ -388,3 +388,22 @@ button:hover {{
 "#
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popover_surface_css_standardizes_surface_tokens() {
+        let css = css(true);
+
+        assert!(css.contains(".vp-surface-popover"));
+        assert!(css.contains("background-color: color-mix"));
+        assert!(css.contains("border-radius: var(--radius-surface);"));
+        assert!(css.contains("padding: 16px;"));
+        assert!(css.contains("font-family: var(--font-family);"));
+        assert!(css.contains("font-size: var(--font-size);"));
+        assert!(css.contains(".vp-popover-title"));
+        assert!(css.contains("font-size: var(--font-size-lg);"));
+    }
+}

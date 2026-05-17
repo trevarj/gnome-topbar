@@ -260,4 +260,35 @@ mod tests {
         let config = ClockConfig::default();
         assert_eq!(config.format, "%a %d %H:%M");
     }
+
+    #[test]
+    fn test_clock_config_control_panel_options() {
+        let mut options = HashMap::new();
+        options.insert("control_panel".to_string(), Value::Boolean(true));
+        options.insert(
+            "control_panel_weather_widget".to_string(),
+            Value::String("custom-weather".to_string()),
+        );
+
+        let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
+
+        assert!(config.control_panel);
+        assert_eq!(
+            config.control_panel_weather_widget.as_deref(),
+            Some("custom-weather")
+        );
+    }
+
+    #[test]
+    fn test_clock_config_ignores_empty_weather_widget() {
+        let mut options = HashMap::new();
+        options.insert(
+            "control_panel_weather_widget".to_string(),
+            Value::String(String::new()),
+        );
+
+        let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
+
+        assert!(config.control_panel_weather_widget.is_none());
+    }
 }

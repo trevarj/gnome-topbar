@@ -43,10 +43,11 @@ JSON output may use Waybar-style fields:
 ```
 
 - `text`: text shown in the panel.
+- `label`: fallback text shown in the panel when `text` is empty.
 - `tooltip`: tooltip shown on hover.
 - `percentage`: numeric value used as fallback tooltip text when no tooltip is set.
 
-Empty `text` hides the widget when no static `label` fallback is set.
+Empty display text hides the widget when no static config `label` fallback is set.
 
 ## Clicks
 

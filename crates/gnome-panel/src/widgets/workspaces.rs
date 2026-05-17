@@ -767,13 +767,13 @@ const DEFAULT_SEPARATOR: &str = "";
 
 /// Multiplier for indicator height relative to widget_height.
 /// Used in CSS generation (bar.rs) for min-height on all indicators.
-pub(crate) const INDICATOR_HEIGHT_MULT: f64 = 0.7;
+pub(crate) const INDICATOR_HEIGHT_MULT: f64 = 0.36;
 /// Multiplier for inactive indicator width relative to widget_height.
 /// Used in CSS generation (bar.rs) for min-width on inactive indicators.
-pub(crate) const INDICATOR_INACTIVE_MULT: f64 = 0.7;
+pub(crate) const INDICATOR_INACTIVE_MULT: f64 = 0.36;
 /// Multiplier for active indicator width relative to widget_height.
 /// Used in CSS generation (bar.rs) for min-width on active indicators.
-pub(crate) const INDICATOR_ACTIVE_MULT: f64 = 1.0;
+pub(crate) const INDICATOR_ACTIVE_MULT: f64 = 0.72;
 /// Horizontal padding per side (px) for long (named) indicators.
 pub(crate) const LONG_INDICATOR_HPAD: i32 = 6;
 
@@ -2013,6 +2013,94 @@ mod tests {
             collect_display_ids(&workspaces, &active_workspaces, &snapshot, true, false);
         assert_eq!(show_unoccupied_ids, HashSet::from([1, 2, 3]));
         assert!(!show_unoccupied_ids.contains(&4));
+    }
+
+    #[test]
+    fn test_workspace_scroll_moves_to_next_visible_workspace() {
+        let snapshot = WorkspaceServiceSnapshot {
+            active_workspace: HashSet::from([1]),
+            occupied_workspaces: HashSet::from([2, 3]),
+            window_counts: HashMap::from([(1, 0), (2, 1), (3, 1)]),
+            workspaces: vec![
+                make_workspace(1, "1", true, false, false, Some(0)),
+                make_workspace(2, "2", false, true, false, Some(1)),
+                make_workspace(3, "3", false, true, false, Some(1)),
+            ],
+            per_output: HashMap::new(),
+        };
+
+        assert_eq!(
+            workspace_id_for_scroll(&snapshot, false, None, 1.0),
+            Some(2)
+        );
+        assert_eq!(workspace_id_for_scroll(&snapshot, false, None, -1.0), None);
+    }
+
+    #[test]
+    fn test_workspace_scroll_moves_to_previous_visible_workspace() {
+        let snapshot = WorkspaceServiceSnapshot {
+            active_workspace: HashSet::from([3]),
+            occupied_workspaces: HashSet::from([1, 2]),
+            window_counts: HashMap::from([(1, 1), (2, 1), (3, 0)]),
+            workspaces: vec![
+                make_workspace(1, "1", false, true, false, Some(1)),
+                make_workspace(2, "2", false, true, false, Some(1)),
+                make_workspace(3, "3", true, false, false, Some(0)),
+            ],
+            per_output: HashMap::new(),
+        };
+
+        assert_eq!(
+            workspace_id_for_scroll(&snapshot, false, None, -1.0),
+            Some(2)
+        );
+        assert_eq!(workspace_id_for_scroll(&snapshot, false, None, 1.0), None);
+    }
+
+    #[test]
+    fn test_workspace_scroll_uses_per_output_workspace_state() {
+        let mut output_1_ws1 = make_workspace(1, "1", true, false, false, Some(0));
+        output_1_ws1.output = Some("eDP-1".to_string());
+        let mut output_1_ws2 = make_workspace(2, "2", false, true, false, Some(1));
+        output_1_ws2.output = Some("eDP-1".to_string());
+        let mut output_2_ws3 = make_workspace(3, "3", false, true, false, Some(1));
+        output_2_ws3.output = Some("HDMI-A-1".to_string());
+
+        let snapshot = WorkspaceServiceSnapshot {
+            active_workspace: HashSet::from([1]),
+            occupied_workspaces: HashSet::from([2, 3]),
+            window_counts: HashMap::from([(1, 0), (2, 1), (3, 1)]),
+            workspaces: vec![
+                output_1_ws1.clone(),
+                output_1_ws2.clone(),
+                output_2_ws3.clone(),
+            ],
+            per_output: HashMap::from([
+                (
+                    "eDP-1".to_string(),
+                    PerOutputWorkspaces {
+                        active_workspace: HashSet::from([1]),
+                        workspaces: vec![output_1_ws1, output_1_ws2],
+                    },
+                ),
+                (
+                    "HDMI-A-1".to_string(),
+                    PerOutputWorkspaces {
+                        active_workspace: HashSet::from([3]),
+                        workspaces: vec![output_2_ws3],
+                    },
+                ),
+            ]),
+        };
+
+        assert_eq!(
+            workspace_id_for_scroll(&snapshot, false, Some("eDP-1"), 1.0),
+            Some(2)
+        );
+        assert_eq!(
+            workspace_id_for_scroll(&snapshot, false, Some("HDMI-A-1"), 1.0),
+            None
+        );
     }
 
     // -- compute_left_count tests --

@@ -74,6 +74,14 @@ struct CustomExecOutput {
     tooltip: Option<String>,
 }
 
+/// Resolved label/visibility update after applying fallback and template rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CustomExecDisplay {
+    label_text: String,
+    tooltip: Option<String>,
+    visible: bool,
+}
+
 /// JSON shape emitted by Waybar-style custom scripts.
 #[derive(Debug, Deserialize, PartialEq)]
 struct CustomExecJsonOutput {
@@ -688,26 +696,13 @@ fn run_exec(
 
         match result {
             Ok(Ok(output)) => {
-                // Trim whitespace (including the trailing newline from read_line)
-                let output = parse_exec_output(output.trim());
-                if output.text.is_empty() {
-                    label.set_label(&fallback_text);
-                    // Auto-hide when exec returns empty and no fallback is configured
-                    if fallback_text.is_empty() {
-                        widget.set_visible(false);
-                    }
-                } else {
-                    let display = if let Some(ref tmpl) = template {
-                        tmpl.replace("{output}", &output.text)
-                    } else {
-                        output.text
-                    };
-                    label.set_label(&display);
-                    if let Some(tooltip) = output.tooltip {
-                        TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
-                    }
-                    widget.set_visible(true);
+                let display =
+                    build_exec_display(output.trim(), &fallback_text, template.as_deref());
+                label.set_label(&display.label_text);
+                if let Some(tooltip) = display.tooltip {
+                    TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
                 }
+                widget.set_visible(display.visible);
             }
             Ok(Err(err)) => {
                 warn!("'custom-{}' exec failed: {}", custom_id, err);
@@ -719,6 +714,33 @@ fn run_exec(
             }
         }
     });
+}
+
+fn build_exec_display(
+    raw_output: &str,
+    fallback_text: &str,
+    template: Option<&str>,
+) -> CustomExecDisplay {
+    let output = parse_exec_output(raw_output);
+    if output.text.is_empty() {
+        return CustomExecDisplay {
+            label_text: fallback_text.to_string(),
+            tooltip: None,
+            visible: !fallback_text.is_empty(),
+        };
+    }
+
+    let label_text = if let Some(tmpl) = template {
+        tmpl.replace("{output}", &output.text)
+    } else {
+        output.text
+    };
+
+    CustomExecDisplay {
+        label_text,
+        tooltip: output.tooltip,
+        visible: true,
+    }
 }
 
 fn parse_exec_output(text: &str) -> CustomExecOutput {
@@ -832,6 +854,94 @@ mod tests {
             CustomExecOutput {
                 text: "󰋎 ".to_string(),
                 tooltip: Some("Headset 72%".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_exec_output_label_json_fallback() {
+        assert_eq!(
+            parse_exec_output(r#"{"label":"VPN"}"#),
+            CustomExecOutput {
+                text: "VPN".to_string(),
+                tooltip: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_build_exec_display_empty_hides_without_fallback() {
+        assert_eq!(
+            build_exec_display("", "", None),
+            CustomExecDisplay {
+                label_text: "".to_string(),
+                tooltip: None,
+                visible: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_build_exec_display_empty_uses_static_fallback() {
+        assert_eq!(
+            build_exec_display(r#"{"text":""}"#, "Weather", None),
+            CustomExecDisplay {
+                label_text: "Weather".to_string(),
+                tooltip: None,
+                visible: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_build_exec_display_zero_text_stays_visible() {
+        assert_eq!(
+            build_exec_display("0", "", Some("count={output}")),
+            CustomExecDisplay {
+                label_text: "count=0".to_string(),
+                tooltip: None,
+                visible: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_build_exec_display_zero_percentage_tooltip() {
+        assert_eq!(
+            build_exec_display(r#"{"text":"Headset","percentage":0}"#, "", None),
+            CustomExecDisplay {
+                label_text: "Headset".to_string(),
+                tooltip: Some("0%".to_string()),
+                visible: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_common_migrated_script_outputs_stay_visible() {
+        let cases = [
+            ("BTC 103421 ETH 3850", "BTC 103421 ETH 3850"),
+            ("☀ 72°F", "☀ 72°F"),
+            (r#"{"text":"󰋎 ","tooltip":"Headset: 72%"}"#, "󰋎 "),
+            (r#"{"label":"VPN"}"#, "VPN"),
+            ("", ""),
+        ];
+
+        for (raw, expected) in cases {
+            let display = build_exec_display(raw, "", None);
+            assert_eq!(display.label_text, expected);
+            assert!(display.visible);
+        }
+    }
+
+    #[test]
+    fn test_common_migrated_empty_vpn_output_hides_widget() {
+        assert_eq!(
+            build_exec_display("", "", None),
+            CustomExecDisplay {
+                label_text: "".to_string(),
+                tooltip: None,
+                visible: false,
             }
         );
     }

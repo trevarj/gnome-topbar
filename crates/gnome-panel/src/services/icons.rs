@@ -674,6 +674,11 @@ pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
             "network-wireless-signal-none-symbolic",
             "network-wireless-symbolic",
         ],
+        "wifi" => &[
+            "network-wireless-signal-excellent-symbolic",
+            "network-wireless-connected-symbolic",
+            "network-wireless-symbolic",
+        ],
 
         // Bluetooth icons
         "bluetooth-symbolic" => &[
@@ -850,6 +855,7 @@ pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
         "cpu-symbolic" => &[
             "cpu-symbolic",
             "speedometer-symbolic",
+            "utilities-system-monitor-symbolic",
             "power-profile-performance-symbolic",
             "application-x-executable-symbolic",
             "system-run-symbolic",
@@ -857,6 +863,7 @@ pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
         "ram-symbolic" => &[
             "ram-symbolic",
             "memory-symbolic",
+            "utilities-system-monitor-symbolic",
             "drive-harddisk-symbolic",
             "system-run-symbolic",
         ],
@@ -1840,6 +1847,11 @@ impl IconsService {
         self.theme.borrow().clone()
     }
 
+    #[cfg(test)]
+    fn weight(&self) -> u16 {
+        *self.weight.borrow()
+    }
+
     /// Check if the Material backend is ready (font loaded, CSS applied).
     fn material_backend_ready(&self) -> bool {
         self.uses_material() && *self.material_ready.borrow()
@@ -2456,6 +2468,43 @@ mod tests {
     }
 
     #[test]
+    fn test_gtk_icon_candidates_network_and_audio() {
+        let wifi = gtk_icon_candidates("wifi");
+        assert_eq!(wifi[0], "network-wireless-signal-excellent-symbolic");
+        assert!(wifi.contains(&"network-wireless-symbolic"));
+
+        let wifi_off = gtk_icon_candidates("wifi-off");
+        assert_eq!(wifi_off[0], "network-wireless-offline-symbolic");
+        assert!(wifi_off.contains(&"network-wireless-symbolic"));
+
+        let volume = gtk_icon_candidates("audio-volume-high-symbolic");
+        assert_eq!(volume[0], "audio-volume-high-symbolic");
+        assert!(volume.contains(&"audio-volume-medium-symbolic"));
+    }
+
+    #[test]
+    fn test_gtk_icon_candidates_notifications_media_and_resources() {
+        let notifications = gtk_icon_candidates("notifications-active");
+        assert_eq!(
+            notifications[0],
+            "preferences-system-notifications-symbolic"
+        );
+        assert!(notifications.contains(&"notification-active-symbolic"));
+
+        let media = gtk_icon_candidates("media-playback-start");
+        assert_eq!(media[0], "media-playback-start-symbolic");
+        assert!(media.contains(&"media-playback-start"));
+
+        let cpu = gtk_icon_candidates("cpu-symbolic");
+        assert_eq!(cpu[0], "cpu-symbolic");
+        assert!(cpu.contains(&"utilities-system-monitor-symbolic"));
+
+        let memory = gtk_icon_candidates("ram-symbolic");
+        assert_eq!(memory[0], "ram-symbolic");
+        assert!(memory.contains(&"utilities-system-monitor-symbolic"));
+    }
+
+    #[test]
     fn test_gtk_icon_candidates_unknown_returns_empty() {
         // Unknown names return empty slice (will be handled as passthrough)
         let candidates = gtk_icon_candidates("unknown-icon");
@@ -2591,6 +2640,27 @@ mod tests {
     }
 
     #[test]
+    fn test_reconfigure_updates_material_weight_without_theme_change() {
+        let service = Rc::new(IconsService {
+            theme: RefCell::new("material".to_string()),
+            weight: RefCell::new(400),
+            material_ready: RefCell::new(false),
+            css_loaded: RefCell::new(true),
+            icon_theme: RefCell::new(None),
+            handles: RefCell::new(Vec::new()),
+            material_css_provider: RefCell::new(None),
+            font_path: RefCell::new(None),
+        });
+
+        service.reconfigure("material", 500);
+
+        assert_eq!(service.theme(), "material");
+        assert_eq!(service.weight(), 500);
+        assert!(service.uses_material());
+        assert_eq!(service.current_backend_kind(), IconBackendKind::Text);
+    }
+
+    #[test]
     fn test_reconfigure_same_theme_is_noop() {
         // Reconfiguring to the same theme and weight should be a no-op
         let service = Rc::new(IconsService {
@@ -2608,6 +2678,7 @@ mod tests {
         service.reconfigure("material", 400);
 
         assert_eq!(service.theme(), "material");
+        assert_eq!(service.weight(), 400);
         assert!(service.uses_material());
     }
 }

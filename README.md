@@ -60,8 +60,10 @@ plain text or JSON:
 {"text":"󰋎 ","tooltip":"Headset: 72%","percentage":72}
 ```
 
-The `text` field is displayed on the bar. `tooltip` is used as the widget
-tooltip. Empty text hides the widget when no static `label` fallback is set.
+The `text` field is displayed on the bar; `label` is accepted as a fallback
+display field for simple scripts. `tooltip` is used as the widget tooltip.
+When `tooltip` is absent, `percentage` is shown as a percentage tooltip.
+Empty text hides the widget when no static config `label` fallback is set.
 
 See [docs/waybar-migration.md](docs/waybar-migration.md) for migration
 examples.
@@ -83,6 +85,14 @@ Run locally:
 ```sh
 cargo run -p gnome-panel -- --config config.toml -v
 ```
+
+Run the Niri visual smoke check for design changes:
+
+```sh
+guix shell -m manifest.scm -- ./scripts/visual-smoke-niri.sh
+```
+
+The screenshot is written to `target/visual-smoke/gnome-panel.png`.
 
 Build the Guix package:
 
