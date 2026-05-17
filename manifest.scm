@@ -38,6 +38,8 @@
          "bluez"
          "brightnessctl"
          "headsetcontrol"
+         "niri"
+         "grim"
          "curl"
          "jq"
          "nss-certs"
