@@ -3,9 +3,9 @@
 //! This service handles icon rendering based on the configured icon theme.
 //! It supports multiple backends:
 //!
-//! - **Material**: Loads the Material Symbols Rounded font from assets/,
-//!   registers it with fontconfig, applies CSS, and maps logical icon names
-//!   to Material Symbols glyph ligatures.
+//! - **Material**: Loads an installed Material Symbols Rounded font,
+//!   registers it with Pango, applies CSS, and maps logical icon names to
+//!   Material Symbols glyph ligatures.
 //!
 //! - **GTK**: Uses GTK's icon theme system (Adwaita, Breeze, etc.) to render
 //!   icons as `Gtk.Image` widgets. Logical icon names are mapped to GTK
@@ -39,14 +39,8 @@ use crate::styles::icon;
 /// Font family name for Material Symbols (must match the TTF metadata).
 const MATERIAL_FONT_FAMILY: &str = "Material Symbols Rounded";
 
-/// Relative path to the Material Symbols font file from the project root.
-const MATERIAL_FONT_FILE: &str = "assets/fonts/MaterialSymbolsRounded.ttf";
-
-/// Material Symbols font, embedded for standalone binary distribution.
-/// Subset to only include icons used in [`material_symbol_name`].
-/// After adding or removing icon mappings, run `./scripts/subset-font.sh`.
-const EMBEDDED_FONT_DATA: &[u8] =
-    include_bytes!("../../../../assets/fonts/MaterialSymbolsRounded.ttf");
+/// Material Symbols font filename used for system font discovery.
+const MATERIAL_FONT_FILE: &str = "MaterialSymbolsRounded.ttf";
 
 // Thread-local singleton storage for IconsService
 thread_local! {
@@ -2146,38 +2140,15 @@ impl IconsService {
     /// Try to find the Material Symbols font file.
     ///
     /// Searches in order:
-    /// 1. Relative to current working directory (for development)
-    /// 2. Relative to executable location
-    /// 3. Common system font paths
-    /// 4. Extracts embedded font to cache directory as fallback
+    /// 1. Relative to executable location
+    /// 2. Common system font paths
     fn find_font_path() -> Option<PathBuf> {
-        // Try relative to CWD (development)
-        let cwd_path = PathBuf::from(MATERIAL_FONT_FILE);
-        if cwd_path.exists() {
-            return Some(cwd_path);
-        }
-
         // Try relative to executable
         if let Ok(exe_path) = std::env::current_exe()
             && let Some(exe_dir) = exe_path.parent()
         {
-            // Check ../assets/fonts/ (typical install layout)
-            let relative = exe_dir.join("../").join(MATERIAL_FONT_FILE);
-            if relative.exists() {
-                return Some(relative);
-            }
-            // Check ../../assets/fonts/ (running from rust/target/debug/)
-            let relative2 = exe_dir.join("../../").join(MATERIAL_FONT_FILE);
-            if relative2.exists() {
-                return Some(relative2);
-            }
-            // Check ../../../assets/fonts/ (running from rust/target/debug/deps/)
-            let relative3 = exe_dir.join("../../../").join(MATERIAL_FONT_FILE);
-            if relative3.exists() {
-                return Some(relative3);
-            }
             // Check same directory as exe
-            let same_dir = exe_dir.join("MaterialSymbolsRounded.ttf");
+            let same_dir = exe_dir.join(MATERIAL_FONT_FILE);
             if same_dir.exists() {
                 return Some(same_dir);
             }
@@ -2196,63 +2167,7 @@ impl IconsService {
             }
         }
 
-        // Fall back to extracting the embedded font to a cache directory
-        Self::extract_embedded_font()
-    }
-
-    /// Extract the embedded font to a cache directory.
-    ///
-    /// The font is written to `$XDG_CACHE_HOME/gnome-topbar/fonts/MaterialSymbolsRounded.ttf`
-    /// (or `~/.cache/gnome-topbar/fonts/` if XDG_CACHE_HOME is not set).
-    /// This allows fontconfig to load it like any other font file.
-    fn extract_embedded_font() -> Option<PathBuf> {
-        // Determine cache directory
-        let cache_dir = std::env::var("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .ok()
-            .or_else(|| {
-                std::env::var("HOME")
-                    .ok()
-                    .map(|h| PathBuf::from(h).join(".cache"))
-            })?;
-
-        let font_dir = cache_dir.join("gnome-topbar").join("fonts");
-        let font_path = font_dir.join("MaterialSymbolsRounded.ttf");
-
-        // If the font already exists and has the correct size, reuse it
-        if font_path.exists()
-            && let Ok(metadata) = std::fs::metadata(&font_path)
-            && metadata.len() == EMBEDDED_FONT_DATA.len() as u64
-        {
-            debug!("Using cached embedded font at: {}", font_path.display());
-            return Some(font_path);
-        }
-
-        // Create the directory if needed
-        if let Err(e) = std::fs::create_dir_all(&font_dir) {
-            warn!(
-                "Failed to create font cache directory {}: {}",
-                font_dir.display(),
-                e
-            );
-            return None;
-        }
-
-        // Write the embedded font data
-        match std::fs::write(&font_path, EMBEDDED_FONT_DATA) {
-            Ok(()) => {
-                info!("Extracted embedded font to: {}", font_path.display());
-                Some(font_path)
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to write embedded font to {}: {}",
-                    font_path.display(),
-                    e
-                );
-                None
-            }
-        }
+        None
     }
 }
 

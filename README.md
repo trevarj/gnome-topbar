@@ -7,6 +7,8 @@ panel, tray, Quick Settings, and a narrow `custom-*` escape hatch.
 This project is inspired by GNOME Shell's top bar. It is not affiliated with
 or endorsed by the GNOME project.
 
+![GNOME Topbar running on Niri](assets/screenshots/gnome-topbar.png)
+
 ## Goals
 
 - Follow GNOME Shell top-bar design: quiet, continuous, system-owned, and
