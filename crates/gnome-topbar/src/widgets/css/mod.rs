@@ -10,6 +10,7 @@
 //! - `buttons` - Button style classes (reset, accent, card, link, ghost)
 //! - `tray` - System tray items and menus
 //! - `calendar` - Calendar widget styles
+//! - `control_panel` - Combined clock control panel styles
 //! - `quick_settings` - Quick settings panel, cards, rows
 //! - `battery` - Battery indicator helpers
 //! - `notifications` - Notification rows and toasts
@@ -45,6 +46,7 @@ mod base;
 mod battery;
 mod buttons;
 mod calendar;
+mod control_panel;
 mod media;
 mod notifications;
 mod osd;
@@ -81,6 +83,7 @@ pub fn widget_css(config: &Config) -> String {
     let tray_css = tray::css(animations);
     let buttons_css = buttons::css();
     let calendar_css = calendar::css();
+    let control_panel_css = control_panel::css();
     let quick_settings_css = quick_settings::css(animations);
     let battery_css = battery::css();
     let notifications_css = notifications::css(animations);
@@ -88,6 +91,6 @@ pub fn widget_css(config: &Config) -> String {
     let media_css = media::css(animations);
 
     format!(
-        "{bar_css}\n{tray_css}\n{buttons_css}\n{calendar_css}\n{quick_settings_css}\n{battery_css}\n{notifications_css}\n{osd_css}\n{media_css}"
+        "{bar_css}\n{tray_css}\n{buttons_css}\n{calendar_css}\n{control_panel_css}\n{quick_settings_css}\n{battery_css}\n{notifications_css}\n{osd_css}\n{media_css}"
     )
 }

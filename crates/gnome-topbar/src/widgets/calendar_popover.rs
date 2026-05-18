@@ -31,6 +31,7 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
 
     // Header: left-aligned label + right-aligned navigation buttons
     let header_box = GtkBox::new(Orientation::Horizontal, 8);
+    header_box.add_css_class(cal::HEADER);
 
     // Month/year label - left-aligned, expands to push nav buttons right
     let header_label = Label::new(None);
