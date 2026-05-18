@@ -565,7 +565,7 @@ impl ClockMediaCompanion {
         let play_pause_btn = vp_button();
         play_pause_btn.set_has_frame(false);
         play_pause_btn.set_focus_on_click(false);
-        play_pause_btn.set_size_request(24, 24);
+        play_pause_btn.set_size_request(30, 30);
         play_pause_btn.set_halign(Align::Center);
         play_pause_btn.set_valign(Align::Center);
         play_pause_btn.set_child(Some(&play_pause_icon.widget()));
