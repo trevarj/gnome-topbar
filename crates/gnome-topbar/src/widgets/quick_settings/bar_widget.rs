@@ -1,7 +1,7 @@
 //! Quick Settings bar widget - slim indicator that toggles the
 //! global Quick Settings window.
 //!
-//! Renders status icons (network, audio, battery, bluetooth, VPN) and toggles
+//! Renders status icons (network, VPN, audio, battery, bluetooth) and toggles
 //! the keep-alive QS window on click.
 
 use gtk4::gdk::BUTTON_PRIMARY;
@@ -210,6 +210,11 @@ impl QuickSettingsConfig {
         let mut names = Vec::new();
         if cards.network {
             names.push("network");
+        }
+        if cards.vpn {
+            names.push("vpn");
+        }
+        if cards.network {
             names.push("mobile");
         }
         if cards.audio {
@@ -220,9 +225,6 @@ impl QuickSettingsConfig {
         }
         if cards.bluetooth {
             names.push("bluetooth");
-        }
-        if cards.vpn {
-            names.push("vpn");
         }
         names
     }
@@ -259,7 +261,7 @@ impl QuickSettingsWidget {
         let mut network_mobile_callback_id = None;
         let mut vpn_callback_id = None;
 
-        // Build icons only for enabled cards (order: network, audio, battery, Bluetooth, VPN)
+        // Build icons only for enabled cards (order: network, VPN, mobile, audio, battery, Bluetooth)
         // Network icon (Wi-Fi / Ethernet).
         //
         // Shows the primary network connection: ethernet when plugged in,
@@ -338,6 +340,60 @@ impl QuickSettingsWidget {
                     TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
                 },
             ));
+        }
+
+        // VPN icon — kept adjacent to the primary network icon.
+        if cards.vpn {
+            let vpn_snapshot = VpnService::global().snapshot();
+            let vpn_any_active = vpn_snapshot.any_active;
+            let vpn_icon_name_initial = vpn_icon_name();
+            let vpn_icon = base.add_icon(vpn_icon_name_initial, &[icon::ICON, icon::TEXT]);
+
+            vpn_icon
+                .widget()
+                .set_visible(vpn_snapshot.available && vpn_any_active);
+            if vpn_snapshot.available && vpn_any_active {
+                vpn_icon.widget().add_css_class(state::ICON_ACTIVE);
+            }
+
+            // Subscribe to VpnService updates
+            let vpn_icon_handle = vpn_icon.clone();
+            vpn_callback_id = Some(VpnService::global().connect(move |snapshot: &VpnSnapshot| {
+                let widget = vpn_icon_handle.widget();
+
+                if !snapshot.available || !snapshot.any_active {
+                    widget.set_visible(false);
+                    widget.remove_css_class(state::ICON_ACTIVE);
+                    return;
+                }
+                widget.set_visible(true);
+
+                let icon_name = vpn_icon_name();
+                vpn_icon_handle.set_icon(icon_name);
+
+                if snapshot.any_active {
+                    widget.add_css_class(state::ICON_ACTIVE);
+                } else {
+                    widget.remove_css_class(state::ICON_ACTIVE);
+                }
+
+                let tooltip = if snapshot.any_active {
+                    let active_names: Vec<String> = snapshot
+                        .connections
+                        .iter()
+                        .filter(|c| c.active)
+                        .map(|c| c.name.clone())
+                        .collect();
+                    if active_names.is_empty() {
+                        "VPN Connected".to_string()
+                    } else {
+                        active_names.join("\n")
+                    }
+                } else {
+                    "VPN Disconnected".to_string()
+                };
+                TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
+            }));
         }
 
         // Mobile icon — separate from the Wi-Fi/Ethernet icon.
@@ -557,60 +613,6 @@ impl QuickSettingsWidget {
             ));
         }
 
-        // VPN icon
-        if cards.vpn {
-            let vpn_snapshot = VpnService::global().snapshot();
-            let vpn_any_active = vpn_snapshot.any_active;
-            let vpn_icon_name_initial = vpn_icon_name();
-            let vpn_icon = base.add_icon(vpn_icon_name_initial, &[icon::ICON, icon::TEXT]);
-
-            vpn_icon
-                .widget()
-                .set_visible(vpn_snapshot.available && vpn_any_active);
-            if vpn_snapshot.available && vpn_any_active {
-                vpn_icon.widget().add_css_class(state::ICON_ACTIVE);
-            }
-
-            // Subscribe to VpnService updates
-            let vpn_icon_handle = vpn_icon.clone();
-            vpn_callback_id = Some(VpnService::global().connect(move |snapshot: &VpnSnapshot| {
-                let widget = vpn_icon_handle.widget();
-
-                if !snapshot.available || !snapshot.any_active {
-                    widget.set_visible(false);
-                    widget.remove_css_class(state::ICON_ACTIVE);
-                    return;
-                }
-                widget.set_visible(true);
-
-                let icon_name = vpn_icon_name();
-                vpn_icon_handle.set_icon(icon_name);
-
-                if snapshot.any_active {
-                    widget.add_css_class(state::ICON_ACTIVE);
-                } else {
-                    widget.remove_css_class(state::ICON_ACTIVE);
-                }
-
-                let tooltip = if snapshot.any_active {
-                    let active_names: Vec<String> = snapshot
-                        .connections
-                        .iter()
-                        .filter(|c| c.active)
-                        .map(|c| c.name.clone())
-                        .collect();
-                    if active_names.is_empty() {
-                        "VPN Connected".to_string()
-                    } else {
-                        active_names.join("\n")
-                    }
-                } else {
-                    "VPN Disconnected".to_string()
-                };
-                TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
-            }));
-        }
-
         base.widget().add_css_class(state::CLICKABLE);
 
         let gesture = GestureClick::new();
@@ -796,7 +798,7 @@ mod tests {
         );
         assert_eq!(
             config.enabled_bar_indicators(),
-            vec!["network", "mobile", "audio", "battery", "bluetooth", "vpn"]
+            vec!["network", "vpn", "mobile", "audio", "battery", "bluetooth"]
         );
     }
 
@@ -834,7 +836,7 @@ mod tests {
         assert!(!config.battery);
         assert_eq!(
             config.enabled_bar_indicators(),
-            vec!["network", "mobile", "audio", "bluetooth", "vpn"]
+            vec!["network", "vpn", "mobile", "audio", "bluetooth"]
         );
     }
 
