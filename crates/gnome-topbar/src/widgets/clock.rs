@@ -11,29 +11,23 @@ use chrono::Timelike;
 use gnome_topbar_core::config::WidgetEntry;
 use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
-use gtk4::{Align, Application, Box as GtkBox, Button, Label, Orientation, Overlay, Widget};
+use gtk4::{Align, Application, Box as GtkBox, Label, Orientation, Overlay, Widget};
 use tracing::debug;
 
 use crate::services::callbacks::CallbackId;
-use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{IconHandle, IconsService};
-use crate::services::media::{MediaService, MediaSnapshot, PlaybackStatus};
 use crate::services::notification::{NotificationService, URGENCY_CRITICAL};
 use crate::services::tooltip::TooltipManager;
 use crate::styles::widget as wgt;
-use crate::styles::{button, icon, media};
 use crate::widgets::WidgetConfig;
-use crate::widgets::base::{BaseWidget, vp_button};
+use crate::widgets::base::BaseWidget;
 use crate::widgets::calendar_popover::build_clock_calendar_popover;
 use crate::widgets::control_panel::build_clock_control_panel;
-use crate::widgets::media_components::{ArtState, art_radius_percent, show_player_icon_in_art};
 use crate::widgets::notifications_toast::NotificationToastManager;
-use crate::widgets::rounded_picture::RoundedPicture;
 use crate::widgets::warn_unknown_options;
 
 /// Default format string for the clock display.
 const DEFAULT_FORMAT: &str = "%a %d %H:%M";
-const CLOCK_MEDIA_ART_SCALE: f64 = 0.66;
 
 /// Configuration for the clock widget.
 
@@ -49,10 +43,6 @@ pub struct ClockConfig {
     /// Optional custom widget name whose exec output is shown in the control
     /// panel weather card.
     pub control_panel_weather_widget: Option<String>,
-    /// Whether the compact media companion beside the clock shows album art.
-    pub media_thumbnail: bool,
-    /// Whether the compact media play/pause button pulses while playing.
-    pub media_eq: bool,
 }
 
 impl WidgetConfig for ClockConfig {
@@ -65,8 +55,6 @@ impl WidgetConfig for ClockConfig {
                 "show_week_numbers",
                 "control_panel",
                 "control_panel_weather_widget",
-                "media_thumbnail",
-                "media_eq",
             ],
         );
 
@@ -96,25 +84,11 @@ impl WidgetConfig for ClockConfig {
             .filter(|s| !s.is_empty())
             .map(str::to_string);
 
-        let media_thumbnail = entry
-            .options
-            .get("media_thumbnail")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let media_eq = entry
-            .options
-            .get("media_eq")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-
         Self {
             format,
             show_week_numbers,
             control_panel,
             control_panel_weather_widget,
-            media_thumbnail,
-            media_eq,
         }
     }
 }
@@ -126,8 +100,6 @@ impl Default for ClockConfig {
             show_week_numbers: true,
             control_panel: false,
             control_panel_weather_widget: None,
-            media_thumbnail: false,
-            media_eq: true,
         }
     }
 }
@@ -144,9 +116,6 @@ pub struct ClockWidget {
     /// The Rc<RefCell<>> allows the closure to update the ID when
     /// it transitions from the one-shot to the repeating timer.
     timer_source: Rc<RefCell<Option<SourceId>>>,
-    /// Optional compact media controls shown beside the clock when the clock
-    /// owns the combined control panel.
-    _media_companion: Option<ClockMediaCompanion>,
     /// Optional compact notification indicator shown beside the clock when the
     /// clock owns the combined control panel.
     _notification_companion: Option<ClockNotificationCompanion>,
@@ -162,8 +131,6 @@ impl ClockWidget {
         let show_week_numbers = config.show_week_numbers;
         let control_panel = config.control_panel;
         let control_panel_weather_widget = config.control_panel_weather_widget.clone();
-        let media_thumbnail = config.media_thumbnail;
-        let media_eq = config.media_eq;
 
         let notification_companion =
             control_panel.then(|| ClockNotificationCompanion::new(base.widget(), base.content()));
@@ -200,15 +167,12 @@ impl ClockWidget {
         });
 
         let timer_source = Rc::new(RefCell::new(None));
-        let media_companion = control_panel
-            .then(|| ClockMediaCompanion::new(base.content(), media_thumbnail, media_eq));
 
         let widget = Self {
             base,
             label,
             format: config.format,
             timer_source,
-            _media_companion: media_companion,
             _notification_companion: notification_companion,
         };
 
@@ -522,163 +486,6 @@ impl ClockNotificationInner {
     }
 }
 
-struct ClockMediaCompanion {
-    media_callback_id: CallbackId,
-    _art_state: Rc<RefCell<ArtState>>,
-}
-
-#[derive(Clone)]
-struct ClockMediaRefs {
-    container: GtkBox,
-    art_picture: Option<RoundedPicture>,
-    play_pause_btn: Button,
-    play_pause_icon: IconHandle,
-    pulse_enabled: bool,
-    art_state: Rc<RefCell<ArtState>>,
-    art_size: i32,
-}
-
-impl ClockMediaCompanion {
-    fn new(parent: &GtkBox, show_thumbnail: bool, pulse_enabled: bool) -> Self {
-        let art_size = clock_media_art_size();
-        let art_state = Rc::new(RefCell::new(ArtState::new()));
-
-        let container = GtkBox::new(Orientation::Horizontal, 2);
-        container.add_css_class(wgt::CLOCK_MEDIA);
-        container.set_halign(Align::Center);
-        container.set_valign(Align::Center);
-        container.set_visible(false);
-
-        let art_picture = show_thumbnail.then(|| {
-            let art_picture = RoundedPicture::new();
-            art_picture.set_pixel_size(art_size);
-            art_picture.set_corner_radius(art_size as f32 * art_radius_percent());
-            art_picture.add_css_class(wgt::CLOCK_MEDIA_ART);
-            art_picture.add_css_class(media::ART_SMALL);
-            art_picture.set_visible(false);
-            container.append(&art_picture);
-            art_picture
-        });
-
-        let icons = IconsService::global();
-        let play_pause_icon = icons.create_icon("media-playback-start", &[icon::ICON]);
-        play_pause_icon.widget().set_halign(Align::Center);
-        play_pause_icon.widget().set_valign(Align::Center);
-        let play_pause_btn = vp_button();
-        play_pause_btn.set_has_frame(false);
-        play_pause_btn.set_focus_on_click(false);
-        play_pause_btn.set_size_request(30, 30);
-        play_pause_btn.set_halign(Align::Center);
-        play_pause_btn.set_valign(Align::Center);
-        play_pause_btn.set_child(Some(&play_pause_icon.widget()));
-        play_pause_btn.add_css_class(media::CONTROL_BTN);
-        play_pause_btn.add_css_class(media::CONTROL_BTN_PRIMARY);
-        play_pause_btn.add_css_class(button::COMPACT);
-        play_pause_btn.add_css_class(wgt::CLOCK_MEDIA_PLAY_PAUSE);
-        TooltipManager::global().set_styled_tooltip(&play_pause_btn, "Play/Pause");
-        play_pause_btn.connect_clicked(|_| {
-            MediaService::global().play_pause();
-        });
-        container.append(&play_pause_btn);
-
-        parent.append(&container);
-
-        let refs = ClockMediaRefs {
-            container,
-            art_picture,
-            play_pause_btn,
-            play_pause_icon,
-            pulse_enabled,
-            art_state: art_state.clone(),
-            art_size,
-        };
-
-        let media_callback_id = MediaService::global().connect(move |snapshot| {
-            update_clock_media(&refs, snapshot);
-        });
-
-        Self {
-            media_callback_id,
-            _art_state: art_state,
-        }
-    }
-}
-
-impl Drop for ClockMediaCompanion {
-    fn drop(&mut self) {
-        MediaService::global().disconnect(self.media_callback_id);
-    }
-}
-
-fn clock_media_art_size() -> i32 {
-    let size = (ConfigManager::global().bar_size() as f64 * CLOCK_MEDIA_ART_SCALE).round() as i32;
-    size.clamp(16, 28)
-}
-
-fn update_clock_media(refs: &ClockMediaRefs, snapshot: &MediaSnapshot) {
-    let should_show = snapshot.available
-        && snapshot.has_metadata()
-        && snapshot.playback_status != PlaybackStatus::Stopped;
-
-    refs.container.set_visible(should_show);
-    if !should_show {
-        if let Some(ref art_picture) = refs.art_picture {
-            art_picture.set_visible(false);
-        }
-        refs.play_pause_btn.remove_css_class(media::PLAYING);
-        refs.play_pause_btn.remove_css_class(media::PAUSED);
-        refs.play_pause_btn.remove_css_class(media::STOPPED);
-        return;
-    }
-
-    refs.play_pause_icon
-        .set_icon(match snapshot.playback_status {
-            PlaybackStatus::Playing => "media-playback-pause",
-            PlaybackStatus::Paused | PlaybackStatus::Stopped => "media-playback-start",
-        });
-    refs.play_pause_btn
-        .set_sensitive(snapshot.can_play || snapshot.can_pause);
-
-    refs.play_pause_btn.remove_css_class(media::PLAYING);
-    refs.play_pause_btn.remove_css_class(media::PAUSED);
-    refs.play_pause_btn.remove_css_class(media::STOPPED);
-    match snapshot.playback_status {
-        PlaybackStatus::Playing if refs.pulse_enabled => {
-            refs.play_pause_btn.add_css_class(media::PLAYING);
-        }
-        PlaybackStatus::Paused => refs.play_pause_btn.add_css_class(media::PAUSED),
-        PlaybackStatus::Stopped => refs.play_pause_btn.add_css_class(media::STOPPED),
-        PlaybackStatus::Playing => {}
-    }
-
-    if let Some(ref art_picture) = refs.art_picture {
-        let art_url = snapshot.metadata.art_url.as_deref();
-        let picture_for_failure = art_picture.clone();
-        let player_id = snapshot.player_id.clone();
-        let art_state_for_failure = refs.art_state.clone();
-        let art_size = refs.art_size;
-        let on_failure = move || {
-            let generation = art_state_for_failure.borrow().generation;
-            show_player_icon_in_art(
-                &picture_for_failure,
-                player_id.as_deref(),
-                &art_state_for_failure,
-                generation,
-                art_size,
-            );
-        };
-
-        ArtState::debounced_load(
-            &refs.art_state,
-            art_url,
-            snapshot.player_id.as_deref(),
-            art_picture.clone(),
-            || {},
-            on_failure,
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,8 +529,6 @@ mod tests {
     fn test_clock_config_default_impl() {
         let config = ClockConfig::default();
         assert_eq!(config.format, "%a %d %H:%M");
-        assert!(!config.media_thumbnail);
-        assert!(config.media_eq);
     }
 
     #[test]
@@ -734,9 +539,6 @@ mod tests {
             "control_panel_weather_widget".to_string(),
             Value::String("custom-weather".to_string()),
         );
-        options.insert("media_thumbnail".to_string(), Value::Boolean(true));
-        options.insert("media_eq".to_string(), Value::Boolean(false));
-
         let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
 
         assert!(config.control_panel);
@@ -744,8 +546,6 @@ mod tests {
             config.control_panel_weather_widget.as_deref(),
             Some("custom-weather")
         );
-        assert!(config.media_thumbnail);
-        assert!(!config.media_eq);
     }
 
     #[test]

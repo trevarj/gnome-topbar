@@ -46,7 +46,6 @@
                     "graphene"
                     "pulseaudio"
                     "upower"
-                    "power-profiles-daemon"
                     "network-manager"
                     "bluez"))))
     (home-page "https://github.com/trevarj/gnome-topbar")

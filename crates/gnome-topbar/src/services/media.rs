@@ -36,8 +36,6 @@ use gtk4::glib::{self, ControlFlow, Variant, clone};
 use gtk4::prelude::*;
 use tracing::{debug, error, trace, warn};
 
-use super::callbacks::{CallbackId, Callbacks};
-
 // D-Bus constants
 const DBUS_NAME: &str = "org.freedesktop.DBus";
 const DBUS_PATH: &str = "/org/freedesktop/DBus";
@@ -132,8 +130,6 @@ pub struct PlayerInfo {
 pub struct MediaSnapshot {
     /// Whether any MPRIS player is available.
     pub available: bool,
-    /// Name of the active player (e.g., "Spotify", "Firefox").
-    pub player_name: Option<String>,
     /// Raw player ID for icon lookup (e.g., "spotify", "firefox").
     pub player_id: Option<String>,
     /// Current playback status.
@@ -158,7 +154,6 @@ impl Default for MediaSnapshot {
     fn default() -> Self {
         Self {
             available: false,
-            player_name: None,
             player_id: None,
             playback_status: PlaybackStatus::Stopped,
             metadata: MediaMetadata::default(),
@@ -226,8 +221,6 @@ pub struct MediaService {
     manual_selection: RefCell<Option<String>>,
     /// Last player that started playing (for auto-selection preference).
     last_playing: RefCell<Option<String>>,
-    /// Registered callbacks for state changes.
-    callbacks: Callbacks<MediaSnapshot>,
     /// Signal subscription for NameOwnerChanged (player appear/disappear).
     _name_owner_subscription: RefCell<Option<gio::SignalSubscription>>,
     /// Timer for position polling when playing.
@@ -244,7 +237,6 @@ impl MediaService {
             active_player: RefCell::new(None),
             manual_selection: RefCell::new(None),
             last_playing: RefCell::new(None),
-            callbacks: Callbacks::new(),
             _name_owner_subscription: RefCell::new(None),
             position_poll_source: RefCell::new(None),
             poll_cancellable: RefCell::new(gio::Cancellable::new()),
@@ -260,22 +252,6 @@ impl MediaService {
             static INSTANCE: Rc<MediaService> = MediaService::new();
         }
         INSTANCE.with(|s| s.clone())
-    }
-
-    /// Register a callback for state changes.
-    pub fn connect<F>(&self, callback: F) -> CallbackId
-    where
-        F: Fn(&MediaSnapshot) + 'static,
-    {
-        let id = self.callbacks.register(callback);
-        let snapshot = self.build_snapshot();
-        self.callbacks.notify_single(id, &snapshot);
-        id
-    }
-
-    /// Unregister a callback by its ID.
-    pub fn disconnect(&self, id: CallbackId) -> bool {
-        self.callbacks.unregister(id)
     }
 
     /// Get a clone of the current snapshot.
@@ -308,7 +284,6 @@ impl MediaService {
         debug!("Manual player selection: {}", bus_name);
         self.manual_selection.replace(Some(bus_name.to_string()));
         self.update_active_player();
-        self.notify_callbacks();
     }
 
     /// Switch to auto-selection mode.
@@ -316,7 +291,6 @@ impl MediaService {
         debug!("Switching to auto player selection");
         self.manual_selection.replace(None);
         self.update_active_player();
-        self.notify_callbacks();
     }
 
     /// Check if auto-selection is active.
@@ -573,8 +547,6 @@ impl MediaService {
                                 }
                             }
 
-                            this.notify_callbacks();
-
                             // Some players (notably YouTube Music) report stale
                             // position data immediately after a track or status change.
                             // Give them a moment to sort themselves out, then re-poll.
@@ -599,7 +571,6 @@ impl MediaService {
 
                     // Update active player selection
                     this.update_active_player();
-                    this.notify_callbacks();
                 }
             ),
         );
@@ -618,7 +589,6 @@ impl MediaService {
             }
 
             self.update_active_player();
-            self.notify_callbacks();
         }
     }
 
@@ -879,7 +849,6 @@ impl MediaService {
         match active_player {
             Some(p) => MediaSnapshot {
                 available: true,
-                player_name: Some(p.player_name.clone()),
                 player_id: Some(p.player_id.clone()),
                 playback_status: p.playback_status,
                 metadata: p.metadata.clone(),
@@ -895,12 +864,6 @@ impl MediaService {
                 ..Default::default()
             },
         }
-    }
-
-    /// Notify all callbacks with the current snapshot.
-    fn notify_callbacks(&self) {
-        let snapshot = self.build_snapshot();
-        self.callbacks.notify(&snapshot);
     }
 
     // ========== Metadata Parsing ==========
@@ -1052,9 +1015,6 @@ impl MediaService {
                                 let changed = player.borrow().position != position;
                                 if changed {
                                     player.borrow_mut().position = position;
-                                    drop(players);
-                                    drop(active);
-                                    this.notify_callbacks();
                                 }
                             }
                         }
@@ -1118,7 +1078,6 @@ impl MediaService {
                 player.borrow_mut().position = position_us;
             }
         }
-        self.notify_callbacks();
 
         connection.call(
             Some(&bus_name),
@@ -1494,7 +1453,6 @@ mod tests {
     fn test_media_snapshot_default() {
         let snapshot = MediaSnapshot::default();
         assert!(!snapshot.available);
-        assert!(snapshot.player_name.is_none());
         assert_eq!(snapshot.playback_status, PlaybackStatus::Stopped);
     }
 }

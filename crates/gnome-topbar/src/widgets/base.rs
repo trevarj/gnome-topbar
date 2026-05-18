@@ -115,33 +115,6 @@ impl MenuHandle {
         })
     }
 
-    /// Create a menu handle with a placeholder builder, to be replaced via `set_builder()`.
-    pub(crate) fn new_placeholder(widget_name: String, parent: impl IsA<gtk4::Widget>) -> Rc<Self> {
-        Rc::new(Self {
-            popover: RefCell::new(None),
-            builder: RefCell::new(Rc::new(|| {
-                unreachable!(
-                    "placeholder builder called — set_builder() must be called before showing the popover"
-                )
-            })),
-            widget_name,
-            parent: parent.upcast(),
-            tracker_id: Cell::new(None),
-            on_close: RefCell::new(None),
-            on_show: RefCell::new(None),
-            reuse_content: Cell::new(false),
-        })
-    }
-
-    /// Replace the builder function.
-    ///
-    /// Must be called before the popover is first shown; calling it afterward
-    /// has no effect because the `LayerShellPopover` captures the builder at
-    /// creation time.
-    pub(crate) fn set_builder<F: Fn() -> gtk4::Widget + 'static>(&self, builder: F) {
-        *self.builder.borrow_mut() = Rc::new(builder);
-    }
-
     /// Ensure the popover is created, creating it lazily if needed.
     ///
     /// Returns `None` if the widget isn't attached to a window yet (shouldn't
@@ -191,21 +164,6 @@ impl MenuHandle {
 
         *popover_opt = Some(popover.clone());
         Some(popover)
-    }
-
-    /// Set a callback to be invoked when the popover is hidden.
-    ///
-    /// If the popover hasn't been created yet (lazy init), the callback is
-    /// stored and forwarded when `ensure_popover()` creates it.
-    pub fn set_on_close<F: Fn() + 'static>(&self, callback: F) {
-        let cb = Rc::new(callback);
-        *self.on_close.borrow_mut() = Some(cb.clone());
-
-        // If popover already exists, forward immediately
-        if let Some(ref popover) = *self.popover.borrow() {
-            let cb = cb.clone();
-            popover.set_on_close(move || cb());
-        }
     }
 
     /// Set a callback to be invoked every time the popover is shown.
@@ -306,27 +264,6 @@ impl MenuHandle {
             .as_ref()
             .map(|p| p.is_visible())
             .unwrap_or(false)
-    }
-
-    /// Refresh the popover content if it's currently visible.
-    ///
-    /// Rebuilds the popover content in-place by calling the builder closure
-    /// and swapping the animation shell's child. No animation is triggered —
-    /// the popover stays fully open at its current position.
-    ///
-    /// Used by widgets like Notifications that need to update their
-    /// popover content dynamically while the popover is open.
-    pub fn refresh_if_visible(&self) {
-        if self.is_visible() {
-            let Some(popover) = self.ensure_popover() else {
-                return;
-            };
-            popover.rebuild_content();
-        } else if let Some(ref popover) = *self.popover.borrow() {
-            // Popover is mid-close (or fully closed). Mark content dirty so
-            // a mid-close reversal rebuilds before the user sees stale content.
-            popover.mark_content_dirty();
-        }
     }
 }
 
@@ -465,13 +402,9 @@ fn click_target_matches(
 /// padding and theming across all widgets. Widgets should add their children to
 /// `content()` rather than `widget()` directly.
 ///
-/// In **passive** mode (see [`new_passive`](Self::new_passive)), the overlay,
-/// ripple, menu, and gesture fields are `None` — the merge-group wrapper
-/// provides those instead.
 pub struct BaseWidget {
     container: GtkBox,
     content: GtkBox,
-    overlay: Option<Overlay>,
     ripple_handle: Option<RippleHandle>,
     menu: Option<Rc<RefCell<Option<Rc<MenuHandle>>>>>,
     widget_name: String,
@@ -491,16 +424,6 @@ impl BaseWidget {
     ///   popover styling (e.g., "clock" -> popovers get "clock-popover" class).
     pub fn new(extra_classes: &[&str]) -> Self {
         Self::new_inner(extra_classes, false)
-    }
-
-    /// Create a passive base widget — no GestureClick, no RippleHandle, no menu.
-    ///
-    /// Used by widgets that participate in a merge group, where the merge
-    /// wrapper owns click handling, ripple animation, and the shared popover.
-    /// The widget still builds its visual content (icon, label, tooltip) and
-    /// responds to data service updates.
-    pub(crate) fn new_passive(extra_classes: &[&str]) -> Self {
-        Self::new_inner(extra_classes, true)
     }
 
     fn new_inner(extra_classes: &[&str], passive: bool) -> Self {
@@ -544,7 +467,6 @@ impl BaseWidget {
             return Self {
                 container,
                 content,
-                overlay: None,
                 ripple_handle: None,
                 menu: None,
                 widget_name,
@@ -691,7 +613,6 @@ impl BaseWidget {
         Self {
             container,
             content,
-            overlay: Some(overlay),
             ripple_handle: Some(ripple_handle),
             menu: Some(menu),
             widget_name,
@@ -920,11 +841,6 @@ impl BaseWidget {
     /// Get the inner `.content` box for adding widget children.
     pub fn content(&self) -> &GtkBox {
         &self.content
-    }
-
-    /// Get the overlay wrapping the content box.
-    pub fn overlay(&self) -> Option<&Overlay> {
-        self.overlay.as_ref()
     }
 
     /// Create an icon using `IconsService`, apply CSS classes, pack it into the

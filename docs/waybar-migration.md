@@ -1,40 +1,38 @@
 # Waybar Custom Script Migration
 
-GNOME Topbar supports Waybar-style custom script output for common status
-modules. Weather and headset have native widget names; other one-off scripts
-can keep using the `custom-` prefix. The default bar keeps common system status
-inside Quick Settings.
+GNOME Topbar is not a Waybar replacement. It supports a narrow `custom-*`
+escape hatch for small status scripts, while core system controls stay in the
+clock panel or Quick Settings.
+
+Use `custom-*` for one-off scripts:
 
 ```toml
 [widgets]
 left = ["workspaces", "custom-crypto"]
 center = ["clock"]
-right = ["headset", "custom-vpn", "tray", "quick_settings"]
+right = ["tray", "quick_settings"]
+
+[widgets.clock]
+control_panel = true
+control_panel_weather_widget = "custom-weather"
 
 [widgets.custom-crypto]
 exec = "~/.config/gnome-topbar/scripts/crypto.sh -r"
 interval = 1800
 max_chars = 40
 
-[widgets.weather]
+[widgets.custom-weather]
 exec = "~/.config/gnome-topbar/scripts/weather.sh"
 interval = 1800
-position = "left"
-tooltip = "Weather"
-
-[widgets.headset]
-exec = "~/.config/gnome-topbar/scripts/headsetcontrol.sh"
-interval = 5
-tooltip = "Headset battery"
-
-[widgets.custom-vpn]
-exec = "sh -c 'test -r /sys/class/net/tun0/carrier && grep -qx 1 /sys/class/net/tun0/carrier && echo vpn'"
-interval = 5
 ```
 
-Battery, network, audio, Bluetooth, and VPN status are shown by
-`quick_settings` by default. Add standalone widgets such as `battery` only when
-you intentionally want a Waybar-like module split.
+VPN status belongs in Quick Settings. GNOME Topbar detects NetworkManager VPNs
+and active external tunnel interfaces such as `tun0`/`wg0`; keep one-off VPN
+scripts out of the bar unless you need a deliberately separate indicator.
+
+Standalone widget names such as `battery`, `weather`, `headset`, `media`,
+`notifications`, and resource monitors are intentionally outside the supported
+surface. Existing configs that reference them warn and skip the widget.
 
 ## Output Formats
 
@@ -47,7 +45,7 @@ BTC 103421 ETH 3850
 JSON output may use Waybar-style fields:
 
 ```json
-{"text":"󰋎 ","tooltip":"Headset: 72%","percentage":72}
+{"text":"VPN","tooltip":"Connected"}
 ```
 
 - `text`: text shown in the panel.
@@ -62,7 +60,8 @@ Empty display text hides the widget when no static config `label` fallback is se
 Custom widgets support shell click handlers:
 
 ```toml
-[widgets.weather]
+[widgets.custom-weather]
+exec = "~/.config/gnome-topbar/scripts/weather.sh"
+interval = 1800
 on_click = "xdg-open https://wttr.in"
-on_click_right = "sh -c 'echo F > /tmp/gnome-topbar-weather-unit'"
 ```

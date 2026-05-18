@@ -335,21 +335,6 @@ impl MarqueeLabel {
         self.reset_and_check_scroll();
     }
 
-    /// Set visibility of the marquee label.
-    pub fn set_visible(&self, visible: bool) {
-        // Only act if visibility actually changes
-        if self.container.is_visible() == visible {
-            return;
-        }
-
-        self.container.set_visible(visible);
-        if !visible {
-            self.stop_animation();
-        } else {
-            self.reset_and_check_scroll();
-        }
-    }
-
     /// Reset scroll and check if scrolling is needed.
     fn reset_and_check_scroll(&self) {
         self.stop_animation();

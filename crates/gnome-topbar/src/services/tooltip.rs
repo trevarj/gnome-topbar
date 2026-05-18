@@ -18,6 +18,7 @@ use gtk4::{Label, Window};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use tracing::debug;
 
+use crate::services::background_effect::attach_blur_surface_lifecycle;
 use crate::services::config_manager::ConfigManager;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::tooltip;
@@ -30,8 +31,7 @@ thread_local! {
 /// Delay before showing tooltip (ms)
 const TOOLTIP_SHOW_DELAY_MS: u32 = 500;
 
-/// Offset from cursor position
-const TOOLTIP_CURSOR_OFFSET_X: i32 = 10;
+/// Vertical offset from the bar edge.
 const TOOLTIP_CURSOR_OFFSET_Y: i32 = 0;
 
 /// Margin from screen edges
@@ -39,6 +39,13 @@ const SCREEN_EDGE_MARGIN: i32 = 8;
 
 /// Fallback tooltip width when measurement fails
 const FALLBACK_TOOLTIP_WIDTH: i32 = 300;
+
+fn centered_tooltip_left(center_x: i32, tooltip_width: i32, monitor_width: i32) -> i32 {
+    let desired = center_x - tooltip_width / 2;
+    let max_left = monitor_width - tooltip_width - SCREEN_EDGE_MARGIN;
+    let max_left = max_left.max(SCREEN_EDGE_MARGIN);
+    desired.clamp(SCREEN_EDGE_MARGIN, max_left)
+}
 
 /// Default tooltip styles, used when init_global is not called.
 /// Provides a reasonable dark-mode appearance as fallback.
@@ -61,15 +68,7 @@ fn default_surface_styles() -> SurfaceStyles {
 struct TooltipWindow {
     window: Window,
     label: Label,
-}
-
-/// Positioning mode for tooltips.
-#[derive(Clone, Copy)]
-enum TooltipAnchor {
-    /// Anchor from bar-edge + left, use left margin for X position
-    Left,
-    /// Anchor from bar-edge + right, use right margin for X position
-    Right,
+    _blur_guard: crate::services::config_manager::ThemeCallbackGuard,
 }
 
 impl TooltipWindow {
@@ -100,7 +99,17 @@ impl TooltipWindow {
         // Apply styles via inline CSS on the window
         Self::apply_styles(&window, &label, styles);
 
-        Self { window, label }
+        let blur_guard = attach_blur_surface_lifecycle(
+            &window,
+            |win| Some(win.clone().upcast::<gtk4::Widget>()),
+            || ConfigManager::global().surface_border_radius() as i32,
+        );
+
+        Self {
+            window,
+            label,
+            _blur_guard: blur_guard,
+        }
     }
 
     fn apply_styles(window: &Window, label: &Label, styles: &SurfaceStyles) {
@@ -110,11 +119,11 @@ impl TooltipWindow {
         let css = format!(
             r#"
 .gnome-topbar-tooltip {{
-    background-color: color-mix(in srgb, color-mix(in srgb, var(--widget-background-color) var(--widget-background-opacity), transparent) 90%, var(--widget-hover-tint));
-    border-radius: var(--radius-surface);
+    background-color: color-mix(in srgb, {bg} 96%, transparent);
+    border-radius: {radius}px;
     border: none;
     padding: 6px 10px;
-    opacity: 0.90;
+    opacity: 1;
 }}
 
 .gnome-topbar-tooltip-label {{
@@ -126,6 +135,8 @@ impl TooltipWindow {
             font = styles.font_family,
             size = styles.font_size,
             fg = styles.text_color,
+            bg = styles.background_color,
+            radius = styles.border_radius,
         );
 
         let provider = gtk4::CssProvider::new();
@@ -156,7 +167,7 @@ impl TooltipWindow {
         natural_width + 20
     }
 
-    fn show_at(&self, x: i32, y: i32, anchor: TooltipAnchor, monitor: Option<&gtk4::gdk::Monitor>) {
+    fn show_at(&self, x: i32, y: i32, monitor: Option<&gtk4::gdk::Monitor>) {
         // Bind to monitor if provided
         if let Some(monitor) = monitor {
             self.window.set_monitor(Some(monitor));
@@ -171,21 +182,10 @@ impl TooltipWindow {
         self.window.set_anchor(bar_edge, true);
         self.window.set_anchor(opposite_edge, false);
 
-        // Set anchors based on horizontal positioning mode
-        match anchor {
-            TooltipAnchor::Left => {
-                self.window.set_anchor(Edge::Left, true);
-                self.window.set_anchor(Edge::Right, false);
-                self.window.set_margin(Edge::Left, x);
-                self.window.set_margin(Edge::Right, 0);
-            }
-            TooltipAnchor::Right => {
-                self.window.set_anchor(Edge::Left, false);
-                self.window.set_anchor(Edge::Right, true);
-                self.window.set_margin(Edge::Left, 0);
-                self.window.set_margin(Edge::Right, x);
-            }
-        }
+        self.window.set_anchor(Edge::Left, true);
+        self.window.set_anchor(Edge::Right, false);
+        self.window.set_margin(Edge::Left, x);
+        self.window.set_margin(Edge::Right, 0);
 
         self.window.set_margin(bar_edge, y);
         self.window.present();
@@ -413,13 +413,13 @@ impl TooltipManager {
             None => return,
         };
 
-        // cursor_x is relative to the widget's top-left corner
-        let cursor_rel_x = self.cursor_x.get() as i32;
+        // Center the tooltip under the hovered widget. Cursor-relative
+        // placement drifts on small nested controls.
+        let widget_center_x = (widget.width() / 2).max(0);
 
-        // Get cursor's screen X position, accounting for window anchor type
-        let cursor_screen_x = self
-            .get_cursor_screen_x(&widget, cursor_rel_x, monitor_width)
-            .unwrap_or(cursor_rel_x);
+        let widget_center_screen_x = self
+            .get_widget_local_screen_x(&widget, widget_center_x, monitor_width)
+            .unwrap_or(widget_center_x);
 
         // For Y position: layer-shell exclusive zone means the tooltip's bar-edge anchor
         // starts past the bar's exclusive zone, so we only need a small offset
@@ -437,21 +437,10 @@ impl TooltipManager {
                 FALLBACK_TOOLTIP_WIDTH
             };
 
-            // Position tooltip near bar and near cursor X
-            let tooltip_x = cursor_screen_x + TOOLTIP_CURSOR_OFFSET_X;
+            let tooltip_x =
+                centered_tooltip_left(widget_center_screen_x, effective_width, monitor_width);
 
-            // Check right edge overflow using actual measured width
-            let (anchor, x_margin) =
-                if tooltip_x + effective_width > monitor_width - SCREEN_EDGE_MARGIN {
-                    // Anchor from right edge
-                    let right_margin = (monitor_width - cursor_screen_x + TOOLTIP_CURSOR_OFFSET_X)
-                        .max(SCREEN_EDGE_MARGIN);
-                    (TooltipAnchor::Right, right_margin)
-                } else {
-                    (TooltipAnchor::Left, tooltip_x.max(SCREEN_EDGE_MARGIN))
-                };
-
-            tooltip_window.show_at(x_margin, tooltip_y, anchor, monitor.as_ref());
+            tooltip_window.show_at(tooltip_x, tooltip_y, monitor.as_ref());
         }
     }
 
@@ -464,11 +453,12 @@ impl TooltipManager {
         Some(computed.x() as i32)
     }
 
-    /// Get cursor's screen X, accounting for right-anchored layer-shell windows (popovers).
-    fn get_cursor_screen_x(
+    /// Get a widget-local X coordinate in monitor coordinates, accounting for
+    /// right-anchored layer-shell windows.
+    fn get_widget_local_screen_x(
         &self,
         widget: &gtk4::Widget,
-        cursor_rel_x: i32,
+        local_x: i32,
         monitor_width: i32,
     ) -> Option<i32> {
         let root = widget.root()?;
@@ -483,10 +473,10 @@ impl TooltipManager {
             let right_margin = window.margin(Edge::Right);
             let window_width = window.width();
             let window_left_x = monitor_width - right_margin - window_width;
-            return Some(window_left_x + widget_in_window_x + cursor_rel_x);
+            return Some(window_left_x + widget_in_window_x + local_x);
         }
 
-        Some(widget_in_window_x + cursor_rel_x)
+        Some(widget_in_window_x + local_x)
     }
 
     /// Get monitor info for the widget's window.
@@ -555,5 +545,19 @@ mod tests {
         assert!(styles.border_radius > 0);
         assert!(styles.font_size > 0);
         assert!(styles.is_dark_mode);
+    }
+
+    #[test]
+    fn test_centered_tooltip_left_centers_under_widget() {
+        assert_eq!(centered_tooltip_left(500, 120, 1000), 440);
+    }
+
+    #[test]
+    fn test_centered_tooltip_left_clamps_to_edges() {
+        assert_eq!(centered_tooltip_left(20, 120, 1000), SCREEN_EDGE_MARGIN);
+        assert_eq!(
+            centered_tooltip_left(990, 120, 1000),
+            1000 - 120 - SCREEN_EDGE_MARGIN
+        );
     }
 }

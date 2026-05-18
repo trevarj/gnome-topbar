@@ -38,9 +38,6 @@ const VALID_POPOVER_MODES: &[&str] = &["dark", "light"];
 /// Known valid values for bar.position.
 const VALID_BAR_POSITIONS: &[&str] = &["top", "bottom"];
 
-/// Known valid values for widgets.weather.position.
-const VALID_WEATHER_POSITIONS: &[&str] = &["left", "right"];
-
 /// Known valid values for osd.position.
 const VALID_OSD_POSITIONS: &[&str] = &["bottom", "left", "right", "top"];
 
@@ -57,6 +54,32 @@ const VALID_OUTLINE_COLOR_SYMBOLS: &[&str] = &["subtle", "accent", "foreground"]
 /// thicker decorative borders should be done via user CSS.
 const MAX_OUTLINE_WIDTH: u32 = 4;
 
+/// Public widget names supported by the GNOME-like top-bar surface.
+const SUPPORTED_WIDGETS: &[&str] = &[
+    "clock",
+    "keyboard_layout",
+    "quick_settings",
+    "tray",
+    "workspaces",
+];
+
+/// Widget names kept only long enough to warn users about the reduced surface.
+const REMOVED_WIDGETS: &[&str] = &[
+    "battery",
+    "cpu",
+    "gpu",
+    "headset",
+    "media",
+    "memory",
+    "network_speed",
+    "notifications",
+    "spacer",
+    "taskbar",
+    "updates",
+    "weather",
+    "window_title",
+];
+
 /// Validate an outline color value against the symbolic + hex contract.
 ///
 /// Accepts: "subtle", "accent", "foreground", or a hex color (`#rgb` / `#rrggbb`).
@@ -68,6 +91,30 @@ fn is_valid_outline_color(value: &str) -> bool {
         return (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit());
     }
     false
+}
+
+fn widget_base_name(name: &str) -> &str {
+    name.split(':').next().unwrap_or(name)
+}
+
+fn widget_support_status(name: &str) -> WidgetSupportStatus<'_> {
+    let base_name = widget_base_name(name);
+    if base_name.starts_with("custom-") {
+        return WidgetSupportStatus::Supported;
+    }
+    if REMOVED_WIDGETS.contains(&base_name) {
+        return WidgetSupportStatus::Removed(base_name);
+    }
+    if SUPPORTED_WIDGETS.contains(&base_name) {
+        return WidgetSupportStatus::Supported;
+    }
+    WidgetSupportStatus::Unknown(base_name)
+}
+
+enum WidgetSupportStatus<'a> {
+    Supported,
+    Removed(&'a str),
+    Unknown(&'a str),
 }
 
 /// Embedded default configuration TOML, compiled into the binary.
@@ -114,6 +161,9 @@ pub struct Config {
 
     /// Audio configuration.
     pub audio: AudioConfig,
+
+    /// Updates card configuration.
+    pub updates: UpdatesConfig,
 
     /// Advanced configuration options.
     pub advanced: AdvancedConfig,
@@ -207,7 +257,6 @@ impl Config {
 
         let mut config: Config = base.try_into()?;
         config.normalize_paths();
-        config.apply_widget_layout_preferences();
         Ok(config)
     }
 
@@ -302,12 +351,6 @@ impl Config {
         }
     }
 
-    /// Apply declarative widget placement preferences that are easier to
-    /// express as per-widget options than by manually editing section arrays.
-    fn apply_widget_layout_preferences(&mut self) {
-        self.widgets.apply_weather_clock_position();
-    }
-
     /// Validate the configuration, returning errors for invalid values.
     ///
     /// This performs strict validation - any invalid value causes an error.
@@ -377,20 +420,6 @@ impl Config {
                 "osd.position: invalid value '{}', expected one of: {}",
                 self.osd.position,
                 VALID_OSD_POSITIONS.join(", ")
-            ));
-        }
-
-        if let Some(position) = self
-            .widgets
-            .get_options("weather")
-            .and_then(|opts| opts.options.get("position"))
-            .and_then(toml::Value::as_str)
-            && !VALID_WEATHER_POSITIONS.contains(&position)
-        {
-            errors.push(format!(
-                "widgets.weather.position: invalid value '{}', expected one of: {}",
-                position,
-                VALID_WEATHER_POSITIONS.join(", ")
             ));
         }
 
@@ -478,26 +507,42 @@ impl Config {
     pub fn warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
 
+        if self.widgets.widget_configs.contains_key("updates") {
+            warnings.push(
+                "widgets.updates: moved to top-level [updates]; this widget-style config has no effect"
+                    .to_string(),
+            );
+        }
+
         // Check for widget configs that aren't referenced in any placement array
         let unreferenced = self.widgets.unreferenced_configs();
         for name in unreferenced {
-            warnings.push(format!(
-                "widgets.{}: config defined but widget not used in any section (possible typo?)",
-                name
-            ));
+            if name != "updates" {
+                warnings.push(format!(
+                    "widgets.{}: config defined but widget not used in any section (possible typo?)",
+                    name
+                ));
+            }
         }
 
-        // Check for spacer widgets in center section (they have no effect there)
-        for placement in &self.widgets.center {
-            for name in placement.widget_names() {
-                let base_name = name.split(':').next().unwrap_or(name);
-                if base_name == "spacer" {
-                    warnings.push(
-                        "widgets.center: spacer widget has no effect in center section; \
-                         use spacer in left/right sections to push widgets toward the center"
-                            .to_string(),
-                    );
-                    break;
+        for (section_name, section) in [
+            ("left", &self.widgets.left),
+            ("center", &self.widgets.center),
+            ("right", &self.widgets.right),
+        ] {
+            for placement in section {
+                for name in placement.widget_names() {
+                    match widget_support_status(name) {
+                        WidgetSupportStatus::Supported => {}
+                        WidgetSupportStatus::Removed(base_name) => warnings.push(format!(
+                            "widgets.{}: widget \"{}\" has been removed from the supported GNOME Topbar surface and will be skipped",
+                            section_name, base_name
+                        )),
+                        WidgetSupportStatus::Unknown(base_name) => warnings.push(format!(
+                            "widgets.{}: unknown widget \"{}\" will be skipped",
+                            section_name, base_name
+                        )),
+                    }
                 }
             }
         }
@@ -820,8 +865,6 @@ impl Default for WidgetsConfig {
                         toml::Value::String("%a %b %-d  %H:%M".to_string()),
                     ),
                     ("control_panel".to_string(), toml::Value::Boolean(true)),
-                    ("media_thumbnail".to_string(), toml::Value::Boolean(false)),
-                    ("media_eq".to_string(), toml::Value::Boolean(true)),
                 ]),
                 ..Default::default()
             },
@@ -871,15 +914,12 @@ impl WidgetsConfig {
 
     /// Parse inline argument from widget name.
     ///
-    /// Supports syntax like `"spacer:50"` where the part after the colon is the inline arg.
-    /// Empty args (e.g., `"spacer:"`) are treated as None.
+    /// The reduced widget surface does not define inline arguments for any
+    /// supported widgets today, but this keeps warnings for legacy names such as
+    /// `"spacer:50"` attached to the base widget name.
     ///
     /// Returns `(base_name, inline_arg)`.
     ///
-    /// # Examples
-    /// - `"spacer"` -> `("spacer", None)`
-    /// - `"spacer:50"` -> `("spacer", Some("50"))`
-    /// - `"spacer:"` -> `("spacer", None)`
     fn parse_inline_arg(name: &str) -> (&str, Option<&str>) {
         if let Some(pos) = name.find(':') {
             let arg = &name[pos + 1..];
@@ -891,42 +931,26 @@ impl WidgetsConfig {
     }
 
     /// Resolve a single widget name to a WidgetEntry, applying options from config.
-    /// Returns None if the widget is disabled.
-    ///
-    /// Supports inline spacer width syntax like "spacer:50".
-    /// This is intentionally special-cased: the inline value is parsed and injected
-    /// into the resolved entry as `options["width"]`.
+    /// Returns None if the widget is disabled, unknown, or removed.
     fn resolve_widget(&self, name: &str) -> Option<WidgetEntry> {
-        let (base_name, inline_arg) = Self::parse_inline_arg(name);
+        let (base_name, _inline_arg) = Self::parse_inline_arg(name);
+
+        if !matches!(
+            widget_support_status(base_name),
+            WidgetSupportStatus::Supported
+        ) {
+            return None;
+        }
 
         if self.is_disabled(base_name) {
             return None;
         }
 
-        let mut entry = if let Some(opts) = self.get_options(base_name) {
+        let entry = if let Some(opts) = self.get_options(base_name) {
             WidgetEntry::with_options(base_name, opts)
         } else {
             WidgetEntry::new(base_name)
         };
-
-        if base_name == "spacer"
-            && let Some(arg) = inline_arg
-            && !arg.is_empty()
-        {
-            match arg.parse::<i64>() {
-                Ok(width) if width > 0 => {
-                    entry
-                        .options
-                        .insert("width".to_string(), toml::Value::Integer(width));
-                }
-                _ => {
-                    tracing::warn!(
-                        "Invalid spacer width '{}' - expected a positive integer",
-                        arg
-                    );
-                }
-            }
-        }
 
         Some(entry)
     }
@@ -969,81 +993,73 @@ impl WidgetsConfig {
         self.resolve_section(&self.center)
     }
 
-    /// Apply `[widgets.weather].position` by inserting the weather widget next
-    /// to the clock in the center section when the user has enabled weather
-    /// but has not placed it manually.
-    fn apply_weather_clock_position(&mut self) {
-        if self.is_disabled("weather")
-            || !self.widget_configs.contains_key("weather")
-            || self.all_referenced_widgets().contains("weather")
-        {
-            return;
-        }
-
-        let Some(clock_idx) = self
-            .center
-            .iter()
-            .position(|placement| placement.widget_names().contains(&"clock"))
-        else {
-            return;
-        };
-
-        let position = self
-            .get_options("weather")
-            .and_then(|opts| opts.options.get("position"))
-            .and_then(toml::Value::as_str)
-            .unwrap_or("left");
-
-        let insert_idx = if position == "right" {
-            clock_idx + 1
-        } else {
-            clock_idx
-        };
-
-        self.center
-            .insert(insert_idx, WidgetPlacement::Single("weather".to_string()));
-    }
-
     /// Get resolved widgets for the right section.
     pub fn resolved_right(&self) -> Vec<WidgetOrGroup> {
-        self.resolve_section(&self.right)
+        self.with_tray_first(self.resolve_section(&self.right))
     }
 
-    /// Check if a widget name refers to a flexible (expandable) spacer.
+    /// Keep the system tray at the left edge of the right section. This matches
+    /// GNOME Shell's tray-adjacent indicator discipline while still allowing
+    /// user configs to place other right-side widgets freely.
+    fn with_tray_first(&self, section: Vec<WidgetOrGroup>) -> Vec<WidgetOrGroup> {
+        let mut tray = None;
+        let mut ordered = Vec::with_capacity(section.len());
+
+        for item in section {
+            match item {
+                WidgetOrGroup::Single(entry) if entry.name == "tray" => {
+                    tray.get_or_insert(entry);
+                }
+                WidgetOrGroup::Single(entry) => {
+                    ordered.push(WidgetOrGroup::Single(entry));
+                }
+                WidgetOrGroup::Group { group } => {
+                    let mut rest = Vec::with_capacity(group.len());
+                    for entry in group {
+                        if entry.name == "tray" {
+                            tray.get_or_insert(entry);
+                        } else {
+                            rest.push(entry);
+                        }
+                    }
+
+                    match rest.len() {
+                        0 => {}
+                        1 => ordered.push(WidgetOrGroup::Single(rest.remove(0))),
+                        _ => ordered.push(WidgetOrGroup::Group { group: rest }),
+                    }
+                }
+            }
+        }
+
+        if let Some(tray) = tray {
+            ordered.insert(0, WidgetOrGroup::Single(tray));
+        }
+
+        ordered
+    }
+
+    /// Check if a widget name refers to a flexible layout expander.
     ///
-    /// Returns `true` only for spacer widgets that will expand to fill available space.
-    /// Returns `false` for:
-    /// - Non-spacer widgets
-    /// - Disabled spacers
-    /// - Spacers with fixed width (via inline arg like `"spacer:50"` or TOML `width` option)
+    /// No supported widget currently expands sections. Legacy spacer names
+    /// intentionally return false because spacer is outside the reduced surface.
     fn is_flexible_spacer(&self, name: &str) -> bool {
-        let (base_name, inline_arg) = Self::parse_inline_arg(name);
+        let (base_name, _inline_arg) = Self::parse_inline_arg(name);
 
-        if base_name != "spacer" || self.is_disabled(base_name) {
-            return false;
-        }
-
-        // Fixed width via inline arg (e.g., "spacer:50")
-        if inline_arg.is_some() {
-            return false;
-        }
-
-        // Fixed width via TOML options (e.g., [widgets.spacer] width = 50)
-        if let Some(opts) = self.get_options(base_name)
-            && opts.options.contains_key("width")
+        if base_name != "spacer"
+            || !matches!(
+                widget_support_status(base_name),
+                WidgetSupportStatus::Supported
+            )
+            || self.is_disabled(base_name)
         {
             return false;
         }
 
-        true
+        false
     }
 
-    /// Check if a section contains any expandable widgets (like spacer without fixed width).
-    ///
-    /// A flexible spacer ("spacer" or "spacer:") expands to fill available space,
-    /// while a fixed spacer ("spacer:50" or with `width` in options) has a fixed width.
-    ///
-    /// Disabled widgets are not considered expanders.
+    /// Check if a section contains any expandable widgets.
     pub fn section_has_expander(&self, section: &[WidgetPlacement]) -> bool {
         section.iter().any(|placement| {
             placement
@@ -1072,6 +1088,14 @@ impl WidgetsConfig {
                     names.insert(name.to_string());
                 }
             }
+        }
+        if let Some(weather_widget) = self
+            .get_options("clock")
+            .and_then(|opts| opts.options.get("control_panel_weather_widget"))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        {
+            names.insert(weather_widget.to_string());
         }
         names
     }
@@ -1193,7 +1217,7 @@ pub struct WidgetOptions {
     /// Shell command that controls widget visibility. Runs via `sh -c`.
     /// Exit 0 = show, non-zero or failure = hide. Unset = always show.
     /// Evaluated asynchronously — the widget starts hidden and appears when
-    /// the command succeeds. Not supported on spacer widgets.
+    /// the command succeeds.
     #[serde(default)]
     pub show_if: Option<String>,
 
@@ -1378,8 +1402,8 @@ pub struct ThemeConfig {
     /// Enable compositor background blur via ext-background-effect-v1.
     ///
     /// When true, gnome-topbar sends blur region hints to the compositor for
-    /// the bar, popovers, quick settings, OSD, notification toasts, tray menus,
-    /// and the media pop-out window. Requires a compositor that
+    /// the bar, popovers, quick settings, OSD, notification toasts, and tray menus.
+    /// Requires a compositor that
     /// supports the ext-background-effect-v1 protocol (e.g. niri with blur
     /// enabled). Has no effect on compositors that do not support the protocol.
     ///
@@ -1511,6 +1535,26 @@ impl Default for OsdConfig {
 pub struct AudioConfig {
     /// Allow output and microphone volume above 100%, capped at PulseAudio's recommended UI maximum.
     pub allow_overdrive: bool,
+}
+
+/// Updates card configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdatesConfig {
+    /// Seconds between update checks when update counting is configured.
+    pub check_interval: u64,
+
+    /// Command that prints either a number or one update per line.
+    pub update_count_command: Option<String>,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            check_interval: 3600,
+            update_count_command: None,
+        }
+    }
 }
 
 /// Advanced configuration options.
@@ -1858,13 +1902,13 @@ mod tests {
         // New format: widget names as strings, options in separate sections
         let toml = r#"
             [widgets]
-            left = ["workspaces", "window_title"]
+            left = ["workspaces", "custom-title"]
             right = ["clock"]
 
             [widgets.workspaces]
             label_type = "none"
 
-            [widgets.window_title]
+            [widgets.custom-title]
             format = "{display}"
 
             [widgets.clock]
@@ -2184,92 +2228,37 @@ mod tests {
     }
 
     #[test]
-    fn test_weather_position_inserts_left_of_clock() {
+    fn test_resolved_right_promotes_tray_to_leftmost_position() {
         let toml = r#"
             [widgets]
-            center = ["clock"]
-
-            [widgets.weather]
-            exec = "weather.sh"
-            position = "left"
+            right = ["custom-vpn", "tray", "quick_settings"]
         "#;
 
-        let config = Config::load_with_defaults(toml).unwrap();
-        let names: Vec<_> = config
-            .widgets
-            .center
+        let config: Config = toml::from_str(toml).unwrap();
+        let resolved = config.widgets.resolved_right();
+        let names: Vec<_> = resolved
             .iter()
-            .flat_map(WidgetPlacement::widget_names)
+            .flat_map(WidgetOrGroup::display_names)
             .collect();
 
-        assert_eq!(names, vec!["weather", "clock"]);
+        assert_eq!(names, vec!["tray", "custom-vpn", "quick_settings"]);
     }
 
     #[test]
-    fn test_weather_position_inserts_right_of_clock() {
+    fn test_resolved_right_extracts_tray_from_group() {
         let toml = r#"
             [widgets]
-            center = ["clock"]
-
-            [widgets.weather]
-            exec = "weather.sh"
-            position = "right"
+            right = [{ group = ["custom-vpn", "tray"] }, "quick_settings"]
         "#;
 
-        let config = Config::load_with_defaults(toml).unwrap();
-        let names: Vec<_> = config
-            .widgets
-            .center
+        let config: Config = toml::from_str(toml).unwrap();
+        let resolved = config.widgets.resolved_right();
+        let names: Vec<_> = resolved
             .iter()
-            .flat_map(WidgetPlacement::widget_names)
+            .flat_map(WidgetOrGroup::display_names)
             .collect();
 
-        assert_eq!(names, vec!["clock", "weather"]);
-    }
-
-    #[test]
-    fn test_weather_position_does_not_duplicate_manual_placement() {
-        let toml = r#"
-            [widgets]
-            center = ["weather", "clock"]
-
-            [widgets.weather]
-            exec = "weather.sh"
-            position = "right"
-        "#;
-
-        let config = Config::load_with_defaults(toml).unwrap();
-        let names: Vec<_> = config
-            .widgets
-            .center
-            .iter()
-            .flat_map(WidgetPlacement::widget_names)
-            .collect();
-
-        assert_eq!(names, vec!["weather", "clock"]);
-    }
-
-    #[test]
-    fn test_weather_position_disabled_does_not_insert() {
-        let toml = r#"
-            [widgets]
-            center = ["clock"]
-
-            [widgets.weather]
-            disabled = true
-            exec = "weather.sh"
-            position = "left"
-        "#;
-
-        let config = Config::load_with_defaults(toml).unwrap();
-        let names: Vec<_> = config
-            .widgets
-            .center
-            .iter()
-            .flat_map(WidgetPlacement::widget_names)
-            .collect();
-
-        assert_eq!(names, vec!["clock"]);
+        assert_eq!(names, vec!["tray", "custom-vpn", "quick_settings"]);
     }
 
     #[test]
@@ -2316,10 +2305,29 @@ mod tests {
     }
 
     #[test]
+    fn test_clock_control_panel_weather_widget_counts_as_referenced() {
+        let toml = r#"
+            [widgets]
+            center = ["clock"]
+
+            [widgets.clock]
+            control_panel = true
+            control_panel_weather_widget = "custom-weather"
+
+            [widgets.custom-weather]
+            exec = "weather.sh"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let unreferenced = config.widgets.unreferenced_configs();
+        assert!(!unreferenced.contains(&"custom-weather".to_string()));
+    }
+
+    #[test]
     fn test_section_has_expander_flexible_spacer() {
         let section = vec![WidgetPlacement::Single("spacer".to_string())];
         let config = WidgetsConfig::default();
-        assert!(config.section_has_expander(&section));
+        assert!(!config.section_has_expander(&section));
     }
 
     #[test]
@@ -2332,10 +2340,10 @@ mod tests {
 
     #[test]
     fn test_section_has_expander_empty_arg() {
-        // "spacer:" with empty arg IS expandable (matches resolve_widget behavior)
+        // spacer is no longer a supported panel widget.
         let section = vec![WidgetPlacement::Single("spacer:".to_string())];
         let config = WidgetsConfig::default();
-        assert!(config.section_has_expander(&section));
+        assert!(!config.section_has_expander(&section));
     }
 
     #[test]
@@ -2350,25 +2358,23 @@ mod tests {
 
     #[test]
     fn test_section_has_expander_in_group() {
-        // Spacer in a group should still be detected
         let section = vec![WidgetPlacement::Group {
             group: vec!["clock".to_string(), "spacer".to_string()],
         }];
         let config = WidgetsConfig::default();
-        assert!(config.section_has_expander(&section));
+        assert!(!config.section_has_expander(&section));
     }
 
     #[test]
     fn test_section_has_expander_mixed() {
-        // Mix of regular widgets and flexible spacer
         let section = vec![
             WidgetPlacement::Single("workspaces".to_string()),
-            WidgetPlacement::Single("window_title".to_string()),
+            WidgetPlacement::Single("custom-title".to_string()),
             WidgetPlacement::Single("spacer".to_string()),
             WidgetPlacement::Single("clock".to_string()),
         ];
         let config = WidgetsConfig::default();
-        assert!(config.section_has_expander(&section));
+        assert!(!config.section_has_expander(&section));
     }
 
     #[test]
@@ -2414,16 +2420,13 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_widget_spacer_inline_width_injects_option() {
+    fn test_removed_spacer_does_not_resolve() {
         let config = WidgetsConfig::default();
-        let entry = config.resolve_widget("spacer:50").unwrap();
-
-        assert_eq!(entry.name, "spacer");
-        assert_eq!(entry.options.get("width"), Some(&toml::Value::Integer(50)));
+        assert!(config.resolve_widget("spacer:50").is_none());
     }
 
     #[test]
-    fn test_resolve_widget_spacer_inline_overrides_config_width() {
+    fn test_removed_spacer_config_stays_unresolved() {
         let mut config = WidgetsConfig::default();
         let mut options = HashMap::new();
         options.insert("width".to_string(), toml::Value::Integer(100));
@@ -2435,17 +2438,13 @@ mod tests {
             },
         );
 
-        let entry = config.resolve_widget("spacer:50").unwrap();
-        assert_eq!(entry.options.get("width"), Some(&toml::Value::Integer(50)));
+        assert!(config.resolve_widget("spacer:50").is_none());
     }
 
     #[test]
-    fn test_resolve_widget_spacer_invalid_inline_width_warns_and_ignores() {
+    fn test_removed_spacer_invalid_inline_width_stays_unresolved() {
         let config = WidgetsConfig::default();
-        let entry = config.resolve_widget("spacer:nope").unwrap();
-
-        assert_eq!(entry.name, "spacer");
-        assert!(!entry.options.contains_key("width"));
+        assert!(config.resolve_widget("spacer:nope").is_none());
     }
 
     #[test]
@@ -2634,6 +2633,149 @@ mod tests {
                 .iter()
                 .any(|w| w.contains("show_if_interval") && w.contains("clock")),
             "expected warning about show_if_interval without show_if, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_warning_unknown_widget_in_section() {
+        let toml = r#"
+            [widgets]
+            right = ["clok"]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("unknown widget \"clok\"")),
+            "expected unknown widget warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_warning_removed_widget_in_section() {
+        let toml = r#"
+            [widgets]
+            right = ["battery"]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("widget \"battery\" has been removed")),
+            "expected removed widget warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_removed_widget_in_section_does_not_resolve() {
+        let toml = r#"
+            [widgets]
+            right = ["battery", "clock"]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let names: Vec<_> = config
+            .widgets
+            .resolved_right()
+            .iter()
+            .flat_map(WidgetOrGroup::display_names)
+            .collect();
+
+        assert_eq!(names, vec!["clock"]);
+    }
+
+    #[test]
+    fn test_unknown_widget_in_section_does_not_resolve() {
+        let toml = r#"
+            [widgets]
+            right = ["clok", "clock"]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let names: Vec<_> = config
+            .widgets
+            .resolved_right()
+            .iter()
+            .flat_map(WidgetOrGroup::display_names)
+            .collect();
+
+        assert_eq!(names, vec!["clock"]);
+    }
+
+    #[test]
+    fn test_warning_bare_custom_widget_is_unknown() {
+        let toml = r#"
+            [widgets]
+            right = ["custom"]
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("unknown widget \"custom\"")),
+            "bare custom should warn as unknown: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_warning_custom_widget_is_supported() {
+        let toml = r#"
+            [widgets]
+            right = ["custom-weather"]
+
+            [widgets.custom-weather]
+            exec = "weather.sh"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            !warnings.iter().any(|w| w.contains("custom-weather")),
+            "custom widgets should not warn as unknown: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_top_level_updates_config_parses() {
+        let toml = r#"
+            [updates]
+            check_interval = 600
+            update_count_command = "printf 0"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.updates.check_interval, 600);
+        assert_eq!(
+            config.updates.update_count_command.as_deref(),
+            Some("printf 0")
+        );
+    }
+
+    #[test]
+    fn test_warning_widgets_updates_moved_to_top_level() {
+        let toml = r#"
+            [widgets.updates]
+            update_count_command = "printf 0"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warnings = config.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("widgets.updates") && w.contains("[updates]")),
+            "expected moved updates warning, got: {:?}",
             warnings
         );
     }

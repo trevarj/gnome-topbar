@@ -18,7 +18,7 @@
 //! tooltip = "Power menu"
 //! on_click = "wlogout"
 //! # on_click_right and on_click_middle are available on all widgets
-//! on_click_right = "systemctl suspend"
+//! on_click_right = "loginctl suspend"
 //!
 //! [widgets.custom-os]
 //! image = "/usr/share/pixmaps/distro-logo.svg"

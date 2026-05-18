@@ -11,6 +11,8 @@
 - Follow GNOME Shell top-bar discipline: quiet, continuous, system-owned, and low-distraction.
 - The default bar is a solid full-width top panel, not floating islands.
 - Widgets and custom scripts should look like GNOME panel buttons: transparent at rest, rounded hover fill, bold text, Adwaita symbolic icons.
+- Treat mass code reduction and simplification as a primary project goal; prefer deleting optional variants over preserving broad bar-framework flexibility.
+- See `docs/project-goals.md` for the product boundary and non-goals.
 - Design changes need automated screenshot coverage through the project smoke harness once available.
 
 ## Rust

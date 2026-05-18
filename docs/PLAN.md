@@ -14,7 +14,8 @@
 - Treat GNOME Shell's own top bar as a viable styling and design resource for spacing, typography, hover states, indicator density, popover rhythm, and low-distraction behavior.
 - Prefer Niri-first behavior while keeping the existing Wayland compositor backend architecture available.
 - Keep the default experience quiet, continuous, system-owned, and low-distraction.
-- Preserve Waybar-style custom script migration while growing common scripts into tested native Rust modules over time.
+- Keep `custom-*` as a narrow escape hatch for small status scripts, not as a path toward Waybar-style module parity.
+- Remove or simplify features whose main value is configurability, theme breadth, or standalone status-module coverage.
 - Use idiomatic Rust: typed config boundaries, serde for structured parsing, small service APIs, GTK work on the main thread, and tests with every feature or behavior change.
 
 ## Working Rules
@@ -73,7 +74,7 @@ Visual audit notes:
 - [x] Preserve Waybar-style custom script support for plain text and JSON output.
 - [x] Add focused tests for empty output, JSON empty `text`, `label` fallback, `percentage` tooltip fallback, and zero-like script output where intended.
 - [x] Keep `README.md` and `docs/waybar-migration.md` aligned with supported JSON fields and empty-text hide behavior.
-- [x] Keep common migrated scripts working: crypto, weather, headset, VPN, and distro/icon launcher.
+- [x] Require migrated scripts to use `custom-*`; native `weather` and `headset` widget names are no longer supported.
 
 ### Phase 4: Icons And Themes
 
@@ -100,16 +101,16 @@ Current control panel inventory:
 
 - Clock: opens either calendar-only content or `build_clock_control_panel` when `[widgets.clock].control_panel = true`.
 - Calendar: embedded in the clock control panel through `build_clock_calendar_popover`.
-- Notifications: live in the clock control panel by default. The standalone bell remains opt-in and opens either notification-only content or the clock control panel when `[widgets.notifications].control_panel = true`; `hide_empty` controls bell visibility.
-- Weather: native `weather` widget uses the script output contract, auto-places left or right of the clock through `[widgets.weather].position`, and feeds the clock control panel by default. `control_panel_weather_widget` remains for legacy custom-widget routing.
-- Media: embedded in the clock control panel through `build_media_popover_with_controller`; standalone media widget still has its own popover and pop-out window.
-- Headset: native `headset` widget uses the script output contract for headset battery/status scripts.
+- Notifications: live in the clock control panel by default; the standalone notification widget has been removed.
+- Weather: no native widget; use an explicit `custom-*` script via `[widgets.clock].control_panel_weather_widget` when needed.
+- Media: embedded in the clock control panel through `build_media_popover_with_controller`; the standalone media widget and pop-out window have been removed.
+- Headset: no native widget; use `custom-*` for headset battery/status scripts when needed.
 - Quick settings: currently opens its own keep-alive window from the bar widget; convergence should happen one behavior slice at a time.
 
 Completed control-panel slice:
 
-- Clock control-panel options, native weather placement, and weather-widget integration are covered by config tests.
-- Notification `hide_empty` and control-panel routing are covered by config tests; the default layout keeps notification access in the clock control panel rather than a standalone bar icon.
+- Clock control-panel options are covered by config tests.
+- Removed standalone widget names warn and are skipped, so old configs fail softly while the supported surface stays small.
 - Popover surface CSS is covered by shared token tests for background, radius, padding, and typography.
 
 ### Phase 7: Packaging, CI, And Fork Hardening
@@ -124,6 +125,8 @@ Completed control-panel slice:
 Packaging and cleanup audit:
 
 - `guix/gnome-topbar.scm` uses `cargo-inputs-from-lockfile`.
+- The publishing fork target is `https://github.com/trevarj/gnome-topbar`.
+- Dotfiles should consume the fork with a pinned `git-fetch` origin after push.
 - GitHub Actions run Guix-backed fmt, clippy, tests, font subset checks, and `guix build -f guix/gnome-topbar.scm --dry-run`.
 - No AUR, COPR, Nix, distro-specific packaging files, or release machinery are present in the tracked project files.
 - No stale legacy project names, distro-specific packaging files, or release machinery are present in the tracked project files.

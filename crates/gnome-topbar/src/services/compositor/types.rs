@@ -135,8 +135,9 @@ pub type KeyboardLayoutCallback = Arc<dyn Fn(KeyboardLayoutInfo) + Send + Sync>;
 
 /// Information about a window in the window list.
 ///
-/// Used by the taskbar to display all windows, not just the focused one.
+/// Retained for compositor backends that can report full window lists.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct Window {
     /// Window ID (compositor-specific).
     pub id: u64,
@@ -154,8 +155,9 @@ pub struct Window {
     pub is_urgent: bool,
 }
 
-/// Snapshot of all windows for the taskbar.
+/// Snapshot of all windows.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct WindowListSnapshot {
     /// List of all windows.
     pub windows: Vec<Window>,
@@ -260,6 +262,7 @@ pub trait CompositorBackend: Send + Sync {
     /// Get the list of all windows.
     ///
     /// Returns a snapshot of all windows currently open across all workspaces.
+    #[allow(dead_code)]
     fn list_windows(&self) -> Vec<Window> {
         Vec::new()
     }
@@ -274,6 +277,7 @@ pub trait CompositorBackend: Send + Sync {
     /// Focus a specific window by its ID.
     ///
     /// Requests the compositor to focus the specified window.
+    #[allow(dead_code)]
     fn focus_window(&self, _window_id: u64) {
         // Default no-op
     }

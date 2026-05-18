@@ -464,25 +464,12 @@ pub mod qs {
 
 /// Widget-specific CSS classes.
 pub mod widget {
-    // Spacer
-    /// Spacer widget (`.spacer`).
-    pub const SPACER: &str = "spacer";
-
     // Clock
     /// Clock widget (`.clock`).
     pub const CLOCK: &str = "clock";
 
     /// Clock label (`.clock-label`).
     pub const CLOCK_LABEL: &str = "clock-label";
-
-    /// Compact media controls beside the clock (`.clock-media`).
-    pub const CLOCK_MEDIA: &str = "clock-media";
-
-    /// Compact media album art beside the clock (`.clock-media-art`).
-    pub const CLOCK_MEDIA_ART: &str = "clock-media-art";
-
-    /// Compact media play/pause button beside the clock (`.clock-media-play-pause`).
-    pub const CLOCK_MEDIA_PLAY_PAUSE: &str = "clock-media-play-pause";
 
     /// Compact notification indicator beside the clock (`.clock-notifications`).
     pub const CLOCK_NOTIFICATIONS: &str = "clock-notifications";
@@ -590,25 +577,6 @@ pub mod widget {
 
     /// Window title app icon (`.window-title-app-icon`).
     pub const WINDOW_TITLE_APP_ICON: &str = "window-title-app-icon";
-
-    // Taskbar
-    /// Taskbar widget (`.taskbar`).
-    pub const TASKBAR: &str = "taskbar";
-
-    /// Taskbar button (`.taskbar-button`).
-    pub const TASKBAR_BUTTON: &str = "taskbar-button";
-
-    /// Taskbar icon (`.taskbar-icon`).
-    pub const TASKBAR_ICON: &str = "taskbar-icon";
-
-    /// Taskbar label (`.taskbar-label`).
-    pub const TASKBAR_LABEL: &str = "taskbar-label";
-
-    /// Taskbar workspace separator (`.taskbar-separator`).
-    pub const TASKBAR_SEPARATOR: &str = "taskbar-separator";
-
-    /// Taskbar output/monitor separator (`.taskbar-output-separator`).
-    pub const TASKBAR_OUTPUT_SEPARATOR: &str = "taskbar-output-separator";
 
     // Updates
     /// Updates widget (`.updates`).
@@ -1179,46 +1147,4 @@ pub mod media {
 
     /// Generic audio/music icon (fallback when player icon unavailable).
     pub const ICON_AUDIO_GENERIC: &str = "audio-x-generic";
-}
-
-/// System resource popover classes (shared by CPU and Memory widgets).
-pub mod system_popover {
-    /// System popover container (`.system-popover`).
-    pub const POPOVER: &str = "system-popover";
-
-    /// Section card wrapper (`.system-section-card`).
-    pub const SECTION_CARD: &str = "system-section-card";
-
-    /// Section title container (`.system-section-title`).
-    pub const SECTION_TITLE: &str = "system-section-title";
-
-    /// Section title icon (`.system-section-icon`).
-    pub const SECTION_ICON: &str = "system-section-icon";
-
-    /// Progress bar (`.system-progress-bar`).
-    pub const PROGRESS_BAR: &str = "system-progress-bar";
-
-    /// Core row for per-CPU display (`.system-core-row`).
-    pub const CORE_ROW: &str = "system-core-row";
-
-    /// Core bar (`.system-core-bar`).
-    pub const CORE_BAR: &str = "system-core-bar";
-
-    /// Expander header row (`.system-expander-header`).
-    pub const EXPANDER_HEADER: &str = "system-expander-header";
-
-    /// Expander content container (`.system-expander-content`).
-    pub const EXPANDER_CONTENT: &str = "system-expander-content";
-
-    /// Network speed icon (`.system-network-icon`).
-    pub const NETWORK_ICON: &str = "system-network-icon";
-
-    /// GPU full-width card (`.system-gpu-card`).
-    pub const GPU_CARD: &str = "system-gpu-card";
-
-    /// GPU title row container (`.system-gpu-title`).
-    pub const GPU_TITLE: &str = "system-gpu-title";
-
-    /// GPU metrics label in title row (clock · power · temp) (`.system-gpu-metrics`).
-    pub const GPU_METRICS: &str = "system-gpu-metrics";
 }

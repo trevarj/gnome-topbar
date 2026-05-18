@@ -1,9 +1,8 @@
 # GNOME Topbar
 
-A Wayland-only GTK top bar inspired by GNOME Shell for compositors such as
-Niri. GNOME Topbar provides a continuous system panel, integrated
-notifications, quick settings, media controls, workspaces, and scriptable
-status modules.
+A Wayland-only GTK top bar inspired by GNOME Shell for Niri. GNOME Topbar
+provides a continuous system panel with workspaces, an integrated clock control
+panel, tray, Quick Settings, and a narrow `custom-*` escape hatch.
 
 This project is inspired by GNOME Shell's top bar. It is not affiliated with
 or endorsed by the GNOME project.
@@ -12,10 +11,10 @@ or endorsed by the GNOME project.
 
 - Follow GNOME Shell top-bar design: quiet, continuous, system-owned, and
   low-distraction.
-- Prefer Niri-first behavior while keeping the existing Wayland compositor
-  backend architecture available.
-- Keep custom script modules useful for migrations from Waybar.
-- Grow common script use cases into tested native Rust modules over time.
+- Prefer Niri-first behavior.
+- Treat mass code reduction and simplification as a primary goal.
+- Keep `custom-*` useful for one-off indicators without becoming a
+  general-purpose Waybar replacement.
 - Stay idiomatic Rust: typed config boundaries, explicit parsing, small
   services, and tests with new behavior.
 
@@ -49,57 +48,27 @@ gnome-topbar dump default-css ~/.config/gnome-topbar/style.css
 The shipped default is a GNOME Shell-style top bar:
 
 - left: Niri workspaces
-- center: clock, calendar, notifications, media, and optional weather
+- center: clock, calendar, notifications, and media
 - right: tray plus one Quick Settings aggregate for network, audio, battery,
-  Bluetooth, and VPN
+  Bluetooth, VPN, updates, and idle inhibitor
 
-Standalone status widgets such as `battery`, `keyboard_layout`,
-`notifications`, and custom scripts remain available when explicitly added to
-a widget list.
-
-## Native Script Widgets
-
-Weather and headset are first-class widgets with the same script output
-contract as custom widgets:
-
-```toml
-[widgets]
-center = ["clock"] # weather auto-places next to clock
-right = ["headset", "quick_settings"]
-
-[widgets.clock]
-control_panel = true
-media_thumbnail = false # compact active-media companion
-media_eq = true         # pulse play/pause while playing
-
-[widgets.weather]
-exec = "~/.config/gnome-topbar/scripts/weather.sh"
-interval = 1800
-position = "left" # "left" or "right" of the clock
-tooltip = "Weather"
-
-[widgets.headset]
-exec = "~/.config/gnome-topbar/scripts/headsetcontrol.sh"
-interval = 5
-tooltip = "Headset battery"
-```
-
-Set `disabled = true` under either widget table to hide it. When weather is
-enabled, the clock control panel also uses its `exec` output for the weather
-line.
+Standalone Waybar-style status widgets have been removed from the supported
+surface. Unknown or removed widget names produce configuration warnings and are
+skipped.
 
 ## Updates
 
 Guix update counting is disabled until configured:
 
 ```toml
-[widgets.updates]
+[updates]
 update_count_command = "" # print a number, or one update per line
+check_interval = 3600
 ```
 
 ## Custom Scripts
 
-Custom widgets are intended for migration and extensibility. They use the
+Custom widgets are intended for small one-off indicators. They use the
 `custom-` prefix and can poll shell commands:
 
 ```toml
@@ -112,7 +81,20 @@ interval = 1800
 tooltip = "Crypto prices"
 ```
 
-Waybar-style custom script output is supported for migration. Scripts may emit
+The clock control panel can read a custom weather script without placing that
+script on the bar:
+
+```toml
+[widgets.clock]
+control_panel = true
+control_panel_weather_widget = "custom-weather"
+
+[widgets.custom-weather]
+exec = "~/.config/gnome-topbar/scripts/weather.sh"
+interval = 1800
+```
+
+Waybar-style custom script output is supported. Scripts may emit
 plain text or JSON:
 
 ```json
@@ -124,8 +106,7 @@ display field for simple scripts. `tooltip` is used as the widget tooltip.
 When `tooltip` is absent, `percentage` is shown as a percentage tooltip.
 Empty text hides the widget when no static config `label` fallback is set.
 
-See [docs/waybar-migration.md](docs/waybar-migration.md) for migration
-examples.
+See [docs/project-goals.md](docs/project-goals.md) for the product boundary.
 
 ## Development
 
@@ -158,6 +139,10 @@ Build the Guix package:
 ```sh
 guix build -f guix/gnome-topbar.scm
 ```
+
+The in-repo Guix package uses the local checkout as its source. For Guix Home
+or System configs that consume the fork, pin `https://github.com/trevarj/gnome-topbar`
+to a commit and hash in your own package module.
 
 ## License
 

@@ -11,11 +11,10 @@
 //! - `tray` - System tray items and menus
 //! - `calendar` - Calendar widget styles
 //! - `quick_settings` - Quick settings panel, cards, rows
-//! - `battery` - Battery widget and popover
+//! - `battery` - Battery indicator helpers
 //! - `notifications` - Notification rows and toasts
 //! - `osd` - On-screen display overlays
-//! - `media` - Media player widget
-//! - `system` - System info popover
+//! - `media` - Media player control-panel content
 
 /// Widget background with opacity applied via `color-mix()`.
 pub const WIDGET_BG_WITH_OPACITY: &str = "color-mix(in srgb, var(--widget-background-color) var(--widget-background-opacity), transparent)";
@@ -38,7 +37,7 @@ pub const DISMISS_ANIMATION_MS: u64 = 200;
 /// Base horizontal padding (px) for `.content` inside widgets.
 ///
 /// Shared between the CSS rule (`padding: var(--widget-padding-y) {CONTENT_PADDING_X}px`)
-/// in `bar.rs` and the runtime padding adjustment in `taskbar.rs`.
+/// in `bar.rs` and shared compact panel content.
 pub const CONTENT_PADDING_X: i32 = 10;
 
 mod bar;
@@ -50,7 +49,6 @@ mod media;
 mod notifications;
 mod osd;
 mod quick_settings;
-mod system;
 mod tray;
 
 use gnome_topbar_core::Config;
@@ -88,9 +86,8 @@ pub fn widget_css(config: &Config) -> String {
     let notifications_css = notifications::css(animations);
     let osd_css = osd::css();
     let media_css = media::css(animations);
-    let system_css = system::css();
 
     format!(
-        "{bar_css}\n{tray_css}\n{buttons_css}\n{calendar_css}\n{quick_settings_css}\n{battery_css}\n{notifications_css}\n{osd_css}\n{media_css}\n{system_css}"
+        "{bar_css}\n{tray_css}\n{buttons_css}\n{calendar_css}\n{quick_settings_css}\n{battery_css}\n{notifications_css}\n{osd_css}\n{media_css}"
     )
 }

@@ -862,6 +862,7 @@ impl QuickSettingsWindow {
 
         let vpn_primary = vpn_snapshot.primary();
         let vpn_has_connections = !vpn_snapshot.connections.is_empty();
+        let vpn_has_managed_connections = vpn_snapshot.connections.iter().any(|c| !c.is_external());
         let vpn_any_active = vpn_snapshot.any_active;
 
         let vpn_subtitle_text = if !vpn_snapshot.is_ready {
@@ -884,7 +885,7 @@ impl QuickSettingsWindow {
             .label("VPN")
             .subtitle(&vpn_subtitle_text)
             .active(vpn_primary.map(|p| p.active).unwrap_or(false))
-            .sensitive(vpn_has_connections)
+            .sensitive(vpn_has_connections && vpn_has_managed_connections)
             .icon_active(vpn_icon_active)
             .with_expander(true)
             .build();
@@ -903,6 +904,12 @@ impl QuickSettingsWindow {
                 let vpn = VpnService::global();
                 let snapshot = vpn.snapshot();
                 if let Some(primary) = snapshot.primary() {
+                    if primary.is_external() {
+                        vpn_state.updating_toggle.set(true);
+                        toggle.set_active(primary.active);
+                        vpn_state.updating_toggle.set(false);
+                        return;
+                    }
                     let target_active = toggle.is_active();
                     vpn_card::track_toggle_action(&primary.uuid, target_active);
                     vpn.set_connection_state(&primary.uuid, target_active);

@@ -459,7 +459,7 @@ impl ConfigManager {
     ///
     /// When true, gnome-topbar sends ext-background-effect-v1 blur region hints
     /// for the bar, popovers, quick settings, notification toasts, OSD,
-    /// tray menus, and media pop-out windows.
+    /// and tray menus.
     pub fn blur_enabled(&self) -> bool {
         self.config.borrow().theme.blur
     }
@@ -473,11 +473,6 @@ impl ConfigManager {
             .widgets
             .get_options(widget_name)
             .and_then(|opts| opts.options.get(option_name).cloned())
-    }
-
-    /// Return whether a widget is disabled in the current config.
-    pub fn widget_disabled(&self, widget_name: &str) -> bool {
-        self.config.borrow().widgets.is_disabled(widget_name)
     }
 
     /// Get click handler commands for a widget.
@@ -766,6 +761,9 @@ impl ConfigManager {
                     send_config_message(ConfigMessage::Error(msg));
                     return;
                 }
+                for warning in new_config.warnings() {
+                    warn!("{}", warning);
+                }
 
                 info!("Config reloaded successfully from: {}", path.display());
                 send_config_message(ConfigMessage::Reloaded(Box::new(new_config)));
@@ -931,7 +929,7 @@ impl ConfigManager {
 
         if theme_changed {
             // Notify theme callbacks even during structural rebuild, because
-            // non-bar surfaces (e.g. media pop-out) persist across bar rebuilds
+            // non-bar surfaces persist across bar rebuilds
             // and need to react to theme changes independently.
             self.theme_callbacks.notify(&());
         }

@@ -103,7 +103,7 @@ const BLUR_SURFACE_RESIZE_WATCHED_KEY: &str = "gnome-topbar-blur-surface-watched
 
 /// Attach the standard blur lifecycle for standalone GTK windows.
 ///
-/// Used by OSD, notification toasts, and the media pop-out: apply on map,
+/// Used by OSD and notification toasts: apply on map,
 /// remove on unmap while the wl_surface is still resolvable, keep destroy as a
 /// safety net, and live-update on theme changes. Reusable animated surfaces
 /// (bar, popovers, Quick Settings) have bespoke lifecycles and should not use
@@ -1097,7 +1097,7 @@ impl BackgroundEffectManager {
     /// Apply a blur region matching a content widget's allocation within its surface.
     ///
     /// Designed for surfaces without explicit shadow margins (OSD, notification
-    /// toast, tray menu popover, media pop-out) where the surface may be
+    /// toast or tray menu popover) where the surface may be
     /// slightly larger than the visible content due to CSS box-shadow expansion.
     /// The `content` widget's allocation provides the exact bounds to blur.
     ///

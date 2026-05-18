@@ -32,6 +32,7 @@ pub fn build_clock_control_panel(
     left_col.add_css_class("control-panel-left");
     left_col.set_size_request(380, -1);
     left_col.set_vexpand(true);
+    left_col.set_valign(Align::Fill);
 
     let suppress_rebuild = Rc::new(Cell::new(false));
     let notifications = build_notifications_content(None, suppress_rebuild);
@@ -41,17 +42,24 @@ pub fn build_clock_control_panel(
     let right_col = GtkBox::new(Orientation::Vertical, 10);
     right_col.add_css_class("control-panel-right");
     right_col.set_size_request(360, -1);
-    right_col.set_vexpand(true);
+    right_col.set_vexpand(false);
+    right_col.set_valign(Align::Start);
 
-    let time_card = build_time_weather_card(weather_widget_name.or_else(default_weather_widget));
+    let time_card = build_time_weather_card(weather_widget_name);
+    time_card.container.set_vexpand(false);
+    time_card.container.set_valign(Align::Start);
     right_col.append(&time_card.container);
 
     let (media_widget, media_controller) = build_media_popover_with_controller(|| {});
     media_widget.add_css_class("control-panel-media");
+    media_widget.set_vexpand(false);
+    media_widget.set_valign(Align::Start);
     right_col.append(&media_widget);
 
     let (calendar_widget, calendar_refresh) = build_clock_calendar_popover(show_week_numbers);
     calendar_widget.add_css_class("control-panel-calendar");
+    calendar_widget.set_vexpand(false);
+    calendar_widget.set_valign(Align::Start);
     right_col.append(&calendar_widget);
 
     root.append(&left_col);
@@ -73,18 +81,6 @@ pub fn build_clock_control_panel(
     (root.upcast(), refresh)
 }
 
-pub(crate) fn default_weather_widget() -> Option<String> {
-    let config = ConfigManager::global();
-    if config.widget_disabled("weather") {
-        return None;
-    }
-
-    config
-        .get_widget_option("weather", "exec")
-        .and_then(|v| v.as_str().map(str::to_string))
-        .map(|_| "weather".to_string())
-}
-
 struct TimeWeatherCard {
     container: GtkBox,
     time_label: Label,
@@ -96,6 +92,8 @@ fn build_time_weather_card(weather_widget_name: Option<String>) -> TimeWeatherCa
     let container = GtkBox::new(Orientation::Vertical, 2);
     container.add_css_class("control-panel-card");
     container.add_css_class("control-panel-time-weather");
+    container.set_vexpand(false);
+    container.set_valign(Align::Start);
 
     let time_label = Label::new(None);
     time_label.add_css_class("control-panel-time");

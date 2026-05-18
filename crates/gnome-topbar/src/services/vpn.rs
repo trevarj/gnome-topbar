@@ -11,6 +11,8 @@
 //! - Notifies listeners on the GLib main loop with canonical snapshots
 
 use std::cell::{Cell, RefCell};
+use std::fs;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -41,6 +43,9 @@ const IFACE_ACTIVE: &str = "org.freedesktop.NetworkManager.Connection.Active";
 const IFACE_PROPS: &str = "org.freedesktop.DBus.Properties";
 
 const VPN_TYPES: &[&str] = &["wireguard", "vpn"]; // "vpn" is OpenVPN in NM
+const EXTERNAL_VPN_TYPE: &str = "external";
+const EXTERNAL_UUID_PREFIX: &str = "external:";
+const EXTERNAL_TUNNEL_POLL_SECS: u64 = 5;
 
 /// Delay before refreshing connection state after activation signal.
 const STATE_REFRESH_DELAY_MS: u64 = 50;
@@ -70,7 +75,7 @@ impl From<u32> for VpnState {
     }
 }
 
-/// A VPN connection known to NetworkManager.
+/// A VPN connection known to NetworkManager, or a read-only external tunnel.
 #[derive(Debug, Clone)]
 pub struct VpnConnection {
     /// Connection UUID.
@@ -83,8 +88,15 @@ pub struct VpnConnection {
     pub state: VpnState,
     /// Whether autoconnect is enabled.
     pub autoconnect: bool,
-    /// VPN type ("wireguard" or "vpn"/OpenVPN).
+    /// VPN type ("wireguard", "vpn"/OpenVPN, or "external").
     pub vpn_type: String,
+}
+
+impl VpnConnection {
+    /// Whether this row represents a tunnel created outside NetworkManager.
+    pub fn is_external(&self) -> bool {
+        self.vpn_type == EXTERNAL_VPN_TYPE || self.uuid.starts_with(EXTERNAL_UUID_PREFIX)
+    }
 }
 
 /// Canonical snapshot of VPN state.
@@ -149,6 +161,8 @@ pub enum VpnUpdate {
         /// Object paths of active VPN connections (for signal subscriptions).
         active_vpn_paths: Vec<String>,
     },
+    /// External tunnel state refreshed from `/sys/class/net`.
+    ExternalTunnelsRefreshed(Vec<VpnConnection>),
     /// Request a refresh (from signal handler).
     RequestRefresh,
     /// NM SecretAgent received a GetSecrets request — show auth UI.
@@ -216,6 +230,7 @@ impl VpnService {
 
         // Initialize D-Bus connection.
         Self::init_dbus(&service);
+        Self::start_external_tunnel_poll(&service);
 
         service
     }
@@ -464,8 +479,7 @@ impl VpnService {
                 mut connections,
                 active_vpn_paths,
             } => {
-                let active_count = connections.iter().filter(|c| c.active).count();
-                let any_active = active_count > 0;
+                connections.extend(Self::external_tunnel_connections());
 
                 // Subscribe to state changes on active VPN connections.
                 // Clear old subscriptions first - they'll be dropped automatically.
@@ -492,7 +506,8 @@ impl VpnService {
                 }
 
                 // If a VPN became active, update last_used_uuid and persist
-                if let Some(active_conn) = connections.iter().find(|c| c.active) {
+                if let Some(active_conn) = connections.iter().find(|c| c.active && !c.is_external())
+                {
                     let current_last_used = self.last_used_uuid.borrow().clone();
                     if current_last_used.as_ref() != Some(&active_conn.uuid) {
                         debug!(
@@ -506,24 +521,7 @@ impl VpnService {
 
                 // Re-sort connections: active first, then preferred (last used), then alphabetically
                 let preferred_uuid = self.last_used_uuid.borrow().clone();
-                connections.sort_by(|a, b| {
-                    // Active connections come first
-                    match (a.active, b.active) {
-                        (true, false) => return std::cmp::Ordering::Less,
-                        (false, true) => return std::cmp::Ordering::Greater,
-                        _ => {}
-                    }
-                    // Then preferred (last used) connection
-                    if let Some(ref pref) = preferred_uuid {
-                        match (a.uuid == *pref, b.uuid == *pref) {
-                            (true, false) => return std::cmp::Ordering::Less,
-                            (false, true) => return std::cmp::Ordering::Greater,
-                            _ => {}
-                        }
-                    }
-                    // Then alphabetically by name
-                    a.name.to_lowercase().cmp(&b.name.to_lowercase())
-                });
+                Self::sort_connections(&mut connections, preferred_uuid.as_deref());
 
                 let mut snapshot = self.snapshot.borrow_mut();
                 let nm_running = self
@@ -532,7 +530,9 @@ impl VpnService {
                     .as_ref()
                     .and_then(|p| p.name_owner())
                     .is_some();
-                snapshot.available = nm_running;
+                let active_count = connections.iter().filter(|c| c.active).count();
+                let any_active = active_count > 0;
+                snapshot.available = nm_running || any_active;
                 snapshot.connections = connections;
                 snapshot.any_active = any_active;
                 snapshot.active_count = active_count;
@@ -549,6 +549,32 @@ impl VpnService {
             }
             VpnUpdate::RequestRefresh => {
                 self.queue_refresh();
+            }
+            VpnUpdate::ExternalTunnelsRefreshed(external_connections) => {
+                let mut snapshot = self.snapshot.borrow_mut();
+                snapshot.connections.retain(|c| !c.is_external());
+                snapshot.connections.extend(external_connections);
+
+                let preferred_uuid = self.last_used_uuid.borrow().clone();
+                Self::sort_connections(&mut snapshot.connections, preferred_uuid.as_deref());
+
+                let active_count = snapshot.connections.iter().filter(|c| c.active).count();
+                let any_active = active_count > 0;
+                let nm_running = self
+                    .nm_proxy
+                    .borrow()
+                    .as_ref()
+                    .and_then(|p| p.name_owner())
+                    .is_some();
+                snapshot.available = nm_running || any_active;
+                snapshot.any_active = any_active;
+                snapshot.active_count = active_count;
+                snapshot.is_ready = snapshot.is_ready || any_active || nm_running;
+                snapshot.preferred_uuid = preferred_uuid;
+
+                let snapshot_clone = snapshot.clone();
+                drop(snapshot);
+                self.callbacks.notify(&snapshot_clone);
             }
             VpnUpdate::AuthRequest(request) => {
                 let mut snapshot = self.snapshot.borrow_mut();
@@ -603,6 +629,24 @@ impl VpnService {
                 Self::refresh_connections_async(conn.clone());
             }
             glib::ControlFlow::Break
+        });
+    }
+
+    fn start_external_tunnel_poll(this: &Rc<Self>) {
+        send_vpn_update(VpnUpdate::ExternalTunnelsRefreshed(
+            Self::external_tunnel_connections(),
+        ));
+
+        let weak = Rc::downgrade(this);
+        glib::timeout_add_local(Duration::from_secs(EXTERNAL_TUNNEL_POLL_SECS), move || {
+            if weak.upgrade().is_some() {
+                send_vpn_update(VpnUpdate::ExternalTunnelsRefreshed(
+                    VpnService::external_tunnel_connections(),
+                ));
+                glib::ControlFlow::Continue
+            } else {
+                glib::ControlFlow::Break
+            }
         });
     }
 
@@ -943,6 +987,81 @@ impl VpnService {
         (result, active_vpn_paths)
     }
 
+    fn sort_connections(connections: &mut [VpnConnection], preferred_uuid: Option<&str>) {
+        connections.sort_by(|a, b| {
+            match (a.active, b.active) {
+                (true, false) => return std::cmp::Ordering::Less,
+                (false, true) => return std::cmp::Ordering::Greater,
+                _ => {}
+            }
+            if let Some(pref) = preferred_uuid {
+                match (a.uuid == pref, b.uuid == pref) {
+                    (true, false) => return std::cmp::Ordering::Less,
+                    (false, true) => return std::cmp::Ordering::Greater,
+                    _ => {}
+                }
+            }
+            match (a.is_external(), b.is_external()) {
+                (true, false) => return std::cmp::Ordering::Greater,
+                (false, true) => return std::cmp::Ordering::Less,
+                _ => {}
+            }
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        });
+    }
+
+    fn external_tunnel_connections() -> Vec<VpnConnection> {
+        Self::external_tunnel_connections_from_sysfs(Path::new("/sys/class/net"))
+    }
+
+    fn external_tunnel_connections_from_sysfs(root: &Path) -> Vec<VpnConnection> {
+        let Ok(entries) = fs::read_dir(root) else {
+            return Vec::new();
+        };
+
+        let mut tunnels: Vec<VpnConnection> = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if !Self::is_external_tunnel_name(&name)
+                    || !Self::external_tunnel_is_active(root, &name)
+                {
+                    return None;
+                }
+
+                Some(VpnConnection {
+                    uuid: format!("{EXTERNAL_UUID_PREFIX}{name}"),
+                    name: format!("External VPN ({name})"),
+                    active: true,
+                    state: VpnState::Activated,
+                    autoconnect: false,
+                    vpn_type: EXTERNAL_VPN_TYPE.to_string(),
+                })
+            })
+            .collect();
+
+        tunnels.sort_by(|a, b| a.name.cmp(&b.name));
+        tunnels
+    }
+
+    fn is_external_tunnel_name(name: &str) -> bool {
+        name.starts_with("tun") || name.starts_with("wg")
+    }
+
+    fn external_tunnel_is_active(root: &Path, name: &str) -> bool {
+        let iface = root.join(name);
+        let carrier_active = fs::read_to_string(iface.join("carrier"))
+            .map(|value| value.trim() == "1")
+            .unwrap_or(false);
+        if carrier_active {
+            return true;
+        }
+
+        fs::read_to_string(iface.join("operstate"))
+            .map(|value| matches!(value.trim(), "up" | "unknown"))
+            .unwrap_or(false)
+    }
+
     /// Get active VPN connection UUIDs with their states and object paths.
     /// Returns (uuid -> state map, list of VPN object paths for signal subscription).
     fn get_active_connections_sync(
@@ -1100,5 +1219,66 @@ impl VpnService {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn test_root(name: &str) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("gnome-topbar-vpn-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn external_tunnel_detection_reads_active_tun_carrier() {
+        let root = test_root("tun-carrier");
+        fs::create_dir_all(root.join("tun0")).unwrap();
+        fs::write(root.join("tun0").join("carrier"), "1\n").unwrap();
+        fs::create_dir_all(root.join("eth0")).unwrap();
+        fs::write(root.join("eth0").join("carrier"), "1\n").unwrap();
+
+        let tunnels = VpnService::external_tunnel_connections_from_sysfs(&root);
+
+        assert_eq!(tunnels.len(), 1);
+        assert_eq!(tunnels[0].uuid, "external:tun0");
+        assert_eq!(tunnels[0].name, "External VPN (tun0)");
+        assert!(tunnels[0].active);
+        assert!(tunnels[0].is_external());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn external_tunnel_detection_uses_wg_operstate_without_carrier() {
+        let root = test_root("wg-operstate");
+        fs::create_dir_all(root.join("wg0")).unwrap();
+        fs::write(root.join("wg0").join("operstate"), "unknown\n").unwrap();
+
+        let tunnels = VpnService::external_tunnel_connections_from_sysfs(&root);
+
+        assert_eq!(tunnels.len(), 1);
+        assert_eq!(tunnels[0].uuid, "external:wg0");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn external_tunnel_detection_ignores_inactive_tunnels() {
+        let root = test_root("inactive");
+        fs::create_dir_all(root.join("tun0")).unwrap();
+        fs::write(root.join("tun0").join("carrier"), "0\n").unwrap();
+        fs::write(root.join("tun0").join("operstate"), "down\n").unwrap();
+
+        let tunnels = VpnService::external_tunnel_connections_from_sysfs(&root);
+
+        assert!(tunnels.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
     }
 }

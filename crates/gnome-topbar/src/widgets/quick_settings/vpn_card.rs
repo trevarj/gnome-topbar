@@ -346,6 +346,8 @@ pub fn populate_vpn_list(state: &Rc<VpnCardState>, list_box: &ListBox, snapshot:
             extra_parts.push("WireGuard");
         } else if conn.vpn_type == "vpn" {
             extra_parts.push("OpenVPN");
+        } else if conn.is_external() {
+            extra_parts.push("External");
         }
 
         let icon_color = if conn.active {
@@ -416,6 +418,13 @@ pub fn populate_vpn_list(state: &Rc<VpnCardState>, list_box: &ListBox, snapshot:
 
 /// Create the action widget for a VPN connection row.
 fn create_vpn_action_widget(_state: &Rc<VpnCardState>, conn: &VpnConnection) -> gtk4::Widget {
+    if conn.is_external() {
+        let label = Label::new(Some("Managed externally"));
+        label.add_css_class(color::MUTED);
+        label.add_css_class(row::QS_SUBTITLE);
+        return label.upcast();
+    }
+
     let uuid = conn.uuid.clone();
     let is_active = conn.active;
 
@@ -491,8 +500,11 @@ pub fn on_vpn_changed(state: &Rc<VpnCardState>, snapshot: &VpnSnapshot) -> bool 
             toggle.set_active(should_be_active);
             state.updating_toggle.set(false);
         }
-        // Disable toggle when service unavailable or no connections
-        toggle.set_sensitive(snapshot.available && has_connections);
+        // External tunnel rows are read-only status. Keep the card visible and
+        // expandable, but disable the power toggle unless a managed NM profile
+        // can be controlled.
+        let has_managed_connections = snapshot.connections.iter().any(|c| !c.is_external());
+        toggle.set_sensitive(snapshot.available && has_connections && has_managed_connections);
     }
 
     // Update VPN card icon and its active state class

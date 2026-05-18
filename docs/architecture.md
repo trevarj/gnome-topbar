@@ -66,13 +66,13 @@ Key services:
 
 | Service | Purpose |
 |---------|---------|
-| `BatteryService` | UPower D-Bus integration for battery state |
+| `BatteryService` | UPower D-Bus integration for Quick Settings battery state |
 | `BrightnessService` | Backlight control via sysfs/logind |
 | `AudioService` | PulseAudio volume and device management |
 | `NetworkService` | NetworkManager D-Bus for WiFi/VPN |
 | `BluetoothService` | BlueZ D-Bus for Bluetooth |
 | `NotificationService` | freedesktop notifications via D-Bus |
-| `CompositorManager` | Workspace and window state (see below) |
+| `CompositorManager` | Workspace and keyboard-layout state (see below) |
 | `ConfigManager` | Hot-reload with file watching |
 | `BarManager` | Multi-monitor bar lifecycle |
 
@@ -193,26 +193,23 @@ crates/gnome-topbar/src/
   services/
     compositor/     # Compositor backend abstraction
     audio.rs        # PulseAudio integration
-    battery.rs      # UPower integration
+    battery.rs      # UPower integration for Quick Settings
     ...
   widgets/
     mod.rs          # WidgetFactory, WidgetConfig trait
     base.rs         # BaseWidget helper
     clock.rs        # Clock widget
-    battery.rs      # Battery widget
     workspaces.rs   # Workspace indicators
     quick_settings/ # Quick settings panel components
     ...
 ```
 
-## Adding a New Widget
+## Widget Surface
 
-1. Create `widgets/my_widget.rs`
-2. Define `MyWidgetConfig` implementing `WidgetConfig`
-3. Define `MyWidgetWidget` with `new(config)` and `widget()` methods
-4. Add to `WidgetFactory::build()` match arm
-5. Export from `widgets/mod.rs`
-6. Document config examples in `README.md` or `docs/waybar-migration.md`
+The supported panel surface is intentionally small: `workspaces`, `clock`,
+`tray`, `quick_settings`, `keyboard_layout`, and `custom-*`. New standalone
+widgets should be avoided unless they preserve the GNOME Shell top-bar shape
+and replace more code than they add.
 
 ## Adding a New Compositor Backend
 

@@ -41,20 +41,6 @@ background_opacity = 0.0
 #   format = "%H:%M"
 #   outline_color = "accent"  # Per-widget outline color: "subtle" | "accent" | "foreground" | "#rrggbb"
 #
-#   [widgets.battery]
-#   disabled = true
-#
-#   [widgets.media]
-#   visualizer = true  # Enable/disable cava audio visualizer (default: true)
-#
-#   [widgets.updates]
-#   # Disabled until configured. Command may print a number or one update per line.
-#   update_count_command = ""
-#
-#   [widgets.notifications]
-#   hide_empty = true
-#   control_panel = true
-#
 # Custom widgets use the "custom-" prefix for user-defined buttons:
 #   right = ["custom-power", "custom-os", "tray", "clock"]
 #
@@ -63,26 +49,13 @@ background_opacity = 0.0
 #   label = "Power"
 #   tooltip = "Power menu"
 #   on_click = "wlogout"
-#   on_click_right = "systemctl suspend"
+#   on_click_right = "loginctl suspend"
 #
 #   [widgets.custom-os]
 #   image = "/usr/share/pixmaps/distro-logo.svg"  # file path (PNG, SVG, etc.)
 #   tooltip = "My Distro"
 #
-# Native weather can auto-place next to the clock and also feeds the control panel:
-#   [widgets.weather]
-#   disabled = false
-#   exec = "curl -s 'wttr.in/?format=1'"
-#   interval = 600
-#   position = "left" # "left" or "right" of the clock
-#   tooltip = "Weather"
-#   max_chars = 30
-#
-# Native headset uses the same script output contract as custom widgets:
-#   [widgets.headset]
-#   exec = "headsetcontrol -bc"
-#   interval = 5
-#   tooltip = "Headset battery"
+# One-off script indicators should use custom-* rather than native status modules.
 #
 # See documentation for all widget options.
 
@@ -112,8 +85,6 @@ font_family = "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
 [widgets.clock]
 format = "%a %b %-d  %H:%M"
 control_panel = true
-media_thumbnail = false # Compact bar companion album art beside the clock.
-media_eq = true         # Pulse the compact bar play/pause button while playing.
 
 [osd]
 enabled = true
@@ -123,6 +94,11 @@ show_value = false  # Show current value after the bar
 [audio]
 # Allow output and microphone volume over 100% (over-amplification), capped at PulseAudio's recommended UI max.
 allow_overdrive = false
+
+[updates]
+# Used by the Quick Settings updates card. Empty means update counting is disabled.
+update_count_command = ""
+check_interval = 3600
 
 [advanced]
 # compositor = "auto"  # "auto", "hyprland", "niri", "mango"

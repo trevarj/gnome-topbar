@@ -1,7 +1,7 @@
 //! Bar window implementation using GTK4 and layer-shell.
 
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, GestureClick, Overlay, gdk};
+use gtk4::{Application, ApplicationWindow};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -11,19 +11,11 @@ use tracing::{debug, info, warn};
 use gnome_topbar_core::config::{WidgetEntry, WidgetOrGroup};
 use gnome_topbar_core::{Config, ThemePalette};
 
-/// Horizontal spacing (px) between widgets inside a merge group.
-/// Matches the `.content` horizontal padding in `css/bar.rs`.
-const MERGE_GROUP_SPACING: i32 = 10;
-
-use crate::popover_tracker::PopoverTracker;
 use crate::sectioned_bar::SectionedBar;
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
-use crate::services::tooltip::TooltipManager;
-use crate::styles::{class, state, widget as style_widget};
+use crate::styles::{class, widget as style_widget};
 use crate::widgets::{
-    self, BarState, MenuHandle, PopoverKind, QuickSettingsConfig, RippleHandle,
-    SystemPopoverBinding, WidgetConfig, WidgetFactory, popover_kind_for,
-    trigger_ripple_from_gesture,
+    self, BarState, PopoverKind, QuickSettingsConfig, WidgetConfig, WidgetFactory, popover_kind_for,
 };
 
 /// Create and configure the bar window with layer-shell.
@@ -671,127 +663,8 @@ fn build_merge_group(
     parent_content: &gtk4::Box,
     state: &mut BarState,
 ) -> usize {
-    // Overlay wrapper — ripple sits on top of the content box.
-    let wrapper = Overlay::new();
-    wrapper.add_css_class(class::WIDGET_MERGE_GROUP);
-    wrapper.add_css_class(state::CLICKABLE);
-    // Merged groups paint as a single button; use the first non-spacer
-    // entry so a leading spacer doesn't determine the group's identity.
-    let representative = entries
-        .iter()
-        .find(|e| e.name != "spacer")
-        .unwrap_or(&entries[0]);
-    wrapper.add_css_class(&representative.name.replace('_', "-"));
-    // Required for the merge-group hover pill: its 9999px box-shadow
-    // refill is clipped here so it cannot bleed outside the group.
-    wrapper.set_overflow(gtk4::Overflow::Hidden);
-
-    let inner_content = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    inner_content.add_css_class(class::MERGE_GROUP_CONTENT);
-    inner_content.set_vexpand(true);
-    inner_content.set_valign(gtk4::Align::Fill);
-    inner_content.set_spacing(MERGE_GROUP_SPACING);
-    wrapper.set_child(Some(&inner_content));
-
-    let ripple_handle = RippleHandle::new();
-    // Wrap the ripple DrawingArea in a Box that establishes a fully-rounded
-    // clip, so the ripple matches the inner pill shape on hover. The merge
-    // group itself uses position-aware radius (square at seams in mixed
-    // groups), which would otherwise leak the ripple into the corners.
-    let ripple_clip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    ripple_clip.add_css_class(class::WIDGET_MERGE_GROUP_RIPPLE_CLIP);
-    ripple_clip.set_overflow(gtk4::Overflow::Hidden);
-    ripple_clip.append(ripple_handle.widget());
-    wrapper.add_overlay(&ripple_clip);
-    wrapper.set_measure_overlay(&ripple_clip, true);
-
-    let widget_name = representative.name.clone();
-    let menu_handle = MenuHandle::new_placeholder(widget_name, wrapper.clone());
-
-    let binding = match kind {
-        PopoverKind::System => Some(SystemPopoverBinding::new_for_menu(&menu_handle)),
-        _ => {
-            warn!("Merge group for {:?} popover not yet supported", kind);
-            None
-        }
-    };
-
-    let Some(binding) = binding else {
-        return 0;
-    };
-
-    // Primary click toggles the shared popover. Right/middle-click handlers
-    // are not forwarded — the merge group is a single button, and per-widget
-    // click commands don't have a meaningful target here.
-    let gesture_click = GestureClick::new();
-    gesture_click.set_button(0);
-
-    {
-        let menu_for_cb = menu_handle.clone();
-        let ripple_for_press = ripple_handle.clone();
-        gesture_click.connect_pressed(move |gesture, _n_press, x, y| {
-            let button = gesture.current_button();
-            if button == gdk::BUTTON_PRIMARY {
-                let my_menu_was_visible = menu_for_cb.is_visible();
-
-                TooltipManager::global().cancel_and_hide();
-                PopoverTracker::global().dismiss_active();
-
-                if !my_menu_was_visible {
-                    menu_for_cb.show();
-                }
-
-                trigger_ripple_from_gesture(gesture, x, y, &ripple_for_press);
-            }
-        });
-    }
-
-    wrapper.add_controller(gesture_click.clone());
-
-    let mut built_widgets: Vec<widgets::BuiltWidget> = Vec::new();
-    for entry in entries {
-        if let Some(built) = WidgetFactory::build_passive(entry, &binding) {
-            built_widgets.push(built);
-        }
-    }
-
-    // If only 0–1 widgets survived (e.g. GPU unavailable), don't wrap in a
-    // merge group — return 0 so the caller rebuilds via the normal active path.
-    // Dropped passive widgets clean up their service callbacks via Drop.
-    if built_widgets.len() <= 1 {
-        return 0;
-    }
-
-    let count = built_widgets.len();
-    for built in built_widgets {
-        inner_content.append(&built.widget);
-        state.add_handle(built.handle);
-    }
-
-    parent_content.append(&wrapper);
-
-    // Register the shared menu handle under ALL participating widget names
-    // for IPC popover control. Uses underscores (config convention).
-    for entry in entries {
-        if entry.name == "spacer" {
-            continue;
-        }
-        crate::popover_registry::register(
-            &entry.name,
-            menu_handle.clone() as Rc<dyn crate::popover_registry::PopoverToggleable>,
-        );
-    }
-
-    // Keep the menu handle, gesture, and ripple alive
-    state.add_handle(Box::new(menu_handle));
-    state.add_handle(Box::new(gesture_click));
-    state.add_handle(Box::new(ripple_handle));
-    debug!(
-        "Created merge group with {} widget(s) ({:?} popover)",
-        count, kind
-    );
-
-    count
+    let _ = (entries, kind, parent_content, state);
+    0
 }
 
 fn create_section(
@@ -803,7 +676,7 @@ fn create_section(
 ) -> gtk4::Box {
     let section = gtk4::Box::new(
         gtk4::Orientation::Horizontal,
-        0, // Spacing handled via CSS margins to allow spacer widget to have no gaps
+        0, // Spacing handled via CSS margins for consistent clipping.
     );
     // Clip overflowing content to prevent widgets from rendering beyond section bounds
     section.set_overflow(gtk4::Overflow::Hidden);
@@ -1176,7 +1049,7 @@ mod tests {
         assert!(css.contains(":root"));
         assert!(css.contains(".bar"));
         assert!(css.contains("window.quick-settings-window"));
-        assert!(css.contains(".clock-media"));
+        assert!(css.contains(".media-popover"));
     }
 
     #[test]

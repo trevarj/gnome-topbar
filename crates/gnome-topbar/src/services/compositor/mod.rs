@@ -1,4 +1,4 @@
-//! Compositor backend abstraction for workspace and window title tracking.
+//! Compositor backend abstraction for workspace, keyboard layout, and focus tracking.
 //!
 //! This module provides a pluggable backend system for different Wayland compositors:
 //! - MangoWC / DWL (via `mmsg` CLI tool)
@@ -6,9 +6,7 @@
 //! - Hyprland (via socket IPC with JSON protocol)
 //! - Sway / Miracle WM / Scroll (via i3 IPC binary protocol over Unix socket)
 //!
-//! The backend trait feeds both:
-//! - `WorkspaceService` (workspace/tag state)
-//! - `WindowTitleService` (focused window info)
+//! The backend trait feeds workspace, keyboard layout, and focused-output consumers.
 //!
 //! # Usage
 //!

@@ -35,7 +35,8 @@ pub fn icon_for_state(snapshot: &UpdatesSnapshot) -> &'static str {
 ///
 /// Last check: 5 minutes ago
 /// ```
-pub fn format_tooltip(snapshot: &UpdatesSnapshot) -> String {
+#[cfg(test)]
+fn format_tooltip(snapshot: &UpdatesSnapshot) -> String {
     let mut lines = Vec::new();
 
     // Header

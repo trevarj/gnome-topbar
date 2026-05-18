@@ -19,7 +19,6 @@ pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> Stri
     let content_pad_x = CONTENT_PADDING_X;
     let content_pad_x_half = CONTENT_PADDING_X / 2;
     let content_pad_x_double = 2 * CONTENT_PADDING_X;
-    let spacer_following_margin = content_pad_x_double + content_pad_x;
     let workspace_transition = if workspace_animations {
         "transition: min-width 200ms linear, background-color 100ms ease;"
     } else {
@@ -225,16 +224,6 @@ sectioned-bar.bar {{
     margin-left: -{content_pad_x_double}px;
 }}
 
-/* Spacers have no inner padding and can be zero-width; don't give them a
-   negative margin or GTK reports a negative minimum size. The following
-   widget pulls in far enough to collapse the extra GTK spacing seam. */
-.merge-group-content > .widget-item.spacer:not(:first-child) {{
-    margin-left: 0;
-}}
-.merge-group-content > .widget-item.spacer + .widget-item {{
-    margin-left: -{spacer_following_margin}px;
-}}
-
 /* Spacing between items inside widgets (icon→label, etc.).
    Restricted to inner .content elements: standalone widgets' .content sits
    inside .widget (which is NOT .widget-group), and grouped items' inner
@@ -260,15 +249,10 @@ sectioned-bar.bar {{
     padding-right: calc(var(--spacing-widget-edge) * 0.85);
 }}
 
-/* Section widget spacing via margins (Box spacing=0 to allow spacer to have no gaps) */
-.bar-section--left > *:not(:last-child):not(.spacer),
-.bar-section--right > *:not(:last-child):not(.spacer) {{
+/* Section widget spacing via margins. */
+.bar-section--left > *:not(:last-child),
+.bar-section--right > *:not(:last-child) {{
     margin-right: {spacing}px;
-}}
-
-/* Spacer widget - no margins so it doesn't create extra gaps */
-.spacer {{
-    min-width: 0;
 }}
 
 /* ===== WORKSPACE ===== */
@@ -329,60 +313,6 @@ overlay.workspace-indicator {{
 
 /* Grow-in: forces zero width + no transition so container animation handles it.
    Loaded at USER+200 priority by load_transient_css() so user CSS can't defeat it. */
-
-/* ===== TASKBAR ===== */
-/* padding + border-radius are applied via a shared CssProvider so they
-   scale with icon_size and the theme's widget_radius_percent.
-   .content horizontal padding is reduced by `pad` so button padding fills
-   the widget edge exactly. Inter-button spacing comes from the buttons'
-   own padding — no inter-item margin is needed between buttons.
-   The selector targets .taskbar-button specifically so the separator
-   keeps its own symmetric margins. */
-
-.taskbar .content > .taskbar-button:not(:last-child) {{
-    margin-right: 0;
-}}
-
-.taskbar .content > .taskbar-separator {{
-    background-color: currentColor;
-    opacity: 0.3;
-    min-width: 1px;
-    margin-top: 4px;
-    margin-bottom: 4px;
-    margin-left: 3px;
-    margin-right: 3px;
-}}
-
-.taskbar .content > .taskbar-output-separator {{
-    min-width: 1px;
-    opacity: 0.45;
-    margin-top: 2px;
-    margin-bottom: 2px;
-    margin-left: 5px;
-    margin-right: 5px;
-}}
-
-.taskbar-button.clickable:hover {{
-    background-color: var(--color-taskbar-button-hover-bg);
-}}
-
-.taskbar-button.active {{
-    background-color: var(--color-accent-primary);
-    color: var(--color-accent-text, #fff);
-}}
-
-.taskbar-button.active.clickable:hover {{
-    background-color: var(--color-taskbar-button-active-hover-bg);
-}}
-
-.taskbar-button.urgent.clickable:hover {{
-    background-color: var(--color-taskbar-button-urgent-hover-bg);
-}}
-
-.taskbar-button.urgent {{
-    background-color: var(--color-state-urgent);
-    color: var(--color-accent-text, #fff);
-}}
 
 "#
     )

@@ -15,25 +15,16 @@
 
 mod base;
 mod battery;
-mod battery_popover;
 mod calendar_popover;
 mod clock;
 mod control_panel;
-mod cpu;
 mod custom;
-mod gpu;
-mod headset;
 mod keyboard_layout;
 pub mod layer_shell_popover;
 mod marquee_label;
-mod media;
 mod media_components;
 mod media_popover;
 mod media_visualizer;
-mod media_window;
-mod memory;
-mod network_speed;
-mod notifications;
 mod notifications_common;
 mod notifications_popover;
 mod notifications_toast;
@@ -41,14 +32,8 @@ mod osd;
 pub(crate) mod ripple;
 mod rounded_picture;
 pub(crate) mod scale_box;
-mod spacer;
-mod system_popover;
-mod taskbar;
 mod tray;
-mod updates;
 mod updates_common;
-mod weather;
-mod window_title;
 mod workspaces;
 
 pub mod css;
@@ -56,39 +41,21 @@ pub mod css;
 pub mod quick_settings;
 
 pub use base::BaseWidget;
-pub(crate) use base::{MenuHandle, RippleHandle, trigger_ripple_from_gesture};
-pub use battery::{BatteryConfig, BatteryWidget};
 pub use clock::{ClockConfig, ClockWidget};
-pub use media::{MediaConfig, MediaWidget};
-pub use notifications::{NotificationsConfig, NotificationsWidget};
 pub use osd::OsdOverlay;
 pub use quick_settings::QuickSettingsWindowHandle;
 pub use quick_settings::{QuickSettingsConfig, QuickSettingsWidget};
-pub use spacer::{SpacerConfig, SpacerWidget};
-pub use taskbar::{TaskbarConfig, TaskbarWidget};
 pub use tray::{TrayConfig, TrayWidget};
-pub use updates::{UpdatesConfig, UpdatesWidget};
-pub use window_title::{WindowTitleConfig, WindowTitleWidget};
 pub use workspaces::{WorkspacesConfig, WorkspacesWidget};
 
-pub use cpu::{CpuConfig, CpuWidget};
 pub use custom::{CustomConfig, CustomWidget};
-pub use gpu::{GpuConfig, GpuWidget};
-pub use headset::{HeadsetConfig, HeadsetWidget};
 pub use keyboard_layout::{KeyboardLayoutConfig, KeyboardLayoutWidget};
-pub use memory::{MemoryConfig, MemoryWidget};
-pub use network_speed::{NetworkSpeedConfig, NetworkSpeedWidget};
-pub use weather::{WeatherConfig, WeatherWidget};
-
-pub(crate) use system_popover::SystemPopoverBinding;
 
 use gnome_topbar_core::config::WidgetEntry;
 use gtk4::Widget;
 use gtk4::prelude::*;
 use std::any::Any;
-use tracing::{debug, warn};
-
-use crate::styles::class;
+use tracing::warn;
 
 /// The kind of shared popover a widget opens when clicked.
 ///
@@ -96,6 +63,7 @@ use crate::styles::class;
 /// visually merged into a single button with shared hover/ripple/popover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PopoverKind {
+    #[allow(dead_code)]
     System,
     /// Widget has no popover or its popover is not mergeable.
     Unmergeable,
@@ -103,14 +71,9 @@ pub(crate) enum PopoverKind {
 
 /// Return the popover kind for a given widget name.
 pub(crate) fn popover_kind_for(widget_name: &str) -> PopoverKind {
-    match widget_name {
-        "cpu" | "memory" | "gpu" | "network_speed" => PopoverKind::System,
-        _ => PopoverKind::Unmergeable,
-    }
+    let _ = widget_name;
+    PopoverKind::Unmergeable
 }
-
-use crate::services::battery::BatteryService;
-use crate::services::gpu::GpuService;
 
 /// Trait for widget configuration types.
 ///
@@ -194,7 +157,7 @@ impl WidgetFactory {
     /// Returns `None` if the widget type is not recognized.
     ///
     /// The `output_id` parameter is the monitor connector name (e.g., "eDP-1")
-    /// used for per-monitor filtering in widgets like window_title.
+    /// used for per-monitor filtering in widgets like workspaces.
     pub fn build(
         entry: &WidgetEntry,
         qs_handle: Option<&QuickSettingsWindowHandle>,
@@ -210,19 +173,6 @@ impl WidgetFactory {
                     handle: Box::new(clock),
                 })
             }
-            "battery" => {
-                if !BatteryService::global().snapshot().available {
-                    debug!("Skipping battery widget: no battery available");
-                    return None;
-                }
-                let cfg = BatteryConfig::from_entry(entry);
-                let battery = BatteryWidget::new(cfg);
-                let root = battery.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(battery),
-                })
-            }
             "workspaces" => {
                 let cfg = WorkspacesConfig::from_entry(entry);
                 let workspaces = WorkspacesWidget::new(cfg, output_id.map(|s| s.to_string()));
@@ -232,24 +182,6 @@ impl WidgetFactory {
                     handle: Box::new(workspaces),
                 })
             }
-            "window_title" => {
-                let cfg = WindowTitleConfig::from_entry(entry);
-                let window_title = WindowTitleWidget::new(cfg, output_id.map(|s| s.to_string()));
-                let root = window_title.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(window_title),
-                })
-            }
-            "taskbar" => {
-                let cfg = TaskbarConfig::from_entry(entry);
-                let taskbar = TaskbarWidget::new(cfg, output_id.map(|s| s.to_string()));
-                let root = taskbar.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(taskbar),
-                })
-            }
             "tray" => {
                 let cfg = TrayConfig::from_entry(entry);
                 let tray = TrayWidget::new(cfg);
@@ -257,15 +189,6 @@ impl WidgetFactory {
                 Some(BuiltWidget {
                     widget: root,
                     handle: Box::new(tray),
-                })
-            }
-            "notifications" => {
-                let cfg = NotificationsConfig::from_entry(entry);
-                let notifications = NotificationsWidget::new(cfg);
-                let root = notifications.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(notifications),
                 })
             }
             "quick_settings" => {
@@ -288,55 +211,6 @@ impl WidgetFactory {
                     handle: Box::new(widget),
                 })
             }
-            "updates" => {
-                let cfg = UpdatesConfig::from_entry(entry);
-                let updates = UpdatesWidget::new(cfg);
-                let root = updates.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(updates),
-                })
-            }
-            "cpu" => {
-                let cfg = CpuConfig::from_entry(entry);
-                let cpu = CpuWidget::new(cfg);
-                let root = cpu.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(cpu),
-                })
-            }
-            "memory" => {
-                let cfg = MemoryConfig::from_entry(entry);
-                let memory = MemoryWidget::new(cfg);
-                let root = memory.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(memory),
-                })
-            }
-            "gpu" => {
-                if !GpuService::global().snapshot().available {
-                    debug!("Skipping gpu widget: no supported GPU detected");
-                    return None;
-                }
-                let cfg = GpuConfig::from_entry(entry);
-                let gpu = GpuWidget::new(cfg);
-                let root = gpu.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(gpu),
-                })
-            }
-            "network_speed" => {
-                let cfg = NetworkSpeedConfig::from_entry(entry);
-                let network = NetworkSpeedWidget::new(cfg);
-                let root = network.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(network),
-                })
-            }
             "keyboard_layout" => {
                 let cfg = KeyboardLayoutConfig::from_entry(entry);
                 let keyboard_layout = KeyboardLayoutWidget::new(cfg);
@@ -344,42 +218,6 @@ impl WidgetFactory {
                 Some(BuiltWidget {
                     widget: root,
                     handle: Box::new(keyboard_layout),
-                })
-            }
-            "weather" => {
-                let cfg = WeatherConfig::from_entry(entry);
-                let weather = WeatherWidget::new(cfg);
-                let root = weather.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(weather),
-                })
-            }
-            "headset" => {
-                let cfg = HeadsetConfig::from_entry(entry);
-                let headset = HeadsetWidget::new(cfg);
-                let root = headset.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(headset),
-                })
-            }
-            "media" => {
-                let cfg = MediaConfig::from_entry(entry);
-                let media = MediaWidget::new(cfg);
-                let root = media.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(media),
-                })
-            }
-            "spacer" => {
-                let cfg = SpacerConfig::from_entry(entry);
-                let spacer = SpacerWidget::new(cfg);
-                let root = spacer.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(spacer),
                 })
             }
             name if name.starts_with("custom-") => {
@@ -400,79 +238,6 @@ impl WidgetFactory {
             }
             name => {
                 warn!("Unknown widget type: '{}', skipping", name);
-                None
-            }
-        }
-    }
-
-    /// Build a widget in passive mode for a merge group.
-    ///
-    /// Returns `None` for unsupported widget types or if the widget should be
-    /// skipped (e.g., gpu when no GPU is detected).
-    pub(crate) fn build_passive(
-        entry: &WidgetEntry,
-        shared_binding: &SystemPopoverBinding,
-    ) -> Option<BuiltWidget> {
-        match entry.name.as_str() {
-            "cpu" => {
-                let cfg = CpuConfig::from_entry(entry);
-                let cpu = CpuWidget::new_passive(cfg, shared_binding.clone());
-                let root = cpu.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(cpu),
-                })
-            }
-            "memory" => {
-                let cfg = MemoryConfig::from_entry(entry);
-                let memory = MemoryWidget::new_passive(cfg, shared_binding.clone());
-                let root = memory.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(memory),
-                })
-            }
-            "gpu" => {
-                if !GpuService::global().snapshot().available {
-                    debug!("Skipping gpu widget: no supported GPU detected");
-                    return None;
-                }
-                let cfg = GpuConfig::from_entry(entry);
-                let gpu = GpuWidget::new_passive(cfg, shared_binding.clone());
-                let root = gpu.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(gpu),
-                })
-            }
-            "network_speed" => {
-                let cfg = NetworkSpeedConfig::from_entry(entry);
-                let network = NetworkSpeedWidget::new_passive(cfg, shared_binding.clone());
-                let root = network.widget().clone().upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(network),
-                })
-            }
-            "spacer" => {
-                let cfg = SpacerConfig::from_entry(entry);
-                let spacer = SpacerWidget::new(cfg);
-                let widget = spacer.widget().clone();
-                // Passive spacers inside merge groups need the same structural
-                // classes as other passive widgets so margin / hover rules apply.
-                widget.add_css_class(class::WIDGET_ITEM);
-                widget.add_css_class(class::PASSIVE);
-                let root = widget.upcast::<Widget>();
-                Some(BuiltWidget {
-                    widget: root,
-                    handle: Box::new(spacer),
-                })
-            }
-            name => {
-                warn!(
-                    "build_passive called for unsupported widget type: '{}'",
-                    name
-                );
                 None
             }
         }
@@ -519,10 +284,10 @@ mod tests {
 
     #[test]
     fn popover_kind_system_widgets() {
-        assert_eq!(popover_kind_for("cpu"), PopoverKind::System);
-        assert_eq!(popover_kind_for("memory"), PopoverKind::System);
-        assert_eq!(popover_kind_for("gpu"), PopoverKind::System);
-        assert_eq!(popover_kind_for("network_speed"), PopoverKind::System);
+        assert_eq!(popover_kind_for("cpu"), PopoverKind::Unmergeable);
+        assert_eq!(popover_kind_for("memory"), PopoverKind::Unmergeable);
+        assert_eq!(popover_kind_for("gpu"), PopoverKind::Unmergeable);
+        assert_eq!(popover_kind_for("network_speed"), PopoverKind::Unmergeable);
     }
 
     #[test]

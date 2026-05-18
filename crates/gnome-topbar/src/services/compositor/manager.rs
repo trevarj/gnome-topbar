@@ -1,9 +1,8 @@
-//! CompositorManager - shared backend singleton for workspace and window title services.
+//! CompositorManager - shared backend singleton for compositor state consumers.
 //!
 //! This module provides a centralized compositor backend instance that can be shared
-//! across multiple services (WorkspaceService, WindowTitleService). This avoids the
-//! problem of creating multiple backend instances that would duplicate IPC connections
-//! and monitoring threads.
+//! across multiple services. This avoids duplicate IPC connections and monitoring
+//! threads.
 //!
 //! # Architecture
 //!
@@ -127,6 +126,7 @@ impl CompositorManager {
     ///
     /// The callback will be immediately invoked with the current state if available.
     /// Returns a `CallbackId` that can be used to unregister the callback.
+    #[allow(dead_code)]
     pub fn register_window_callback<F>(&self, callback: F) -> CallbackId
     where
         F: Fn(&WindowInfo) + 'static,
@@ -217,6 +217,7 @@ impl CompositorManager {
     ///
     /// The callback will be immediately invoked with the current state if available.
     /// Returns a `CallbackId` that can be used to unregister the callback.
+    #[allow(dead_code)]
     pub fn register_window_list_callback<F>(&self, callback: F) -> CallbackId
     where
         F: Fn(&super::WindowListSnapshot) + 'static,
@@ -232,6 +233,7 @@ impl CompositorManager {
     }
 
     /// Unregister a window list callback by its ID.
+    #[allow(dead_code)]
     pub fn unregister_window_list_callback(&self, id: CallbackId) -> bool {
         self.window_list_callbacks.unregister(id)
     }
@@ -244,6 +246,7 @@ impl CompositorManager {
     }
 
     /// Get the list of all windows.
+    #[allow(dead_code)]
     pub fn list_windows(&self) -> Vec<super::Window> {
         if let Some(ref backend) = *self.backend.borrow() {
             backend.list_windows()
@@ -253,6 +256,7 @@ impl CompositorManager {
     }
 
     /// Focus a specific window by its ID.
+    #[allow(dead_code)]
     pub fn focus_window(&self, window_id: u64) {
         if let Some(ref backend) = *self.backend.borrow() {
             backend.focus_window(window_id);

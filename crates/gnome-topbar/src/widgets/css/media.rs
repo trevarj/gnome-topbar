@@ -7,29 +7,6 @@ pub fn css(animations: bool) -> String {
     } else {
         "transition: none;"
     };
-    let clock_media_pulse = if animations {
-        r#"
-@keyframes clock-media-button-pulse {
-    0%, 100% {
-        color: var(--color-accent-primary);
-        transform: scale(1);
-        opacity: 0.9;
-    }
-    50% {
-        color: color-mix(in srgb, var(--color-accent-primary) 72%, var(--color-foreground-primary));
-        transform: scale(1.07);
-        opacity: 1;
-    }
-}
-"#
-    } else {
-        ""
-    };
-    let clock_media_pulse_animation = if animations {
-        "animation: clock-media-button-pulse 1200ms ease-in-out infinite;"
-    } else {
-        "animation: none;"
-    };
     format!(
         r#"
 /* ===== MEDIA WIDGET ===== */
@@ -43,51 +20,6 @@ pub fn css(animations: bool) -> String {
 .media-art-small:not(:last-child) {{
     margin-right: 8px;
 }}
-
-/* Compact active-media companion shown inside the clock widget. */
-.clock-media {{
-    margin-left: 8px;
-}}
-
-.clock-media .media-art-small:not(:last-child) {{
-    margin-right: 4px;
-}}
-
-.clock-media-play-pause {{
-    min-width: 30px;
-    min-height: 30px;
-    padding: 2px 3px;
-    border-radius: var(--radius-round);
-}}
-
-.clock-media-play-pause.media-playing {{
-    color: var(--color-accent-primary);
-}}
-
-.clock-media-play-pause.media-playing .icon-root {{
-    {clock_media_pulse_animation}
-}}
-
-.clock-media-play-pause.media-paused {{
-    color: var(--color-foreground-secondary);
-}}
-
-.clock-media-play-pause.media-paused .icon-root {{
-    animation: none;
-}}
-
-.clock-media-play-pause .icon-root {{
-    min-width: 18px;
-    min-height: 18px;
-    font-size: calc(var(--icon-size) * 0.92);
-}}
-
-.clock-media-play-pause.media-paused .icon-root,
-.clock-media-play-pause.media-stopped .icon-root {{
-    margin-left: 1px;
-}}
-
-{clock_media_pulse}
 
 /* Player icon (app icon like Spotify, Firefox) in bar */
 .media-player-icon {{

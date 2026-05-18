@@ -245,12 +245,20 @@ fn main() -> ExitCode {
 
     debug!("Configuration validated successfully");
 
+    let config_warnings = config.warnings();
+    for warning in &config_warnings {
+        warn!("{}", warning);
+    }
+
     // --check-config: just validate and exit
     if args.check_config {
         if let Some(ref source) = load_result.source {
             println!("Configuration valid: {}", source.display());
         } else {
             println!("Configuration valid (using defaults)");
+        }
+        for warning in config_warnings {
+            eprintln!("Warning: {}", warning);
         }
         return ExitCode::SUCCESS;
     }

@@ -85,7 +85,7 @@ struct WindowData {
     is_focused: bool,
     is_urgent: bool,
     /// Column and tile position in the scrolling layout (niri-specific).
-    /// Used for ordering taskbar buttons to match visual window order.
+    /// Used for stable window-list ordering.
     layout_position: Option<(i32, i32)>,
 }
 
@@ -210,9 +210,7 @@ impl NiriBackend {
             .collect();
 
         // Sort by output name, then workspace display index, then layout position,
-        // then window ID.  This mirrors the workspace sort order (output → idx)
-        // so multi-monitor taskbars with filter_by_output=false group windows by
-        // monitor first.
+        // then window ID. This mirrors the workspace sort order (output -> idx).
         sortable.sort_by(|a, b| {
             a.output_name
                 .cmp(&b.output_name)
@@ -540,8 +538,7 @@ impl NiriBackend {
         // Update window counts
         Self::update_window_counts(shared);
 
-        // If the window is focused, update focused window.
-        // Focus updates are used by WindowTitleService to display the active window title.
+        // If the window is focused, update focused-output state.
         if is_focused {
             return Self::update_focused_window_from_cache(shared);
         }
@@ -883,7 +880,7 @@ impl NiriBackend {
             }
         }
 
-        // Emit the full initial window list for taskbar consumers.
+        // Emit the full initial window list for consumers that register for it.
         if let Some(ref wl_cb) = window_list_callback {
             let windows = Self::get_windows_from_shared(&shared);
             wl_cb(super::WindowListSnapshot { windows });

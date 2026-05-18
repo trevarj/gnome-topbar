@@ -209,21 +209,15 @@ impl UpdatesService {
     /// GNU Guix does not expose a stable, cheap "available updates" command
     /// across releases. Keep this disabled until the user supplies a command.
     pub fn configure_from_config(self: &Rc<Self>, config: &Config) {
-        let options = config.widgets.get_options("updates");
-        let check_interval = options
-            .as_ref()
-            .and_then(|opts| opts.options.get("check_interval"))
-            .and_then(|v| v.as_integer())
-            .map(|v| v as u64)
-            .unwrap_or(DEFAULT_CHECK_INTERVAL);
-        let count_command = options
-            .as_ref()
-            .and_then(|opts| {
-                opts.options
-                    .get("update_count_command")
-                    .or_else(|| opts.options.get("count_command"))
-            })
-            .and_then(|v| v.as_str())
+        let check_interval = if config.updates.check_interval == 0 {
+            DEFAULT_CHECK_INTERVAL
+        } else {
+            config.updates.check_interval
+        };
+        let count_command = config
+            .updates
+            .update_count_command
+            .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(String::from);

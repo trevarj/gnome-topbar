@@ -59,19 +59,19 @@ const POWER_ACTIONS: &[PowerAction] = &[
         id: "shutdown",
         label: "Shut Down",
         icon: "system-shutdown-symbolic",
-        command: &["systemctl", "poweroff"],
+        command: &["loginctl", "poweroff"],
     },
     PowerAction {
         id: "reboot",
         label: "Reboot",
         icon: "system-reboot-symbolic",
-        command: &["systemctl", "reboot"],
+        command: &["loginctl", "reboot"],
     },
     PowerAction {
         id: "suspend",
         label: "Suspend",
         icon: "system-suspend-symbolic",
-        command: &["systemctl", "suspend"],
+        command: &["loginctl", "suspend"],
     },
     PowerAction {
         id: "lock",
@@ -756,5 +756,29 @@ pub fn build_power_card() -> PowerCardBuildResult {
             state,
             expander_button,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn power_actions_use_loginctl_on_guix() {
+        let commands: Vec<_> = POWER_ACTIONS
+            .iter()
+            .filter(|action| !action.command.is_empty())
+            .map(|action| (action.id, action.command))
+            .collect();
+
+        assert_eq!(
+            commands,
+            vec![
+                ("shutdown", &["loginctl", "poweroff"][..]),
+                ("reboot", &["loginctl", "reboot"][..]),
+                ("suspend", &["loginctl", "suspend"][..]),
+                ("lock", &["loginctl", "lock-session"][..]),
+            ]
+        );
     }
 }

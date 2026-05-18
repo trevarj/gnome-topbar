@@ -515,16 +515,6 @@ impl LayerShellPopover {
         self.reuse_content.set(reuse);
     }
 
-    /// Mark the popover content as needing a rebuild.
-    ///
-    /// Called by `MenuHandle::refresh_if_visible()` when the popover is not
-    /// logically open (e.g. a notification arrives during the close animation).
-    /// The flag is checked on mid-close reversal so the stale content gets
-    /// replaced before the user sees it again.
-    pub fn mark_content_dirty(&self) {
-        self.content_dirty.set(true);
-    }
-
     /// Enable keyboard navigation by removing the `.vp-no-focus` CSS class
     /// from the outer wrapper and enabling GTK's `focus-visible` property so
     /// Adwaita renders `:focus-visible` rings on focused widgets.
