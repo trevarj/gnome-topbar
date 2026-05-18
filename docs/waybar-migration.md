@@ -12,27 +12,37 @@ left = ["workspaces", "custom-crypto"]
 center = ["clock"]
 right = ["tray", "quick_settings"]
 
-[widgets.clock]
-control_panel = true
-control_panel_weather_widget = "custom-weather"
-
 [widgets.custom-crypto]
 exec = "~/.config/gnome-topbar/scripts/crypto.sh -r"
 interval = 1800
 max_chars = 40
+```
 
-[widgets.custom-weather]
-exec = "~/.config/gnome-topbar/scripts/weather.sh"
+Use built-in widgets for weather and headset battery instead of carrying
+Waybar wrapper scripts:
+
+```toml
+[widgets]
+center = ["weather", "clock"]
+right = ["tray", "headset", "quick_settings"]
+
+[widgets.weather]
+latitude = 0.0
+longitude = 0.0
+unit = "celsius"
 interval = 1800
+
+[widgets.headset]
+interval = 5
 ```
 
 VPN status belongs in Quick Settings. GNOME Topbar detects NetworkManager VPNs
 and active external tunnel interfaces such as `tun0`/`wg0`; keep one-off VPN
 scripts out of the bar unless you need a deliberately separate indicator.
 
-Standalone widget names such as `battery`, `weather`, `headset`, `media`,
-`notifications`, and resource monitors are intentionally outside the supported
-surface. Existing configs that reference them warn and skip the widget.
+Standalone widget names such as `battery`, `media`, `notifications`, and
+resource monitors are intentionally outside the supported surface. Existing
+configs that reference them warn and skip the widget.
 
 ## Output Formats
 
@@ -60,8 +70,8 @@ Empty display text hides the widget when no static config `label` fallback is se
 Custom widgets support shell click handlers:
 
 ```toml
-[widgets.custom-weather]
-exec = "~/.config/gnome-topbar/scripts/weather.sh"
+[widgets.custom-link]
+label = "Docs"
 interval = 1800
-on_click = "xdg-open https://wttr.in"
+on_click = "xdg-open https://example.invalid"
 ```

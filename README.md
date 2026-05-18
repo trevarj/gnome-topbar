@@ -81,17 +81,22 @@ interval = 1800
 tooltip = "Crypto prices"
 ```
 
-The clock control panel can read a custom weather script without placing that
-script on the bar:
+Weather and headset battery indicators are built in, so common panel status
+does not need wrapper scripts:
 
 ```toml
-[widgets.clock]
-control_panel = true
-control_panel_weather_widget = "custom-weather"
+[widgets]
+center = ["weather", "clock"]
+right = ["tray", "headset", "quick_settings"]
 
-[widgets.custom-weather]
-exec = "~/.config/gnome-topbar/scripts/weather.sh"
+[widgets.weather]
+latitude = 0.0
+longitude = 0.0
+unit = "celsius"
 interval = 1800
+
+[widgets.headset]
+interval = 5
 ```
 
 Waybar-style custom script output is supported. Scripts may emit

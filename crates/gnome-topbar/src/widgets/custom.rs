@@ -299,8 +299,7 @@ impl CustomWidget {
 
     /// Create a script-backed widget with an explicit widget/CSS class name.
     ///
-    /// Native widgets such as weather and headset reuse custom-script polling
-    /// without inheriting the `custom-` CSS namespace.
+    /// Internal constructor for custom widgets that need an explicit CSS class.
     pub(crate) fn new_with_class(
         widget_name: &str,
         css_class_name: &str,

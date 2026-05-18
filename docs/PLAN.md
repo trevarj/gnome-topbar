@@ -74,7 +74,7 @@ Visual audit notes:
 - [x] Preserve Waybar-style custom script support for plain text and JSON output.
 - [x] Add focused tests for empty output, JSON empty `text`, `label` fallback, `percentage` tooltip fallback, and zero-like script output where intended.
 - [x] Keep `README.md` and `docs/waybar-migration.md` aligned with supported JSON fields and empty-text hide behavior.
-- [x] Require migrated scripts to use `custom-*`; native `weather` and `headset` widget names are no longer supported.
+- [x] Require one-off migrated scripts to use `custom-*`; keep `weather` and `headset` as narrow built-in status widgets.
 
 ### Phase 4: Icons And Themes
 
@@ -102,9 +102,9 @@ Current control panel inventory:
 - Clock: opens either calendar-only content or `build_clock_control_panel` when `[widgets.clock].control_panel = true`.
 - Calendar: embedded in the clock control panel through `build_clock_calendar_popover`.
 - Notifications: live in the clock control panel by default; the standalone notification widget has been removed.
-- Weather: no native widget; use an explicit `custom-*` script via `[widgets.clock].control_panel_weather_widget` when needed.
+- Weather: built-in Open-Meteo widget for bar weather; no wrapper script needed for the common path.
 - Media: embedded in the clock control panel through `build_media_popover_with_controller`; the standalone media widget and pop-out window have been removed.
-- Headset: no native widget; use `custom-*` for headset battery/status scripts when needed.
+- Headset: built-in headsetcontrol-backed battery widget; no wrapper script needed for the common path.
 - Quick settings: currently opens its own keep-alive window from the bar widget; convergence should happen one behavior slice at a time.
 
 Completed control-panel slice:

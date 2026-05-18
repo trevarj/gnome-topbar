@@ -19,6 +19,7 @@ mod calendar_popover;
 mod clock;
 mod control_panel;
 mod custom;
+mod headset;
 mod keyboard_layout;
 pub mod layer_shell_popover;
 mod marquee_label;
@@ -34,6 +35,7 @@ mod rounded_picture;
 pub(crate) mod scale_box;
 mod tray;
 mod updates_common;
+mod weather;
 mod workspaces;
 
 pub mod css;
@@ -49,7 +51,9 @@ pub use tray::{TrayConfig, TrayWidget};
 pub use workspaces::{WorkspacesConfig, WorkspacesWidget};
 
 pub use custom::{CustomConfig, CustomWidget};
+pub use headset::{HeadsetConfig, HeadsetWidget};
 pub use keyboard_layout::{KeyboardLayoutConfig, KeyboardLayoutWidget};
+pub use weather::{WeatherConfig, WeatherWidget};
 
 use gnome_topbar_core::config::WidgetEntry;
 use gtk4::Widget;
@@ -218,6 +222,24 @@ impl WidgetFactory {
                 Some(BuiltWidget {
                     widget: root,
                     handle: Box::new(keyboard_layout),
+                })
+            }
+            "weather" => {
+                let cfg = WeatherConfig::from_entry(entry);
+                let weather = WeatherWidget::new(cfg);
+                let root = weather.widget().clone().upcast::<Widget>();
+                Some(BuiltWidget {
+                    widget: root,
+                    handle: Box::new(weather),
+                })
+            }
+            "headset" => {
+                let cfg = HeadsetConfig::from_entry(entry);
+                let headset = HeadsetWidget::new(cfg);
+                let root = headset.widget().clone().upcast::<Widget>();
+                Some(BuiltWidget {
+                    widget: root,
+                    handle: Box::new(headset),
                 })
             }
             name if name.starts_with("custom-") => {

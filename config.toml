@@ -55,7 +55,27 @@ background_opacity = 0.0
 #   image = "/usr/share/pixmaps/distro-logo.svg"  # file path (PNG, SVG, etc.)
 #   tooltip = "My Distro"
 #
-# One-off script indicators should use custom-* rather than native status modules.
+# One-off script indicators should use custom-*; weather and headset have built-in widgets.
+#
+# Built-in weather indicator:
+#   center = ["weather", "clock"]
+#
+#   [widgets.weather]
+#   latitude = 0
+#   longitude = 0
+#   unit = "celsius"      # "celsius" or "fahrenheit"
+#   interval = 1800       # seconds between Open-Meteo refreshes
+#   tooltip = "Weather"
+#   max_chars = 24
+#
+# Built-in headset battery indicator:
+#   right = ["tray", "headset", "quick_settings"]
+#
+#   [widgets.headset]
+#   interval = 5          # seconds between headsetcontrol polls
+#   tooltip = "Headset battery"
+#   max_chars = 12
+#   command = "headsetcontrol"
 #
 # See documentation for all widget options.
 

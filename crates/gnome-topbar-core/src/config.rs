@@ -57,9 +57,11 @@ const MAX_OUTLINE_WIDTH: u32 = 4;
 /// Public widget names supported by the GNOME-like top-bar surface.
 const SUPPORTED_WIDGETS: &[&str] = &[
     "clock",
+    "headset",
     "keyboard_layout",
     "quick_settings",
     "tray",
+    "weather",
     "workspaces",
 ];
 
@@ -68,7 +70,6 @@ const REMOVED_WIDGETS: &[&str] = &[
     "battery",
     "cpu",
     "gpu",
-    "headset",
     "media",
     "memory",
     "network_speed",
@@ -76,7 +77,6 @@ const REMOVED_WIDGETS: &[&str] = &[
     "spacer",
     "taskbar",
     "updates",
-    "weather",
     "window_title",
 ];
 
