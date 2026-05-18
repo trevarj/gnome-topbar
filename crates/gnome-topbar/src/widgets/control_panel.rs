@@ -50,7 +50,7 @@ pub fn build_clock_control_panel(
     time_card.container.set_valign(Align::Start);
     right_col.append(&time_card.container);
 
-    let (media_widget, media_controller) = build_media_popover_with_controller(|| {});
+    let (media_widget, media_controller) = build_media_popover_with_controller();
     media_widget.add_css_class("control-panel-media");
     media_widget.set_vexpand(false);
     media_widget.set_valign(Align::Start);

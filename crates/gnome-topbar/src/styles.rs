@@ -1051,36 +1051,11 @@ pub mod media {
     /// Duration label (`.media-duration`).
     pub const DURATION: &str = "media-duration";
 
-    /// Volume slider container (`.media-volume`).
-    pub const VOLUME: &str = "media-volume";
-
-    /// Volume slider (`.media-volume-slider`).
-    pub const VOLUME_SLIDER: &str = "media-volume-slider";
-
-    /// Volume icon (`.media-volume-icon`).
-    pub const VOLUME_ICON: &str = "media-volume-icon";
-
     /// Player selector dropdown (`.media-player-selector`).
     pub const PLAYER_SELECTOR: &str = "media-player-selector";
 
     /// Player name label (`.media-player-name`).
     pub const PLAYER_NAME: &str = "media-player-name";
-
-    // Pop-out window
-    /// Pop-out window (`.media-window`).
-    pub const WINDOW: &str = "media-window";
-
-    /// Window header/drag area (`.media-window-header`).
-    pub const WINDOW_HEADER: &str = "media-window-header";
-
-    /// Window drag handle (`.media-window-drag`).
-    pub const WINDOW_DRAG: &str = "media-window-drag";
-
-    /// Window control button - smaller than popover (`.media-window-control-btn`).
-    pub const WINDOW_CONTROL_BTN: &str = "media-window-control-btn";
-
-    /// Window seek slider - thinner than popover (`.media-window-seek-slider`).
-    pub const WINDOW_SEEK_SLIDER: &str = "media-window-seek-slider";
 
     // Popover
     /// Media popover (`.media-popover`).
@@ -1088,12 +1063,6 @@ pub mod media {
 
     /// Media popover header row (`.media-popover-header`).
     pub const HEADER: &str = "media-popover-header";
-
-    /// Pop-out button in popover (`.media-popout-btn`).
-    pub const POPOUT_BTN: &str = "media-popout-btn";
-
-    /// Pop-out button icon (`.media-popout-icon`).
-    pub const POPOUT_ICON: &str = "media-popout-icon";
 
     /// Player selector button in popover (`.media-player-selector-btn`).
     pub const PLAYER_SELECTOR_BTN: &str = "media-player-selector-btn";

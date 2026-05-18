@@ -1,4 +1,4 @@
-//! Shared components for media widgets (popover and pop-out window).
+//! Shared components for the media popover and control panel media view.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -36,7 +36,7 @@ pub fn art_radius_percent() -> f32 {
     (percent as f32 / 100.0).min(0.5)
 }
 
-/// Shared controller for media UI views (popover and pop-out window).
+/// Shared controller for media UI views.
 ///
 /// Owns references to UI elements and provides a unified `update_from_snapshot()`
 /// method to keep the view in sync with media state.

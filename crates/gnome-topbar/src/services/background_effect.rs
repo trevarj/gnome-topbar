@@ -8,10 +8,10 @@
 //! ## Surface scope
 //!
 //! Covers gnome-topbar-managed surfaces with visible backgrounds: bar, layer-shell
-//! popovers, Quick Settings, notification toasts, OSD, tray menus, and the media
-//! pop-out window. Child popovers inside already-blurred surfaces and tiny
-//! tooltips are intentionally excluded because the visual benefit is negligible.
-//! On compositors without support for a surface role, the hint is ignored.
+//! popovers, Quick Settings, notification toasts, OSD, and tray menus. Child
+//! popovers inside already-blurred surfaces and tiny tooltips are intentionally
+//! excluded because the visual benefit is negligible. On compositors without
+//! support for a surface role, the hint is ignored.
 //!
 //! ## Architecture
 //!

@@ -25,10 +25,7 @@ pub type MediaPopoverController = MediaViewController;
 
 /// Build a media popover content widget.
 /// Returns both the root widget and a controller for live updates.
-pub fn build_media_popover_with_controller<F>(on_popout: F) -> (Widget, MediaPopoverController)
-where
-    F: Fn() + 'static,
-{
+pub fn build_media_popover_with_controller() -> (Widget, MediaPopoverController) {
     let media_service = MediaService::global();
     let snapshot = media_service.snapshot();
     let icons = IconsService::global();
@@ -86,23 +83,6 @@ where
         show_player_menu(btn);
     });
     buttons_row.append(&player_btn);
-
-    // Pop-out button
-    let popout_btn = crate::widgets::base::vp_button();
-    popout_btn.set_has_frame(false);
-    popout_btn.set_focus_on_click(false);
-    popout_btn.set_valign(Align::Center);
-    popout_btn.add_css_class(surface::POPOVER_ICON_BTN);
-    popout_btn.add_css_class(media::POPOUT_BTN);
-
-    let popout_icon = icons.create_icon("window-new-symbolic", &[icon::ICON, media::POPOUT_ICON]);
-    popout_icon.widget().set_halign(Align::Center);
-    popout_icon.widget().set_valign(Align::Center);
-    popout_btn.set_child(Some(&popout_icon.widget()));
-
-    TooltipManager::global().set_styled_tooltip(&popout_btn, "Pop out");
-    popout_btn.connect_clicked(move |_| on_popout());
-    buttons_row.append(&popout_btn);
 
     info_section.append(&buttons_row);
 

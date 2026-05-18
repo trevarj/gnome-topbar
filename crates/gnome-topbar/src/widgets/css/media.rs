@@ -84,7 +84,6 @@ pub fn css(animations: bool) -> String {
 }}
 
 /* Override base popover icon button size for denser media layout */
-.media-popout-btn,
 .media-player-selector-btn {{
     min-width: 28px;
     min-height: 28px;
@@ -145,22 +144,12 @@ pub fn css(animations: bool) -> String {
     font-size: var(--font-size-sm);
 }}
 
-/* Playback controls in popover/window */
+/* Playback controls in popover */
 .media-popover .media-controls {{
     padding: 0;
 }}
 
-/* Window base styling */
-.media-window {{
-    min-width: 260px;
-}}
-
-.media-window .media-controls {{
-    padding: 4px 0;
-}}
-
-.media-popover .media-control-btn,
-.media-window .media-control-btn {{
+.media-popover .media-control-btn {{
     background: transparent;
     border: none;
     box-shadow: none;
@@ -171,37 +160,31 @@ pub fn css(animations: bool) -> String {
     color: var(--color-foreground-primary);
 }}
 
-.media-popover .media-control-btn .icon-root,
-.media-window .media-control-btn .icon-root {{
+.media-popover .media-control-btn .icon-root {{
     font-size: calc(var(--icon-size) * 1.25);
 }}
 
-.media-popover .media-control-btn:hover,
-.media-window .media-control-btn:hover {{
+.media-popover .media-control-btn:hover {{
     background: var(--color-card-overlay-hover);
 }}
 
-.media-popover .media-control-btn:disabled,
-.media-window .media-control-btn:disabled {{
+.media-popover .media-control-btn:disabled {{
     color: var(--color-foreground-disabled);
 }}
 
 /* Primary button (play/pause) - slightly larger with accent background */
-.media-popover .media-control-btn.media-control-btn-primary,
-.media-window .media-control-btn.media-control-btn-primary {{
+.media-popover .media-control-btn.media-control-btn-primary {{
     min-width: 40px;
     min-height: 40px;
     background: var(--color-accent-primary);
     color: var(--color-accent-text, #fff);
 }}
 
-.media-popover .media-control-btn.media-control-btn-primary .icon-root,
-.media-window .media-control-btn.media-control-btn-primary .icon-root {{
+.media-popover .media-control-btn.media-control-btn-primary .icon-root {{
     font-size: calc(var(--icon-size) * 1.35);
 }}
 
-.media-popover .media-control-btn.media-control-btn-primary:hover,
-.media-window .media-control-btn.media-control-btn-primary:hover {{
+.media-popover .media-control-btn.media-control-btn-primary:hover {{
     background: var(--color-accent-hover-bg);
 }}
 
@@ -248,71 +231,6 @@ pub fn css(animations: bool) -> String {
 .media-time {{
     font-size: var(--font-size-xs);
     margin-top: -4px;
-}}
-
-/* Volume control (used in media window) */
-.media-volume {{
-    padding-top: 8px;
-}}
-
-.media-volume-slider {{
-    margin-left: 8px;
-}}
-
-.media-volume-slider trough {{
-    min-height: var(--slider-height);
-    border-radius: var(--slider-radius);
-    background-color: var(--color-slider-track);
-}}
-
-.media-volume-slider highlight {{
-    background-image: image(var(--color-accent-slider, var(--color-accent-primary)));
-    background-color: var(--color-accent-slider, var(--color-accent-primary));
-    border: none;
-    min-height: var(--slider-height);
-    border-radius: var(--slider-radius);
-}}
-
-.media-volume-slider slider {{
-    min-width: var(--slider-knob-size);
-    min-height: var(--slider-knob-size);
-    margin: -5px;
-    padding: 0;
-    background-color: var(--color-accent-primary);
-    border-radius: var(--slider-knob-radius);
-    border: none;
-    box-shadow: none;
-    {slider_transition}
-}}
-
-.media-volume-slider slider:active {{
-    transform: scale(1.15);
-}}
-
-/* Window-specific smaller controls */
-.media-window .media-window-control-btn {{
-    min-width: 24px;
-    min-height: 24px;
-}}
-
-.media-window .media-window-control-btn.media-control-btn-primary {{
-    min-width: 32px;
-    min-height: 32px;
-}}
-
-/* Window-specific thinner seek slider */
-.media-window .media-window-seek-slider trough {{
-    min-height: 4px;
-}}
-
-.media-window .media-window-seek-slider highlight {{
-    min-height: 4px;
-}}
-
-.media-window .media-window-seek-slider slider {{
-    min-width: 12px;
-    min-height: 12px;
-    margin: -4px;
 }}
 "#
     )
