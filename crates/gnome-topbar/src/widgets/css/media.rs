@@ -101,22 +101,28 @@ pub fn css(animations: bool) -> String {
     margin-left: 4px;
 }}
 
-.media-control-btn {{
-    min-width: 24px;
-    min-height: 24px;
+.media .media-control-btn {{
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
     border-radius: var(--radius-widget);
     color: var(--color-foreground-primary);
 }}
 
-.media-control-btn.media-control-btn-primary .icon-root {{
+.media .media-control-btn.media-control-btn-primary {{
+    min-width: 32px;
+    min-height: 32px;
+}}
+
+.media .media-control-btn.media-control-btn-primary .icon-root {{
     font-size: calc(var(--icon-size) * 1.1);
 }}
 
-.media-control-btn:hover {{
+.media .media-control-btn:hover {{
     background: var(--color-card-overlay-hover);
 }}
 
-.media-control-btn:disabled {{
+.media .media-control-btn:disabled {{
     color: var(--color-foreground-disabled);
 }}
 
