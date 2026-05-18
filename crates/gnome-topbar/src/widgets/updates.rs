@@ -8,6 +8,7 @@
 //!
 //! Configuration options:
 //! - `check_interval`: How often to check for updates (seconds, default: 3600)
+//! - `count_command`: Shell command that prints an update count or update lines
 //! - `terminal`: Override terminal emulator detection
 
 use gnome_topbar_core::config::WidgetEntry;
@@ -30,13 +31,19 @@ const DEFAULT_CHECK_INTERVAL: u64 = 3600;
 pub struct UpdatesConfig {
     /// How often to check for updates (seconds).
     pub check_interval: u64,
+    /// Shell command that prints an update count or update lines.
+    pub count_command: Option<String>,
     /// Override terminal emulator detection.
     pub terminal: Option<String>,
 }
 
 impl WidgetConfig for UpdatesConfig {
     fn from_entry(entry: &WidgetEntry) -> Self {
-        warn_unknown_options("updates", entry, &["check_interval", "terminal"]);
+        warn_unknown_options(
+            "updates",
+            entry,
+            &["check_interval", "count_command", "terminal"],
+        );
 
         let check_interval = entry
             .options
@@ -51,8 +58,17 @@ impl WidgetConfig for UpdatesConfig {
             .and_then(|v| v.as_str())
             .map(String::from);
 
+        let count_command = entry
+            .options
+            .get("count_command")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+
         Self {
             check_interval,
+            count_command,
             terminal,
         }
     }
@@ -62,6 +78,7 @@ impl Default for UpdatesConfig {
     fn default() -> Self {
         Self {
             check_interval: DEFAULT_CHECK_INTERVAL,
+            count_command: None,
             terminal: None,
         }
     }
@@ -89,7 +106,7 @@ impl UpdatesWidget {
 
         // Configure the service with our interval
         let service = UpdatesService::global();
-        service.set_check_interval(config.check_interval);
+        service.configure(config.check_interval, config.count_command.clone());
 
         // Set up click handler to spawn terminal
         {
@@ -200,6 +217,7 @@ mod tests {
         let config = UpdatesConfig::from_entry(&entry);
 
         assert_eq!(config.check_interval, DEFAULT_CHECK_INTERVAL);
+        assert!(config.count_command.is_none());
         assert!(config.terminal.is_none());
     }
 
@@ -207,6 +225,10 @@ mod tests {
     fn test_updates_config_custom() {
         let mut options = std::collections::HashMap::new();
         options.insert("check_interval".to_string(), toml::Value::Integer(1800));
+        options.insert(
+            "count_command".to_string(),
+            toml::Value::String("printf '3\\n'".to_string()),
+        );
         options.insert(
             "terminal".to_string(),
             toml::Value::String("ghostty".to_string()),
@@ -219,6 +241,7 @@ mod tests {
         let config = UpdatesConfig::from_entry(&entry);
 
         assert_eq!(config.check_interval, 1800);
+        assert_eq!(config.count_command, Some("printf '3\\n'".to_string()));
         assert_eq!(config.terminal, Some("ghostty".to_string()));
     }
 }

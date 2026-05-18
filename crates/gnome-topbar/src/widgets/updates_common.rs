@@ -39,7 +39,9 @@ pub fn format_tooltip(snapshot: &UpdatesSnapshot) -> String {
     let mut lines = Vec::new();
 
     // Header
-    if let Some(ref err) = snapshot.error {
+    if !snapshot.available {
+        lines.push("Update checks are not configured".to_string());
+    } else if let Some(ref err) = snapshot.error {
         lines.push("Update check failed".to_string());
         lines.push(String::new());
         lines.push(format!("Error: {}", err));
@@ -85,6 +87,10 @@ pub fn format_tooltip(snapshot: &UpdatesSnapshot) -> String {
 ///
 /// Example: "12 updates" or "1 update"
 pub fn format_repo_summary(snapshot: &UpdatesSnapshot) -> String {
+    if !snapshot.available {
+        return "Not configured".to_string();
+    }
+
     if snapshot.error.is_some() {
         return "Check failed".to_string();
     }

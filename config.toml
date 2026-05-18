@@ -47,6 +47,10 @@ background_opacity = 0.0
 #   [widgets.media]
 #   visualizer = true  # Enable/disable cava audio visualizer (default: true)
 #
+#   [widgets.updates]
+#   # Disabled until configured. Command may print a number or one update per line.
+#   count_command = ""
+#
 #   [widgets.notifications]
 #   hide_empty = true
 #   control_panel = true

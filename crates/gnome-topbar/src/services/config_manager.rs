@@ -784,6 +784,7 @@ impl ConfigManager {
         match msg {
             ConfigMessage::Reloaded(new_config) => {
                 AudioService::global().set_allow_overdrive(new_config.audio.allow_overdrive);
+                super::updates::UpdatesService::global().configure_from_config(&new_config);
                 self.apply_config(*new_config);
             }
             ConfigMessage::Error(err) => {

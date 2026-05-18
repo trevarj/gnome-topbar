@@ -88,6 +88,15 @@ Set `disabled = true` under either widget table to hide it. When weather is
 enabled, the clock control panel also uses its `exec` output for the weather
 line.
 
+## Updates
+
+Guix update counting is disabled until configured:
+
+```toml
+[widgets.updates]
+count_command = "" # print a number, or one update per line
+```
+
 ## Custom Scripts
 
 Custom widgets are intended for migration and extensibility. They use the

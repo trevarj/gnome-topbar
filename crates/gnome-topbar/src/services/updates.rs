@@ -12,6 +12,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::time::SystemTime;
 
+use gnome_topbar_core::Config;
 use gtk4::glib::{self, SourceId};
 use tracing::{debug, info, warn};
 
@@ -90,6 +91,7 @@ impl UpdatesSnapshot {
 /// Result of a background update check.
 #[derive(Debug)]
 struct CheckResult {
+    update_count: usize,
     updates_by_repo: HashMap<String, Vec<UpdateInfo>>,
     error: Option<String>,
 }
@@ -99,6 +101,7 @@ pub struct UpdatesService {
     snapshot: RefCell<UpdatesSnapshot>,
     callbacks: Callbacks<UpdatesSnapshot>,
     check_interval: Cell<u64>,
+    count_command: RefCell<Option<String>>,
     timer_source: RefCell<Option<SourceId>>,
     /// Prevent concurrent checks.
     check_in_progress: Cell<bool>,
@@ -110,6 +113,7 @@ impl UpdatesService {
             snapshot: RefCell::new(UpdatesSnapshot::unknown()),
             callbacks: Callbacks::new(),
             check_interval: Cell::new(DEFAULT_CHECK_INTERVAL),
+            count_command: RefCell::new(None),
             timer_source: RefCell::new(None),
             check_in_progress: Cell::new(false),
         });
@@ -124,14 +128,11 @@ impl UpdatesService {
 
         if pm.is_some() {
             info!("UpdatesService: detected package manager {:?}", pm);
-            // Start initial check and periodic timer
-            Self::start_periodic_checks(&service);
         } else {
             info!("UpdatesService: no supported package manager detected");
-            let mut snapshot = service.snapshot.borrow_mut();
-            snapshot.is_ready = true;
         }
 
+        service.snapshot.borrow_mut().is_ready = true;
         service
     }
 
@@ -203,6 +204,60 @@ impl UpdatesService {
         debug!("UpdatesService: check interval set to {}s", seconds);
     }
 
+    /// Configure update checks from the loaded application config.
+    ///
+    /// GNU Guix does not expose a stable, cheap "available updates" command
+    /// across releases. Keep this disabled until the user supplies a command.
+    pub fn configure_from_config(self: &Rc<Self>, config: &Config) {
+        let options = config.widgets.get_options("updates");
+        let check_interval = options
+            .as_ref()
+            .and_then(|opts| opts.options.get("check_interval"))
+            .and_then(|v| v.as_integer())
+            .map(|v| v as u64)
+            .unwrap_or(DEFAULT_CHECK_INTERVAL);
+        let count_command = options
+            .as_ref()
+            .and_then(|opts| opts.options.get("count_command"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+
+        self.configure(check_interval, count_command);
+    }
+
+    /// Configure the update count command and restart periodic checks.
+    pub fn configure(self: &Rc<Self>, seconds: u64, count_command: Option<String>) {
+        self.set_check_interval(seconds);
+        *self.count_command.borrow_mut() = count_command.clone();
+
+        if let Some(source_id) = self.timer_source.borrow_mut().take() {
+            source_id.remove();
+        }
+
+        let mut snapshot = self.snapshot.borrow_mut();
+        snapshot.available = snapshot.package_manager.is_some() && count_command.is_some();
+        snapshot.is_ready = true;
+        snapshot.checking = false;
+        snapshot.check_status = None;
+        snapshot.error = None;
+
+        if !snapshot.available {
+            snapshot.update_count = 0;
+            snapshot.updates_by_repo.clear();
+            snapshot.last_check = None;
+        }
+
+        let snapshot_clone = snapshot.clone();
+        drop(snapshot);
+        self.callbacks.notify(&snapshot_clone);
+
+        if count_command.is_some() && self.snapshot.borrow().package_manager.is_some() {
+            Self::start_periodic_checks(self);
+        }
+    }
+
     /// Start periodic update checks.
     fn start_periodic_checks(this: &Rc<Self>) {
         // Do an initial check
@@ -243,6 +298,10 @@ impl UpdatesService {
             Some(pm) => pm,
             None => return,
         };
+        let count_command = match self.count_command.borrow().clone() {
+            Some(command) => command,
+            None => return,
+        };
 
         self.check_in_progress.set(true);
 
@@ -265,7 +324,7 @@ impl UpdatesService {
                 });
             };
 
-            let result = run_update_check(pm, &report_status);
+            let result = run_update_check(pm, &count_command, &report_status);
 
             // Send result back to main thread
             glib::idle_add_once(move || {
@@ -290,7 +349,7 @@ impl UpdatesService {
         } else {
             snapshot.error = None;
             snapshot.updates_by_repo = result.updates_by_repo;
-            snapshot.update_count = snapshot.updates_by_repo.values().map(|v| v.len()).sum();
+            snapshot.update_count = result.update_count;
             snapshot.last_check = Some(SystemTime::now());
 
             debug!(
@@ -328,71 +387,77 @@ fn detect_package_manager() -> Option<PackageManager> {
 ///
 /// This runs in a background thread and should not touch any GTK state.
 /// `report_status` is called before each step to update the UI with progress.
-fn run_update_check(pm: PackageManager, report_status: &dyn Fn(String)) -> CheckResult {
+fn run_update_check(
+    pm: PackageManager,
+    count_command: &str,
+    report_status: &dyn Fn(String),
+) -> CheckResult {
     match pm {
-        PackageManager::Guix => check_guix_updates(report_status),
+        PackageManager::Guix => check_guix_updates(count_command, report_status),
     }
 }
 
 /// Check for profile updates using GNU Guix.
-fn check_guix_updates(report_status: &dyn Fn(String)) -> CheckResult {
-    report_status("Checking Guix profile...".to_string());
-    let output = Command::new("guix")
-        .args(["package", "--list-upgradable"])
-        .output();
+fn check_guix_updates(count_command: &str, report_status: &dyn Fn(String)) -> CheckResult {
+    report_status("Checking updates...".to_string());
+    let output = Command::new("sh").args(["-c", count_command]).output();
 
     match output {
         Ok(output) => {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return CheckResult {
+                    update_count: 0,
                     updates_by_repo: HashMap::new(),
-                    error: Some(format!("Failed to check Guix updates: {}", stderr.trim())),
+                    error: Some(format!("Failed to check updates: {}", stderr.trim())),
                 };
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let updates = parse_guix_upgradable_output(&stdout);
+            let (update_count, updates) = parse_count_command_output(&stdout);
             let mut updates_by_repo = HashMap::new();
             if !updates.is_empty() {
                 updates_by_repo.insert("guix profile".to_string(), updates);
             }
 
             CheckResult {
+                update_count,
                 updates_by_repo,
                 error: None,
             }
         }
         Err(e) => CheckResult {
+            update_count: 0,
             updates_by_repo: HashMap::new(),
-            error: Some(format!("Failed to run guix: {}", e)),
+            error: Some(format!("Failed to run update count command: {}", e)),
         },
     }
 }
 
-/// Parse `guix package --list-upgradable` output.
-fn parse_guix_upgradable_output(output: &str) -> Vec<UpdateInfo> {
-    let mut updates = Vec::new();
-
-    for line in output.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        if line.starts_with("name") || line.starts_with("The following") {
-            continue;
-        }
-
-        // Guix output is tabular. The package name is the first column.
-        if let Some(name) = line.split_whitespace().next() {
-            updates.push(UpdateInfo {
-                name: name.to_string(),
-            });
-        }
+/// Parse custom update count command output.
+///
+/// A plain integer is treated as the total count. Otherwise each non-empty
+/// output line is treated as one update and shown in the details list.
+fn parse_count_command_output(output: &str) -> (usize, Vec<UpdateInfo>) {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return (0, Vec::new());
     }
 
-    updates
+    if let Ok(count) = trimmed.parse::<usize>() {
+        return (count, Vec::new());
+    }
+
+    let updates: Vec<UpdateInfo> = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| UpdateInfo {
+            name: line.to_string(),
+        })
+        .collect();
+
+    (updates.len(), updates)
 }
 
 #[cfg(test)]
@@ -400,23 +465,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_guix_upgradable_output() {
+    fn test_parse_count_command_output_as_lines() {
         let output = r#"
-name            version         available
 linux-libre     6.15.1          6.15.2
 icecat          128.10.0        128.11.0
 "#;
 
-        let result = parse_guix_upgradable_output(output);
+        let (count, result) = parse_count_command_output(output);
 
+        assert_eq!(count, 2);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].name, "linux-libre");
-        assert_eq!(result[1].name, "icecat");
+        assert_eq!(result[0].name, "linux-libre     6.15.1          6.15.2");
+        assert_eq!(result[1].name, "icecat          128.10.0        128.11.0");
     }
 
     #[test]
-    fn test_parse_empty_output() {
-        let result = parse_guix_upgradable_output("");
+    fn test_parse_count_command_output_as_number() {
+        let (count, result) = parse_count_command_output("12\n");
+        assert_eq!(count, 12);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_count_command_output_empty() {
+        let (count, result) = parse_count_command_output("");
+        assert_eq!(count, 0);
         assert!(result.is_empty());
     }
 

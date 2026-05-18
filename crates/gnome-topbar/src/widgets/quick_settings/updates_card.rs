@@ -277,6 +277,13 @@ fn populate_updates_list(state: &UpdatesCardState, snapshot: &UpdatesSnapshot) {
     let mut repos: Vec<_> = snapshot.updates_by_repo.iter().collect();
     repos.sort_by_key(|(name, _)| *name);
 
+    if repos.is_empty() {
+        let s = if snapshot.update_count == 1 { "" } else { "s" };
+        let row = create_message_row(&format!("{} update{} available", snapshot.update_count, s));
+        list_box.append(&row);
+        return;
+    }
+
     for (repo, updates) in repos {
         // Collect all package names, one per line
         let pkg_names: Vec<&str> = updates.iter().map(|u| u.name.as_str()).collect();

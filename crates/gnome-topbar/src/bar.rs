@@ -134,6 +134,8 @@ pub fn create_bar_window(
         outer_box.append(spacer);
     }
 
+    crate::services::updates::UpdatesService::global().configure_from_config(config);
+
     // Find quick_settings config from widget entries to configure the window.
     // Get options from [widgets.quick_settings] if defined.
     let qs_config = config
