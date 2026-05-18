@@ -562,6 +562,8 @@ impl ClockMediaCompanion {
 
         let icons = IconsService::global();
         let play_pause_icon = icons.create_icon("media-playback-start", &[icon::ICON]);
+        play_pause_icon.widget().set_halign(Align::Center);
+        play_pause_icon.widget().set_valign(Align::Center);
         let play_pause_btn = vp_button();
         play_pause_btn.set_has_frame(false);
         play_pause_btn.set_focus_on_click(false);

@@ -56,7 +56,7 @@ pub fn css(animations: bool) -> String {
 .clock-media-play-pause {{
     min-width: 30px;
     min-height: 30px;
-    padding: 0;
+    padding: 2px 3px;
     border-radius: var(--radius-round);
 }}
 
@@ -77,7 +77,14 @@ pub fn css(animations: bool) -> String {
 }}
 
 .clock-media-play-pause .icon-root {{
+    min-width: 18px;
+    min-height: 18px;
     font-size: calc(var(--icon-size) * 0.92);
+}}
+
+.clock-media-play-pause.media-paused .icon-root,
+.clock-media-play-pause.media-stopped .icon-root {{
+    margin-left: 1px;
 }}
 
 {clock_media_pulse}
