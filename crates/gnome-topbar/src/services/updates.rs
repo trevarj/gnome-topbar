@@ -218,7 +218,11 @@ impl UpdatesService {
             .unwrap_or(DEFAULT_CHECK_INTERVAL);
         let count_command = options
             .as_ref()
-            .and_then(|opts| opts.options.get("count_command"))
+            .and_then(|opts| {
+                opts.options
+                    .get("update_count_command")
+                    .or_else(|| opts.options.get("count_command"))
+            })
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())

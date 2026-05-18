@@ -94,7 +94,7 @@ Guix update counting is disabled until configured:
 
 ```toml
 [widgets.updates]
-count_command = "" # print a number, or one update per line
+update_count_command = "" # print a number, or one update per line
 ```
 
 ## Custom Scripts

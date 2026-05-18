@@ -8,7 +8,7 @@
 //!
 //! Configuration options:
 //! - `check_interval`: How often to check for updates (seconds, default: 3600)
-//! - `count_command`: Shell command that prints an update count or update lines
+//! - `update_count_command`: Shell command that prints an update count or update lines
 //! - `terminal`: Override terminal emulator detection
 
 use gnome_topbar_core::config::WidgetEntry;
@@ -32,7 +32,7 @@ pub struct UpdatesConfig {
     /// How often to check for updates (seconds).
     pub check_interval: u64,
     /// Shell command that prints an update count or update lines.
-    pub count_command: Option<String>,
+    pub update_count_command: Option<String>,
     /// Override terminal emulator detection.
     pub terminal: Option<String>,
 }
@@ -42,7 +42,12 @@ impl WidgetConfig for UpdatesConfig {
         warn_unknown_options(
             "updates",
             entry,
-            &["check_interval", "count_command", "terminal"],
+            &[
+                "check_interval",
+                "update_count_command",
+                "count_command",
+                "terminal",
+            ],
         );
 
         let check_interval = entry
@@ -58,9 +63,10 @@ impl WidgetConfig for UpdatesConfig {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let count_command = entry
+        let update_count_command = entry
             .options
-            .get("count_command")
+            .get("update_count_command")
+            .or_else(|| entry.options.get("count_command"))
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -68,7 +74,7 @@ impl WidgetConfig for UpdatesConfig {
 
         Self {
             check_interval,
-            count_command,
+            update_count_command,
             terminal,
         }
     }
@@ -78,7 +84,7 @@ impl Default for UpdatesConfig {
     fn default() -> Self {
         Self {
             check_interval: DEFAULT_CHECK_INTERVAL,
-            count_command: None,
+            update_count_command: None,
             terminal: None,
         }
     }
@@ -106,7 +112,7 @@ impl UpdatesWidget {
 
         // Configure the service with our interval
         let service = UpdatesService::global();
-        service.configure(config.check_interval, config.count_command.clone());
+        service.configure(config.check_interval, config.update_count_command.clone());
 
         // Set up click handler to spawn terminal
         {
@@ -217,7 +223,7 @@ mod tests {
         let config = UpdatesConfig::from_entry(&entry);
 
         assert_eq!(config.check_interval, DEFAULT_CHECK_INTERVAL);
-        assert!(config.count_command.is_none());
+        assert!(config.update_count_command.is_none());
         assert!(config.terminal.is_none());
     }
 
@@ -226,7 +232,7 @@ mod tests {
         let mut options = std::collections::HashMap::new();
         options.insert("check_interval".to_string(), toml::Value::Integer(1800));
         options.insert(
-            "count_command".to_string(),
+            "update_count_command".to_string(),
             toml::Value::String("printf '3\\n'".to_string()),
         );
         options.insert(
@@ -241,7 +247,30 @@ mod tests {
         let config = UpdatesConfig::from_entry(&entry);
 
         assert_eq!(config.check_interval, 1800);
-        assert_eq!(config.count_command, Some("printf '3\\n'".to_string()));
+        assert_eq!(
+            config.update_count_command,
+            Some("printf '3\\n'".to_string())
+        );
         assert_eq!(config.terminal, Some("ghostty".to_string()));
+    }
+
+    #[test]
+    fn test_updates_config_accepts_legacy_count_command() {
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "count_command".to_string(),
+            toml::Value::String("printf '2\\n'".to_string()),
+        );
+
+        let entry = WidgetEntry {
+            name: "updates".to_string(),
+            options,
+        };
+        let config = UpdatesConfig::from_entry(&entry);
+
+        assert_eq!(
+            config.update_count_command,
+            Some("printf '2\\n'".to_string())
+        );
     }
 }
