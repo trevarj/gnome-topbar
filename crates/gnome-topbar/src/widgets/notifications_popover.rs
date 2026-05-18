@@ -114,11 +114,11 @@ pub(crate) fn build_popover_content(
     root.add_css_class(notif::POPOVER);
     root.set_size_request(POPOVER_WIDTH, -1);
 
-    let header = build_header(on_close.clone());
-    root.append(&header);
-
     let notification_list = GtkBox::new(Orientation::Vertical, 4);
     notification_list.add_css_class(notif::LIST);
+
+    let header = build_header(on_close.clone(), &notification_list);
+    root.append(&header);
 
     populate_notification_list(&notification_list, on_close, &suppress_rebuild);
 
@@ -136,7 +136,7 @@ pub(crate) fn build_popover_content(
     root.upcast()
 }
 
-fn build_header(on_close: Option<ClosePopoverCallback>) -> GtkBox {
+fn build_header(on_close: Option<ClosePopoverCallback>, notification_list: &GtkBox) -> GtkBox {
     let header = GtkBox::new(Orientation::Horizontal, 8);
     header.add_css_class(notif::HEADER);
 
@@ -227,12 +227,22 @@ fn build_header(on_close: Option<ClosePopoverCallback>) -> GtkBox {
         clear_icon_widget.set_valign(Align::Center);
         clear_btn.set_child(Some(&clear_icon_widget));
 
+        let clear_btn_for_click = clear_btn.clone();
+        let list_for_clear = notification_list.clone();
+
         clear_btn.connect_clicked(move |_| {
             TooltipManager::global().cancel_and_hide();
             NotificationService::global().close_all();
-            // Close popover after clearing all - user is done with notifications
+
             if let Some(ref close_cb) = on_close {
+                // Standalone popover: close after clearing all, since the user is
+                // done with this view.
                 close_cb();
+            } else {
+                // Embedded control panel: there is no popover close/rebuild
+                // callback, so update the visible list in place.
+                clear_btn_for_click.set_visible(false);
+                clear_notification_list_to_empty(&list_for_clear);
             }
         });
 
@@ -318,6 +328,13 @@ fn add_empty_state(list: &GtkBox, message: &str) {
     empty.append(&label);
 
     list.append(&empty);
+}
+
+fn clear_notification_list_to_empty(list: &GtkBox) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+    add_empty_state(list, "No notifications");
 }
 
 fn build_notification_row(
