@@ -351,7 +351,15 @@ pub fn build_media_controls(
     }
     play_pause_btn.set_tooltip_text(Some("Play/Pause"));
     play_pause_btn.set_valign(Align::Center);
-    play_pause_btn.connect_clicked(|_| MediaService::global().play_pause());
+    {
+        let play_pause_icon = play_pause_icon.clone();
+        play_pause_btn.connect_clicked(move |_| {
+            let service = MediaService::global();
+            let snapshot = service.snapshot();
+            play_pause_icon.set_icon(optimistic_play_pause_icon(snapshot.playback_status));
+            service.play_pause();
+        });
+    }
     container.append(&play_pause_btn);
 
     // Next button
@@ -629,14 +637,25 @@ pub fn update_playback_controls(
     seek_scale: &Scale,
     snapshot: &MediaSnapshot,
 ) {
-    play_pause_icon.set_icon(match snapshot.playback_status {
-        PlaybackStatus::Playing => "media-playback-pause",
-        PlaybackStatus::Paused | PlaybackStatus::Stopped => "media-playback-start",
-    });
+    play_pause_icon.set_icon(playback_icon(snapshot.playback_status));
     play_pause_btn.set_sensitive(snapshot.can_play || snapshot.can_pause);
     prev_btn.set_sensitive(snapshot.can_go_previous);
     next_btn.set_sensitive(snapshot.can_go_next);
     seek_scale.set_sensitive(snapshot.can_seek);
+}
+
+fn playback_icon(status: PlaybackStatus) -> &'static str {
+    match status {
+        PlaybackStatus::Playing => media::ICON_PAUSE,
+        PlaybackStatus::Paused | PlaybackStatus::Stopped => media::ICON_PLAY,
+    }
+}
+
+fn optimistic_play_pause_icon(status: PlaybackStatus) -> &'static str {
+    match status {
+        PlaybackStatus::Playing => media::ICON_PLAY,
+        PlaybackStatus::Paused | PlaybackStatus::Stopped => media::ICON_PAUSE,
+    }
 }
 
 /// Update seek bar position from a media snapshot.
@@ -912,6 +931,29 @@ fn load_texture_from_bytes<S, F>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_playback_icon() {
+        assert_eq!(playback_icon(PlaybackStatus::Playing), media::ICON_PAUSE);
+        assert_eq!(playback_icon(PlaybackStatus::Paused), media::ICON_PLAY);
+        assert_eq!(playback_icon(PlaybackStatus::Stopped), media::ICON_PLAY);
+    }
+
+    #[test]
+    fn test_optimistic_play_pause_icon() {
+        assert_eq!(
+            optimistic_play_pause_icon(PlaybackStatus::Playing),
+            media::ICON_PLAY
+        );
+        assert_eq!(
+            optimistic_play_pause_icon(PlaybackStatus::Paused),
+            media::ICON_PAUSE
+        );
+        assert_eq!(
+            optimistic_play_pause_icon(PlaybackStatus::Stopped),
+            media::ICON_PAUSE
+        );
+    }
 
     #[test]
     fn test_prepare_art_load_same_url_is_noop() {
