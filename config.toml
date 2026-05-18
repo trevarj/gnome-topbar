@@ -121,7 +121,7 @@ update_count_command = ""
 check_interval = 3600
 
 [advanced]
-# compositor = "auto"  # "auto", "hyprland", "niri", "mango"
+# compositor = "auto"  # "auto" or "niri"
 
 # Custom CSS: place style.css in same directory as this file.
 # See documentation for available CSS variables and classes.

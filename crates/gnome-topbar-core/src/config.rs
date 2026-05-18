@@ -14,9 +14,7 @@ use toml::Table;
 use crate::error::{Error, Result};
 
 /// Known valid values for advanced.compositor.
-const VALID_COMPOSITORS: &[&str] = &[
-    "auto", "mango", "hyprland", "niri", "sway", "miracle", "scroll",
-];
+const VALID_COMPOSITORS: &[&str] = &["auto", "niri"];
 
 /// Known valid values for theme.mode.
 const VALID_THEME_MODES: &[&str] = &["auto", "dark", "light", "gtk"];
@@ -1564,11 +1562,10 @@ impl Default for UpdatesConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AdvancedConfig {
-    /// Compositor to connect to: "auto", "mango", "hyprland", "niri", "sway".
+    /// Compositor to connect to: "auto" or "niri".
     ///
-    /// In most cases, "auto" will correctly detect your compositor.
-    /// Only change this if auto-detection fails or you want to force
-    /// a specific backend for testing.
+    /// "auto" and "niri" both use the Niri backend. The setting is retained
+    /// so old minimal configs do not need to specify the backend explicitly.
     ///
     /// Default: "auto"
     pub compositor: String,

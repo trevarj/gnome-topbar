@@ -20,9 +20,6 @@ use super::{
 };
 use crate::services::network::objpath_to_string;
 
-#[cfg(debug_assertions)]
-use super::debug_mobile_mock;
-
 /// Modem information gathered from ModemManager.
 #[derive(Default)]
 pub(super) struct MobileInfo {
@@ -46,14 +43,6 @@ pub(super) struct MobileNmStatus {
 impl NmService {
     /// Discover mobile info in a background thread.
     pub(super) fn fetch_mobile_device_info() {
-        #[cfg(debug_assertions)]
-        if debug_mobile_mock::is_enabled()
-            && let Some(mock) = debug_mobile_mock::read_state()
-        {
-            debug_mobile_mock::send_mock_updates(&mock);
-            return;
-        }
-
         thread::spawn(move || {
             let nm_status = Self::get_mobile_nm_status_sync().unwrap_or_default();
 
@@ -83,7 +72,7 @@ impl NmService {
     /// Multiple calls within [`MOBILE_REFRESH_DEBOUNCE_MS`] are coalesced into one.
     /// The pending flag is cleared at the timeout callback (before spawning the
     /// fetch thread) so that new signals arriving during the fetch are not lost.
-    /// This matches the IWD debounce pattern in [`IwdService::schedule_network_refresh`].
+    /// This matches the Wi-Fi debounce pattern used for scan refreshes.
     pub(super) fn queue_mobile_refresh(&self) {
         if self.mobile.refresh_pending.get() {
             return;
@@ -329,30 +318,6 @@ impl NmService {
 
     /// Enable or disable WWAN/modem via NetworkManager.
     pub fn set_mobile_enabled(&self, enabled: bool) {
-        #[cfg(debug_assertions)]
-        if debug_mobile_mock::is_enabled() {
-            if enabled {
-                self.notify_snapshot(|s| {
-                    s.mobile.enabled = Some(true);
-                });
-                // disabled -> enabled (500ms) -> registered
-                debug_mobile_mock::transition_through_states(&[
-                    ("enabled", 500),
-                    ("registered", 0),
-                ]);
-            } else {
-                self.mobile.connecting_local.set(false);
-                self.notify_snapshot(|s| {
-                    s.mobile.connecting = false;
-                    s.mobile.enabled = Some(false);
-                    s.mobile.active = false;
-                });
-                // -> disabled
-                debug_mobile_mock::transition_through_states(&[("disabled", 0)]);
-            }
-            return;
-        }
-
         let Some(nm) = self.nm_proxy.borrow().clone() else {
             return;
         };
@@ -406,14 +371,6 @@ impl NmService {
             s.mobile.connecting = true;
             s.mobile.failed = false;
         });
-
-        // In debug builds, simulate connect.
-        #[cfg(debug_assertions)]
-        if debug_mobile_mock::is_enabled() {
-            // connecting (1.5s) -> connected
-            debug_mobile_mock::transition_through_states(&[("connecting", 1500), ("connected", 0)]);
-            return;
-        }
 
         thread::spawn(move || {
             let conn_name = match Self::get_mobile_nm_status_sync() {
@@ -475,14 +432,6 @@ impl NmService {
             s.mobile.connecting = false;
             s.mobile.active = false;
         });
-
-        // In debug builds, simulate disconnect.
-        #[cfg(debug_assertions)]
-        if debug_mobile_mock::is_enabled() {
-            // -> registered (after 800ms settling)
-            debug_mobile_mock::transition_through_states(&[("enabled", 800), ("registered", 0)]);
-            return;
-        }
 
         thread::spawn(move || {
             let active_name = Self::get_mobile_nm_status_sync().ok().and_then(|status| {

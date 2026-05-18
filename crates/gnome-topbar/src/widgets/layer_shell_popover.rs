@@ -34,7 +34,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use super::scale_box::ScaleBox;
-use crate::services::compositor::CompositorManager;
 use crate::services::config_manager::ConfigManager;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{class, surface};
@@ -253,17 +252,8 @@ pub fn calculate_popover_right_margin(
 }
 
 /// Get the appropriate keyboard mode for layer-shell popovers.
-///
-/// - **Hyprland**: Uses `OnDemand` because `Exclusive` mode breaks input handling
-///   entirely (clicks don't work, can't interact with other surfaces).
-/// - **Other compositors**: Uses `Exclusive` to maintain keyboard focus after
-///   workspace switches.
 pub fn popover_keyboard_mode() -> KeyboardMode {
-    if CompositorManager::global().backend_name() == "Hyprland" {
-        KeyboardMode::OnDemand
-    } else {
-        KeyboardMode::Exclusive
-    }
+    KeyboardMode::Exclusive
 }
 
 /// Calculate the bar's exclusive zone height for click-catcher margin.

@@ -14,16 +14,13 @@ path = "src/main.rs"
 gnome-topbar-core = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
-anyhow = { workspace = true }
 chrono = { workspace = true }
 gtk4 = { workspace = true }
 pango = { workspace = true }
 gtk4-layer-shell = { workspace = true }
 gdk4-wayland = { workspace = true }
 wayland-client = { workspace = true }
-wayland-backend = { workspace = true }
 wayland-protocols = { workspace = true }
-wayland-scanner = { workspace = true }
 notify = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -45,4 +42,3 @@ cargo-husky = { version = "1.5.0", default-features = false, features = [
     "run-cargo-clippy",
     "run-cargo-fmt",
 ] }
-toml = { workspace = true }

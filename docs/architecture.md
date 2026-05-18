@@ -78,18 +78,16 @@ Key services:
 
 ## Compositor Backend Abstraction
 
-GNOME Topbar supports multiple Wayland compositors through a pluggable backend system:
+GNOME Topbar targets Niri. The compositor service keeps a small trait boundary
+for workspace, focus, keyboard layout, and window-list consumers, but the only
+supported implementation is Niri IPC.
 
 ```
 services/compositor/
   mod.rs          # Public exports
   types.rs        # CompositorBackend trait, WorkspaceSnapshot, WindowInfo
-  factory.rs      # Backend auto-detection and creation
   manager.rs      # CompositorManager singleton
-  hyprland.rs     # Hyprland IPC implementation
   niri.rs         # Niri IPC implementation
-  mango.rs        # MangoWC implementation
-  dwl_ipc.rs      # DWL/dwl-ipc protocol implementation
 ```
 
 The `CompositorBackend` trait defines the interface:
@@ -106,12 +104,9 @@ pub trait CompositorBackend: Send + Sync {
 }
 ```
 
-Backend detection order:
-1. Check `workspace.backend` config (if not "auto")
-2. Check `HYPRLAND_INSTANCE_SIGNATURE` env var
-3. Check `NIRI_SOCKET` env var
-4. Check for MangoWC socket
-5. Fall back to DWL/wlr-foreign-toplevel
+`advanced.compositor` accepts `auto` and `niri`; both use the Niri backend.
+Other compositor compatibility layers were removed to keep the project aligned
+with its Niri-first goals.
 
 ## Widget System
 
@@ -191,7 +186,7 @@ crates/gnome-topbar/src/
   styles.rs         # CSS class name constants
   services.rs       # Service module exports
   services/
-    compositor/     # Compositor backend abstraction
+    compositor/     # Niri compositor service and shared types
     audio.rs        # PulseAudio integration
     battery.rs      # UPower integration for Quick Settings
     ...
@@ -211,9 +206,7 @@ The supported panel surface is intentionally small: `workspaces`, `clock`,
 widgets should be avoided unless they preserve the GNOME Shell top-bar shape
 and replace more code than they add.
 
-## Adding a New Compositor Backend
+## Compositor Scope
 
-1. Create `services/compositor/my_compositor.rs`
-2. Implement `CompositorBackend` trait
-3. Add detection logic to `factory.rs`
-4. Add backend name to config validation in `gnome-topbar-core/src/config.rs`
+New compositor backends are out of scope unless the project goals change. Keep
+the service boundary small and Niri-focused.

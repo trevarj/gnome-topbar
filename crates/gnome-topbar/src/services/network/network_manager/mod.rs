@@ -74,10 +74,6 @@ fn system_dbus_proxy_sync(
     )
 }
 
-/// Debug mock file path. See [`debug_mobile_mock`] module docs for usage.
-#[cfg(debug_assertions)]
-const DEBUG_MOBILE_MOCK_FILE: &str = "/tmp/gnome-topbar-debug-mobile";
-
 const MM_ACCESS_TECH_GSM: u32 = 1 << 1;
 const MM_ACCESS_TECH_GSM_COMPACT: u32 = 1 << 2;
 const MM_ACCESS_TECH_GPRS: u32 = 1 << 3;
@@ -246,8 +242,6 @@ enum NmUpdate {
     MobileToggleFinished {
         success: bool,
     },
-    #[cfg(debug_assertions)]
-    MobileEnabled(bool),
 }
 
 // ── NmService internal mobile state ──────────────────────────────────
@@ -327,16 +321,6 @@ impl NmService {
 
         // Initialize D-Bus — NM property signals deliver updates without polling.
         Self::init_dbus(&service);
-
-        // In debug builds, start polling the mock file if it exists.
-        #[cfg(debug_assertions)]
-        if debug_mobile_mock::is_enabled() {
-            // Send initial mock state immediately.
-            if let Some(mock) = debug_mobile_mock::read_state() {
-                debug_mobile_mock::send_mock_updates(&mock);
-            }
-            debug_mobile_mock::start_polling();
-        }
 
         service
     }
@@ -593,15 +577,6 @@ impl NmService {
                     });
                 }
             }
-            #[cfg(debug_assertions)]
-            NmUpdate::MobileEnabled(enabled) => {
-                self.notify_snapshot_if(|s| {
-                    let new_val = Some(enabled);
-                    let changed = s.mobile.enabled != new_val;
-                    s.mobile.enabled = new_val;
-                    changed
-                });
-            }
         }
     }
 
@@ -851,12 +826,6 @@ impl NmService {
                 }
             }
 
-            // In debug builds, treat modem as present when mock file exists.
-            #[cfg(debug_assertions)]
-            if !has_modem && debug_mobile_mock::is_enabled() {
-                has_modem = true;
-            }
-
             if has_ethernet {
                 send_nm_update(NmUpdate::EthernetDeviceExists);
             }
@@ -941,18 +910,9 @@ impl NmService {
         let wifi_enabled = nm
             .cached_property("WirelessEnabled")
             .and_then(|v| v.get::<bool>());
-        #[allow(unused_mut)]
-        let mut mobile_enabled = nm
+        let mobile_enabled = nm
             .cached_property("WwanEnabled")
             .and_then(|v| v.get::<bool>());
-
-        // In debug builds, override mobile_enabled from mock state.
-        #[cfg(debug_assertions)]
-        if debug_mobile_mock::is_enabled()
-            && let Some(mock) = debug_mobile_mock::read_state()
-        {
-            mobile_enabled = Some(mock.state.is_enabled());
-        }
 
         let primary_connection_type = nm
             .cached_property("PrimaryConnectionType")
@@ -972,8 +932,7 @@ impl NmService {
             changed = true;
 
             // When WiFi is disabled, clear connection state and reset scan
-            // readiness so the spinner shows during the next re-enable cycle
-            // (matching IWD's clear_station() behavior).
+            // readiness so the spinner shows during the next re-enable cycle.
             if wifi_enabled == Some(false) {
                 snapshot.wifi.connected = false;
                 snapshot.wifi.ssid = None;
@@ -1049,6 +1008,3 @@ fn send_nm_update(update: NmUpdate) {
         NmService::global().apply_update(update);
     });
 }
-
-#[cfg(debug_assertions)]
-pub(super) mod debug_mobile_mock;

@@ -1792,9 +1792,8 @@ impl QuickSettingsWindow {
 
     /// Restore the default keyboard mode after releasing it temporarily.
     ///
-    /// This switches the main window back to the compositor-appropriate keyboard
-    /// mode (Exclusive for most compositors, OnDemand for Hyprland). The
-    /// click-catcher always remains at KeyboardMode::None.
+    /// This switches the main window back to the default exclusive keyboard mode.
+    /// The click-catcher always remains at KeyboardMode::None.
     pub(super) fn restore_keyboard_mode(&self) {
         let mode = popover_keyboard_mode();
         tracing::debug!("QuickSettings: Restoring keyboard mode to {:?}", mode);

@@ -320,9 +320,7 @@ impl NmService {
             strength,
             security,
             active: is_active,
-            known_network_path: None,
             known: is_known,
-            path: None,
         })
     }
 

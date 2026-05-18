@@ -32,8 +32,8 @@ use gtk4::glib;
 use tracing::{debug, info};
 
 use super::{
-    BackendKind, CompositorBackend, KeyboardLayoutCallback, KeyboardLayoutInfo, WindowCallback,
-    WindowInfo, WorkspaceCallback, WorkspaceMeta, WorkspaceSnapshot, factory,
+    CompositorBackend, KeyboardLayoutCallback, KeyboardLayoutInfo, NiriBackend, WindowCallback,
+    WindowInfo, WorkspaceCallback, WorkspaceMeta, WorkspaceSnapshot,
 };
 use crate::services::callbacks::{CallbackId, Callbacks};
 
@@ -263,15 +263,6 @@ impl CompositorManager {
         }
     }
 
-    /// Get the backend name (e.g., "Hyprland", "Niri", "MangoWC").
-    pub fn backend_name(&self) -> &'static str {
-        if let Some(ref backend) = *self.backend.borrow() {
-            backend.name()
-        } else {
-            "unknown"
-        }
-    }
-
     /// Handle a workspace update from the backend.
     /// Called via glib::idle_add_once from the backend thread.
     pub(crate) fn handle_workspace_update(&self, snapshot: WorkspaceSnapshot) {
@@ -314,11 +305,15 @@ impl CompositorManager {
 
     /// Initialize the backend.
     fn init_backend(this: &Rc<Self>, advanced_config: &AdvancedConfig) {
-        // Parse backend kind from config
-        let backend_kind = BackendKind::from_str(&advanced_config.compositor);
+        if advanced_config.compositor != "auto" && advanced_config.compositor != "niri" {
+            debug!(
+                "Ignoring unsupported compositor '{}'; using Niri",
+                advanced_config.compositor
+            );
+        }
 
-        // Backends no longer filter by outputs - that's now handled at the widget level
-        let backend = factory::create_backend(backend_kind, None);
+        // Output filtering is handled at the widget level.
+        let backend: Box<dyn CompositorBackend> = Box::new(NiriBackend::new(None));
 
         info!(
             "CompositorManager using backend: {} (config: {})",

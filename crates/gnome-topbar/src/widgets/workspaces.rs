@@ -720,7 +720,7 @@ pub enum LabelType {
     /// preferred value for new configs.
     Name,
     /// Show a meaningful workspace index when available, otherwise the
-    /// workspace name (e.g. for Hyprland named workspaces).
+    /// workspace name.
     Index,
     /// Minimal - no text, just CSS styling.
     None,
@@ -774,7 +774,7 @@ pub(crate) const LONG_INDICATOR_HPAD: i32 = 6;
 const LONG_MW_CSS_PRIORITY: u32 = gtk4::STYLE_PROVIDER_PRIORITY_USER + 10;
 
 /// CSS class for a workspace's per-indicator min-width rule.
-/// Negative IDs (Sway named workspaces) produce double hyphens, e.g. `ws-mw--3`.
+/// Negative IDs produce double hyphens, e.g. `ws-mw--3`.
 fn ws_mw_class(id: i32) -> String {
     format!("ws-mw-{id}")
 }
@@ -879,10 +879,7 @@ impl WorkspacesWidget {
     /// * `config` - Widget configuration (label type, separator).
     /// * `output_id` - Optional output/monitor name. When set and
     ///   `filter_by_output = true`, the widget will:
-    ///   - For Niri: only show workspaces belonging to this output.
-    ///   - For MangoWC: show all workspaces but with per-output window counts.
-    ///   - For Hyprland: show the workspace currently active on this output,
-    ///     plus workspaces reported with windows on this output.
+    ///   - Only show Niri workspaces belonging to this output.
     pub fn new(config: WorkspacesConfig, output_id: Option<String>) -> Self {
         let base = BaseWidget::new(&[widget::WORKSPACES]);
 
@@ -1339,10 +1336,7 @@ fn workspace_id_for_scroll(
 ///
 /// When `output_id` is provided (i.e. `filter_by_output = true`):
 /// - Uses per-output workspace data if available.
-/// - For Niri: only shows workspaces belonging to this output.
-/// - For MangoWC: shows all workspaces with per-output window counts.
-/// - For Hyprland: shows the workspace currently active on this output,
-///   plus workspaces reported with windows on this output.
+/// - Only shows Niri workspaces belonging to this output.
 ///
 /// When `output_id` is not provided (i.e. `filter_by_output = false`), uses
 /// global/all-output workspace data and also displays each output's current

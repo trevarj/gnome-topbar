@@ -56,18 +56,6 @@ impl NmService {
     /// Discover wired device and fetch its info in a background thread.
     pub(super) fn fetch_wired_device_info() {
         thread::spawn(move || {
-            #[cfg(debug_assertions)]
-            if std::path::Path::new("/tmp/gnome-topbar-debug-wired").exists() {
-                debug!("Using mock wired device info (debug mode)");
-                send_nm_update(NmUpdate::EthernetDeviceExists);
-                send_nm_update(NmUpdate::WiredDeviceInfo {
-                    iface_name: Some("enp0s31f6".to_string()),
-                    conn_name: Some("Wired connection 1".to_string()),
-                    speed: Some(1000),
-                });
-                return;
-            }
-
             let device_paths = match Self::get_device_paths_sync() {
                 Ok(paths) => paths,
                 Err(e) => {
@@ -117,15 +105,6 @@ impl NmService {
 }
 
 /// Check if a wired (Ethernet) connection is active.
-///
-/// In debug builds, overridable via `/tmp/gnome-topbar-debug-wired`:
-/// - Enable: `touch /tmp/gnome-topbar-debug-wired`
-/// - Disable: `rm /tmp/gnome-topbar-debug-wired`
 pub(super) fn is_wired_connected(primary_type: Option<&str>) -> bool {
-    #[cfg(debug_assertions)]
-    if std::path::Path::new("/tmp/gnome-topbar-debug-wired").exists() {
-        return true;
-    }
-
     primary_type.is_some_and(|t| t == "802-3-ethernet")
 }

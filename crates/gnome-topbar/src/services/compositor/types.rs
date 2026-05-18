@@ -31,35 +31,27 @@ use std::sync::Arc;
 pub struct WorkspaceMeta {
     /// Stable unique identifier.
     /// - For Niri: the compositor's internal workspace ID (u64 cast to i32).
-    /// - For Hyprland: the compositor's workspace ID, including negative IDs
-    ///   assigned to named workspaces.
-    /// - For MangoWC: same as `idx` (sequential 1-based tag index).
     pub id: i32,
     /// Meaningful user-facing numeric index when one exists.
     ///
     /// Used for display labels and ordering. Negative values signal that the
-    /// workspace has no meaningful numeric index (for example, Hyprland named
-    /// workspaces). Widgets should treat `idx < 0` as unavailable and fall back
-    /// to `name`.
+    /// workspace has no meaningful numeric index. Widgets should treat `idx < 0`
+    /// as unavailable and fall back to `name`.
     pub idx: i32,
     /// Display name for the workspace.
     pub name: String,
     /// Output/monitor name this workspace belongs to.
-    /// - For Niri: workspaces are per-monitor, so this is always set.
-    /// - For MangoWC/Hyprland: workspaces are global, so this is None.
+    /// Niri workspaces are per-monitor, so this is normally set.
     pub output: Option<String>,
 }
 
 /// Per-output workspace state for multi-monitor setups.
 ///
 /// This contains workspace state specific to a single output/monitor,
-/// used for compositors where workspace state varies per-output (like
-/// MangoWC's per-output window counts, or Niri's per-monitor workspaces).
+/// used for Niri's per-monitor workspace state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PerOutputState {
     /// Active workspace IDs on this output.
-    /// Most compositors have a single active workspace, but MangoWC/DWL
-    /// supports viewing multiple tags simultaneously.
     pub active_workspace: HashSet<i32>,
     /// Set of workspace IDs that have windows on this output.
     pub occupied_workspaces: HashSet<i32>,
@@ -74,8 +66,6 @@ pub struct PerOutputState {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WorkspaceSnapshot {
     /// Currently active/focused workspace IDs.
-    /// Most compositors have a single active workspace, but MangoWC/DWL
-    /// supports viewing multiple tags simultaneously.
     pub active_workspace: HashSet<i32>,
     /// Set of workspace IDs that have windows.
     pub occupied_workspaces: HashSet<i32>,
@@ -92,7 +82,7 @@ pub struct WorkspaceSnapshot {
 /// Information about a focused window.
 ///
 /// Represents the currently focused window's metadata.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WindowInfo {
     /// Window title (may be empty).
     pub title: String,
@@ -347,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_per_output_state_single_active() {
-        // Single active workspace (typical Niri/Hyprland case)
+        // Single active workspace (typical Niri case)
         let mut state = PerOutputState::default();
         state.active_workspace.insert(2);
 
@@ -373,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_per_output_state_multiple_active() {
-        // Multiple active workspaces (Mango/DWL multi-tag case)
+        // Multiple active workspaces remain representable in the shared type.
         let mut state = PerOutputState::default();
         state.active_workspace.insert(1);
         state.active_workspace.insert(3);

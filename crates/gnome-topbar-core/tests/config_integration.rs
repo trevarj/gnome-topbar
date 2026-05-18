@@ -29,7 +29,7 @@ fn test_load_real_config() {
 
     // Verify advanced config has valid compositor
     assert!(
-        ["auto", "mango", "hyprland", "niri"].contains(&config.advanced.compositor.as_str()),
+        ["auto", "niri"].contains(&config.advanced.compositor.as_str()),
         "Compositor should be valid"
     );
 
@@ -261,7 +261,7 @@ fn test_validation_accepts_valid_enum_values() {
         mode = "dark"
         
         [advanced]
-        compositor = "hyprland"
+        compositor = "auto"
         
         [osd]
         position = "bottom"

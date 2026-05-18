@@ -37,8 +37,7 @@ pub struct Workspace {
     /// Number of windows on this workspace (if available from backend).
     pub window_count: Option<u32>,
     /// Output/monitor this workspace belongs to.
-    /// - For Niri: always set (workspaces are per-monitor).
-    /// - For MangoWC/Hyprland: always None (workspaces are global).
+    /// Niri workspaces are per-monitor, so this is normally set.
     #[allow(dead_code)] // Part of public API for future use
     pub output: Option<String>,
 }
@@ -105,12 +104,9 @@ impl Workspace {
 #[derive(Debug, Clone)]
 pub struct PerOutputWorkspaces {
     /// Currently active workspace IDs on this output.
-    /// Most compositors have a single active workspace, but MangoWC/DWL
-    /// supports viewing multiple tags simultaneously.
     pub active_workspace: HashSet<i32>,
     /// Workspaces relevant to this output with per-output state.
-    /// For MangoWC: all workspaces with per-output window counts.
-    /// For Niri: only workspaces that belong to this output.
+    /// For Niri, only workspaces that belong to this output.
     pub workspaces: Vec<Workspace>,
 }
 
@@ -120,8 +116,6 @@ pub struct PerOutputWorkspaces {
 #[derive(Debug, Clone)]
 pub struct WorkspaceServiceSnapshot {
     /// Currently active workspace IDs.
-    /// Most compositors have a single active workspace, but MangoWC/DWL
-    /// supports viewing multiple tags simultaneously.
     pub active_workspace: HashSet<i32>,
     /// Set of occupied workspace IDs.
     #[allow(dead_code)] // Part of public API for future use
@@ -256,7 +250,6 @@ impl WorkspaceService {
         for (output_name, output_state) in &snapshot.per_output {
             // Filter workspaces for this output:
             // - For Niri: only include workspaces that belong to this output
-            // - For MangoWC: include all workspaces (tags are global) but with per-output state
             let output_workspaces: Vec<Workspace> = workspaces_meta
                 .iter()
                 .filter(|meta| {

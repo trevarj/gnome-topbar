@@ -1,15 +1,11 @@
 //! Bidirectional mapping between XKB layout codes and display names.
 //!
-//! Provides lookups for normalizing keyboard layout display across different
-//! compositor backends:
+//! Provides lookups for normalizing Niri keyboard layout display.
 //!
-//! - **Sway / Hyprland / Niri** report full descriptions like `"English (US)"`.
-//!   After extracting the base language name (e.g., `"Swedish"`), use
-//!   [`short_code_from_language`] to get a 2-letter display code.
-//!
-//! - **MangoWC / DWL** report raw XKB codes like `"swe"` or `"us"`.
-//!   Use [`short_code_from_xkb`] to get a normalized 2-letter display code,
-//!   and [`language_from_xkb`] to get a human-readable name for tooltips.
+//! Niri reports full descriptions like `"English (US)"`. After extracting the
+//! base language name (e.g. `"Swedish"`), use [`short_code_from_language`] to
+//! get a 2-letter display code. Raw XKB-code helpers are retained for defensive
+//! parsing and tests.
 
 /// A single entry in the layout mapping table.
 struct LayoutEntry {
@@ -228,21 +224,6 @@ pub fn short_code_from_language(name: &str) -> Option<&'static str> {
         .map(|e| e.code)
 }
 
-/// Look up a human-readable language name from an XKB layout code.
-///
-/// ```text
-/// "swe" → Some("Swedish")
-/// "us"  → Some("English")
-/// "xyz" → None
-/// ```
-pub fn language_from_xkb(xkb: &str) -> Option<&'static str> {
-    let xkb_lower = xkb.to_lowercase();
-    LAYOUTS
-        .iter()
-        .find(|e| e.xkb == xkb_lower)
-        .map(|e| e.language)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,15 +257,6 @@ mod tests {
     fn test_short_code_from_language_case_insensitive() {
         assert_eq!(short_code_from_language("swedish"), Some("SE"));
         assert_eq!(short_code_from_language("GERMAN"), Some("DE"));
-    }
-
-    #[test]
-    fn test_language_from_xkb() {
-        assert_eq!(language_from_xkb("swe"), Some("Swedish"));
-        assert_eq!(language_from_xkb("se"), Some("Swedish"));
-        assert_eq!(language_from_xkb("us"), Some("English"));
-        assert_eq!(language_from_xkb("de"), Some("German"));
-        assert_eq!(language_from_xkb("xyz"), None);
     }
 
     #[test]

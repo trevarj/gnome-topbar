@@ -12,7 +12,8 @@
 
 - Build a Wayland-only GTK panel inspired by GNOME Shell's top bar.
 - Treat GNOME Shell's own top bar as a viable styling and design resource for spacing, typography, hover states, indicator density, popover rhythm, and low-distraction behavior.
-- Prefer Niri-first behavior while keeping the existing Wayland compositor backend architecture available.
+- Prefer Niri-first behavior; removed alternate compositor backends to keep the supported surface small.
+- Use NetworkManager as the only network service backend.
 - Keep the default experience quiet, continuous, system-owned, and low-distraction.
 - Keep `custom-*` as a narrow escape hatch for small status scripts, not as a path toward Waybar-style module parity.
 - Remove or simplify features whose main value is configurability, theme breadth, or standalone status-module coverage.
