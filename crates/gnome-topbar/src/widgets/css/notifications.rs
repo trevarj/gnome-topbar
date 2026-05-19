@@ -118,14 +118,38 @@ pub fn css(animations: bool) -> String {
     opacity: 0.8;
 }}
 
+.notification-app-group {{
+    padding: 0;
+    border-radius: var(--radius-pill);
+}}
+
+button.notification-group-header {{
+    padding: 6px;
+    min-height: 0;
+    min-width: 0;
+    border-radius: var(--radius-pill);
+}}
+
+button.notification-group-header:hover {{
+    background: var(--color-card-overlay-hover);
+}}
+
+.notification-group-count {{
+    font-size: var(--font-size-xs);
+}}
+
+.notification-group-list {{
+    padding: 4px 6px 6px 6px;
+}}
+
 .notification-toast-low {{
     opacity: 0.9;
 }}
 
-/* === Popover-specific === */
+/* === Control-panel notification list === */
 
 /* Remove right padding from the surface so the overlay scrollbar sits at the
-   popover edge instead of overlapping dismiss buttons. The header and list
+   panel edge instead of overlapping dismiss buttons. The header and list
    add their own right padding to keep content inset. */
 .notification-popover {{
     padding-right: 0;

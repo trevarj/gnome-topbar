@@ -18,7 +18,7 @@ use crate::styles::surface;
 use crate::widgets::calendar_popover::build_clock_calendar_popover;
 use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
-use crate::widgets::notifications_popover::build_popover_content as build_notifications_content;
+use crate::widgets::notifications_panel::build_control_panel_content as build_notifications_content;
 
 /// Build the clock control panel content and return a refresh callback.
 pub fn build_clock_control_panel(
@@ -35,8 +35,10 @@ pub fn build_clock_control_panel(
     left_col.set_valign(Align::Fill);
 
     let suppress_rebuild = Rc::new(Cell::new(false));
-    let notifications = build_notifications_content(None, suppress_rebuild);
+    let notifications = build_notifications_content(suppress_rebuild);
     notifications.add_css_class("control-panel-notifications");
+    notifications.set_vexpand(true);
+    notifications.set_valign(Align::Fill);
     left_col.append(&notifications);
 
     let right_col = GtkBox::new(Orientation::Vertical, 10);

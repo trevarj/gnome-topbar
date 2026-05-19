@@ -27,5 +27,13 @@ pub fn css() -> &'static str {
     font-size: var(--font-size-sm);
     color: var(--color-foreground-muted);
 }
+
+.control-panel-notifications {
+    min-height: 0;
+}
+
+.control-panel-notifications .notification-scroll {
+    min-height: 0;
+}
 "#
 }

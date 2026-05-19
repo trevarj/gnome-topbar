@@ -40,9 +40,9 @@ VPN status belongs in Quick Settings. GNOME Topbar detects NetworkManager VPNs
 and active external tunnel interfaces such as `tun0`/`wg0`; keep one-off VPN
 scripts out of the bar unless you need a deliberately separate indicator.
 
-Standalone widget names such as `battery`, `media`, `notifications`, and
-resource monitors are intentionally outside the supported surface. Existing
-configs that reference them warn and skip the widget.
+Standalone widget names such as `battery`, `media`, and resource monitors are
+intentionally outside the supported surface. Existing configs that reference
+them warn and skip the widget.
 
 ## Output Formats
 

@@ -549,10 +549,6 @@ pub mod widget {
     /// Battery low state (`.battery-low`).
     pub const BATTERY_LOW: &str = "battery-low";
 
-    // Notifications
-    /// Notifications widget (`.notifications`).
-    pub const NOTIFICATIONS: &str = "notifications";
-
     /// Notification icon (`.notification-icon`).
     pub const NOTIFICATION_ICON: &str = "notification-icon";
 
@@ -831,6 +827,18 @@ pub mod notification {
 
     /// Row dismissing animation state (`.notification-row-dismissing`).
     pub const ROW_DISMISSING: &str = "notification-row-dismissing";
+
+    /// Grouped app notification card (`.notification-app-group`).
+    pub const APP_GROUP: &str = "notification-app-group";
+
+    /// Group header button (`.notification-group-header`).
+    pub const GROUP_HEADER: &str = "notification-group-header";
+
+    /// Group count label (`.notification-group-count`).
+    pub const GROUP_COUNT: &str = "notification-group-count";
+
+    /// Expanded grouped row list (`.notification-group-list`).
+    pub const GROUP_LIST: &str = "notification-group-list";
 
     // Toast
     /// Toast surface (`.notification-toast`). User-facing, on the styled container.

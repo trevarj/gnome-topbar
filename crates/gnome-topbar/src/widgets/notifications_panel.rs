@@ -1,7 +1,8 @@
-//! Notification popover content for displaying the notification list.
+//! Control-panel notification content.
 //!
-//! This module handles the popover that appears when clicking the notification
-//! bell icon, showing a scrollable list of notifications with dismiss controls.
+//! This module renders the notification list embedded in the clock control
+//! panel. It is the only notification history UI; notifications are not exposed
+//! as a standalone bar widget.
 
 use gtk4::gdk::{self, Monitor};
 use gtk4::prelude::*;
@@ -10,6 +11,7 @@ use gtk4::{
     RevealerTransitionType, ScrolledWindow, glib,
 };
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -29,9 +31,6 @@ use super::notifications_common::{
     BODY_TRUNCATE_THRESHOLD, POPOVER_WIDTH, create_notification_image_widget, format_timestamp,
     sanitize_body_markup,
 };
-
-/// Callback type for closing the popover from within the content.
-pub type ClosePopoverCallback = Rc<dyn Fn()>;
 
 /// Dismiss animation as a Duration for timeout callbacks.
 const DISMISS_ANIMATION_DURATION: Duration = Duration::from_millis(DISMISS_ANIMATION_MS);
@@ -98,36 +97,31 @@ fn compute_max_scroll_height() -> i32 {
     }
 }
 
-/// Build the full popover content widget.
-///
-/// # Arguments
-/// * `on_close` - Optional callback to close the popover. Called when user clicks
-///   action buttons (like "Open") that should dismiss the popover. Dismissing a
-///   single notification does NOT close the popover.
-/// * `suppress_rebuild` - Flag set by dismiss handlers to prevent the service
-///   update listener from rebuilding the popover (since the row was already removed).
-pub(crate) fn build_popover_content(
-    on_close: Option<ClosePopoverCallback>,
-    suppress_rebuild: Rc<Cell<bool>>,
-) -> gtk4::Widget {
+/// Build notification content for the embedded clock control panel.
+pub(crate) fn build_control_panel_content(suppress_rebuild: Rc<Cell<bool>>) -> gtk4::Widget {
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class(notif::POPOVER);
     root.set_size_request(POPOVER_WIDTH, -1);
+    root.set_vexpand(true);
+    root.set_valign(Align::Fill);
 
     let notification_list = GtkBox::new(Orientation::Vertical, 4);
     notification_list.add_css_class(notif::LIST);
+    notification_list.set_vexpand(true);
 
-    let header = build_header(on_close.clone(), &notification_list);
+    let header = build_header(&notification_list);
     root.append(&header);
 
-    populate_notification_list(&notification_list, on_close, &suppress_rebuild);
+    populate_notification_list(&notification_list, &suppress_rebuild);
 
     let max_height = compute_max_scroll_height();
 
     let scrolled = ScrolledWindow::new();
     scrolled.set_policy(PolicyType::Never, PolicyType::Automatic);
-    scrolled.set_propagate_natural_height(true);
+    scrolled.set_propagate_natural_height(false);
     scrolled.set_max_content_height(max_height);
+    scrolled.set_vexpand(true);
+    scrolled.set_valign(Align::Fill);
     scrolled.add_css_class(notif::SCROLL);
 
     scrolled.set_child(Some(&notification_list));
@@ -136,7 +130,7 @@ pub(crate) fn build_popover_content(
     root.upcast()
 }
 
-fn build_header(on_close: Option<ClosePopoverCallback>, notification_list: &GtkBox) -> GtkBox {
+fn build_header(notification_list: &GtkBox) -> GtkBox {
     let header = GtkBox::new(Orientation::Horizontal, 8);
     header.add_css_class(notif::HEADER);
 
@@ -233,17 +227,8 @@ fn build_header(on_close: Option<ClosePopoverCallback>, notification_list: &GtkB
         clear_btn.connect_clicked(move |_| {
             TooltipManager::global().cancel_and_hide();
             NotificationService::global().close_all();
-
-            if let Some(ref close_cb) = on_close {
-                // Standalone popover: close after clearing all, since the user is
-                // done with this view.
-                close_cb();
-            } else {
-                // Embedded control panel: there is no popover close/rebuild
-                // callback, so update the visible list in place.
-                clear_btn_for_click.set_visible(false);
-                clear_notification_list_to_empty(&list_for_clear);
-            }
+            clear_btn_for_click.set_visible(false);
+            clear_notification_list_to_empty(&list_for_clear);
         });
 
         header.append(&clear_btn);
@@ -253,11 +238,7 @@ fn build_header(on_close: Option<ClosePopoverCallback>, notification_list: &GtkB
 }
 
 /// Populate the notification list with current notifications or empty state.
-fn populate_notification_list(
-    list: &GtkBox,
-    on_close: Option<ClosePopoverCallback>,
-    suppress_rebuild: &Rc<Cell<bool>>,
-) {
+fn populate_notification_list(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) {
     let service = NotificationService::global();
 
     if !service.backend_available() {
@@ -283,7 +264,35 @@ fn populate_notification_list(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    for notification in &notifications {
+    populate_grouped_notifications(list, notifications, suppress_rebuild);
+}
+
+#[derive(Debug)]
+struct AppNotificationGroup {
+    notifications: Vec<Notification>,
+}
+
+fn populate_grouped_notifications(
+    list: &GtkBox,
+    notifications: Vec<Notification>,
+    suppress_rebuild: &Rc<Cell<bool>>,
+) {
+    for group in group_notifications_by_app(notifications) {
+        if group.notifications.len() == 1 {
+            let notification = &group.notifications[0];
+            let revealer = Revealer::new();
+            revealer.set_transition_type(RevealerTransitionType::SlideDown);
+            revealer.set_transition_duration(
+                ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
+            );
+            revealer.set_reveal_child(true);
+
+            let row = build_notification_row(notification, list, &revealer, suppress_rebuild, None);
+            revealer.set_child(Some(&row));
+            list.append(&revealer);
+            continue;
+        }
+
         let revealer = Revealer::new();
         revealer.set_transition_type(RevealerTransitionType::SlideDown);
         revealer.set_transition_duration(
@@ -291,16 +300,38 @@ fn populate_notification_list(
         );
         revealer.set_reveal_child(true);
 
-        let row = build_notification_row(
-            notification,
-            on_close.clone(),
-            list,
-            &revealer,
-            suppress_rebuild,
-        );
-        revealer.set_child(Some(&row));
+        let group_card = build_notification_group(&group, list, &revealer, suppress_rebuild);
+        revealer.set_child(Some(&group_card));
         list.append(&revealer);
     }
+}
+
+fn group_notifications_by_app(notifications: Vec<Notification>) -> Vec<AppNotificationGroup> {
+    let mut groups = Vec::<AppNotificationGroup>::new();
+    let mut group_indices = HashMap::<String, usize>::new();
+
+    for notification in notifications {
+        let key = notification_group_key(&notification);
+        if let Some(index) = group_indices.get(&key).copied() {
+            groups[index].notifications.push(notification);
+        } else {
+            group_indices.insert(key, groups.len());
+            groups.push(AppNotificationGroup {
+                notifications: vec![notification],
+            });
+        }
+    }
+
+    groups
+}
+
+fn notification_group_key(notification: &Notification) -> String {
+    notification
+        .desktop_entry
+        .as_deref()
+        .filter(|entry| !entry.is_empty())
+        .unwrap_or(&notification.app_name)
+        .to_ascii_lowercase()
 }
 
 fn add_empty_state(list: &GtkBox, message: &str) {
@@ -337,12 +368,141 @@ fn clear_notification_list_to_empty(list: &GtkBox) {
     add_empty_state(list, "No notifications");
 }
 
+fn build_notification_group(
+    group: &AppNotificationGroup,
+    outer_list: &GtkBox,
+    group_revealer: &Revealer,
+    suppress_rebuild: &Rc<Cell<bool>>,
+) -> GtkBox {
+    let latest = &group.notifications[0];
+
+    let card = GtkBox::new(Orientation::Vertical, 0);
+    card.add_css_class(notif::APP_GROUP);
+    card.add_css_class(card::BASE);
+
+    let header_btn = Button::new();
+    header_btn.set_has_frame(false);
+    header_btn.add_css_class(notif::GROUP_HEADER);
+    header_btn.add_css_class(button::RESET);
+    header_btn.set_focus_on_click(false);
+
+    let header = GtkBox::new(Orientation::Horizontal, 8);
+
+    let icon = create_notification_image_widget(latest);
+    icon.add_css_class(notif::ROW_ICON);
+    header.append(&icon);
+
+    let content = GtkBox::new(Orientation::Vertical, 2);
+    content.set_hexpand(true);
+    content.add_css_class(notif::ROW_CONTENT);
+
+    let top_row = GtkBox::new(Orientation::Horizontal, 4);
+    let app_label = Label::new(Some(&latest.app_name));
+    app_label.add_css_class(notif::APP_NAME);
+    app_label.add_css_class(color::MUTED);
+    app_label.set_xalign(0.0);
+    app_label.set_hexpand(true);
+    app_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    top_row.append(&app_label);
+
+    let count_label = Label::new(Some(&format!(
+        "{} notifications",
+        group.notifications.len()
+    )));
+    count_label.add_css_class(notif::GROUP_COUNT);
+    count_label.add_css_class(color::MUTED);
+    top_row.append(&count_label);
+    content.append(&top_row);
+
+    let summary = if latest.summary.is_empty() {
+        latest.body.as_str()
+    } else {
+        latest.summary.as_str()
+    };
+    if !summary.is_empty() {
+        let summary_label = Label::new(Some(summary));
+        summary_label.add_css_class(notif::SUMMARY);
+        summary_label.set_xalign(0.0);
+        summary_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        summary_label.set_single_line_mode(true);
+        content.append(&summary_label);
+    }
+
+    header.append(&content);
+
+    let arrow = Image::from_icon_name("pan-end-symbolic");
+    arrow.add_css_class(notif::DISMISS_ICON);
+    arrow.set_valign(Align::Center);
+    header.append(&arrow);
+
+    header_btn.set_child(Some(&header));
+    card.append(&header_btn);
+
+    let child_list = GtkBox::new(Orientation::Vertical, 4);
+    child_list.add_css_class(notif::GROUP_LIST);
+
+    let child_revealer = Revealer::new();
+    child_revealer.set_transition_type(RevealerTransitionType::SlideDown);
+    child_revealer.set_transition_duration(
+        ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
+    );
+    child_revealer.set_reveal_child(false);
+    child_revealer.set_child(Some(&child_list));
+
+    let expanded = Rc::new(Cell::new(false));
+    let expanded_for_click = Rc::clone(&expanded);
+    let child_revealer_for_click = child_revealer.clone();
+    let arrow_for_click = arrow.clone();
+    header_btn.connect_clicked(move |_| {
+        let next = !expanded_for_click.get();
+        expanded_for_click.set(next);
+        child_revealer_for_click.set_reveal_child(next);
+        arrow_for_click.set_icon_name(Some(if next {
+            "pan-down-symbolic"
+        } else {
+            "pan-end-symbolic"
+        }));
+    });
+
+    card.append(&child_revealer);
+
+    for notification in &group.notifications {
+        let row_revealer = Revealer::new();
+        row_revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        row_revealer.set_transition_duration(
+            ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
+        );
+        row_revealer.set_reveal_child(true);
+
+        let outer_list_for_empty = outer_list.clone();
+        let group_revealer_for_empty = group_revealer.clone();
+        let after_empty = Rc::new(move || {
+            outer_list_for_empty.remove(&group_revealer_for_empty);
+            if outer_list_for_empty.first_child().is_none() {
+                add_empty_state(&outer_list_for_empty, "No notifications");
+            }
+        });
+
+        let row = build_notification_row(
+            notification,
+            &child_list,
+            &row_revealer,
+            suppress_rebuild,
+            Some(after_empty),
+        );
+        row_revealer.set_child(Some(&row));
+        child_list.append(&row_revealer);
+    }
+
+    card
+}
+
 fn build_notification_row(
     notification: &Notification,
-    on_close: Option<ClosePopoverCallback>,
     list: &GtkBox,
     revealer: &Revealer,
     suppress_rebuild: &Rc<Cell<bool>>,
+    on_list_empty: Option<Rc<dyn Fn()>>,
 ) -> GtkBox {
     let card = GtkBox::new(Orientation::Vertical, 0);
     card.add_css_class(notif::ROW);
@@ -438,18 +598,12 @@ fn build_notification_row(
         // Handle link activation manually to avoid Wayland protocol errors.
         // Protocol error 71 often occurs when gtk_show_uri triggers a focus switch or
         // interaction that conflicts with the layer shell surface state.
-        let on_close_link = on_close.clone();
         body_label.connect_activate_link(move |_, uri| {
             // Use xdg-open via spawn_command_line_async for a detached process
             let cmd = format!("xdg-open '{}'", uri.replace("'", "'\\''"));
             // We ignore the result here because this is a fire-and-forget operation
             // and we can't do much if xdg-open fails to launch from here anyway.
             let _ = glib::spawn_command_line_async(&cmd);
-
-            // Close popover when user navigates away via link
-            if let Some(ref close_cb) = on_close_link {
-                close_cb();
-            }
 
             glib::Propagation::Stop // Stop propagation to default handler
         });
@@ -477,7 +631,6 @@ fn build_notification_row(
     let revealer_for_dismiss = revealer.clone();
     let list_for_dismiss = list.clone();
     let suppress = Rc::clone(suppress_rebuild);
-    let on_close_dismiss = on_close.clone();
     dismiss_btn.connect_clicked(move |btn| {
         // Prevent double-clicks from leaving suppress_rebuild stuck.
         btn.set_sensitive(false);
@@ -498,14 +651,13 @@ fn build_notification_row(
 
         let revealer = revealer_for_dismiss.clone();
         let list = list_for_dismiss.clone();
-        let on_close = on_close_dismiss.clone();
+        let on_list_empty = on_list_empty.clone();
         glib::timeout_add_local_once(duration, move || {
             list.remove(&revealer);
-            // Close the popover when the last notification is dismissed
             if list.first_child().is_none()
-                && let Some(ref close_cb) = on_close
+                && let Some(ref on_list_empty) = on_list_empty
             {
-                close_cb();
+                on_list_empty();
             }
         });
     });
@@ -589,13 +741,8 @@ fn build_notification_row(
             open_btn.add_css_class(button::GHOST);
 
             let notification_id = notification.id;
-            let on_close_for_open = on_close.clone();
             open_btn.connect_clicked(move |_| {
                 NotificationService::global().invoke_action(notification_id, &primary_id);
-                // Close popover when user opens/activates a notification
-                if let Some(ref close_cb) = on_close_for_open {
-                    close_cb();
-                }
             });
 
             actions_row.append(&open_btn);
@@ -621,4 +768,69 @@ fn build_notification_row(
     }
 
     card
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notification(id: u32, app_name: &str, desktop_entry: Option<&str>) -> Notification {
+        Notification {
+            id,
+            app_name: app_name.to_string(),
+            app_icon: String::new(),
+            summary: format!("notification {id}"),
+            body: String::new(),
+            actions: Vec::new(),
+            urgency: 1,
+            timestamp: id as f64,
+            expire_timeout: -1,
+            desktop_entry: desktop_entry.map(str::to_string),
+            image_path: None,
+            image_data: None,
+            transient: false,
+        }
+    }
+
+    #[test]
+    fn groups_notifications_by_desktop_entry_before_app_name() {
+        let groups = group_notifications_by_app(vec![
+            notification(3, "Chat", Some("org.example.Chat")),
+            notification(2, "Mail", None),
+            notification(1, "Chat Renamed", Some("org.example.Chat")),
+        ]);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            groups[0]
+                .notifications
+                .iter()
+                .map(|notification| notification.id)
+                .collect::<Vec<_>>(),
+            vec![3, 1]
+        );
+        assert_eq!(groups[1].notifications[0].id, 2);
+    }
+
+    #[test]
+    fn preserves_first_seen_group_order() {
+        let groups = group_notifications_by_app(vec![
+            notification(4, "Calendar", None),
+            notification(3, "Chat", None),
+            notification(2, "Calendar", None),
+            notification(1, "Chat", None),
+        ]);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].notifications[0].app_name, "Calendar");
+        assert_eq!(
+            groups[0]
+                .notifications
+                .iter()
+                .map(|notification| notification.id)
+                .collect::<Vec<_>>(),
+            vec![4, 2]
+        );
+        assert_eq!(groups[1].notifications[0].app_name, "Chat");
+    }
 }

@@ -27,7 +27,7 @@ mod media_components;
 mod media_popover;
 mod media_visualizer;
 mod notifications_common;
-mod notifications_popover;
+mod notifications_panel;
 mod notifications_toast;
 mod osd;
 pub(crate) mod ripple;

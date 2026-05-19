@@ -102,7 +102,7 @@ Current control panel inventory:
 
 - Clock: opens either calendar-only content or `build_clock_control_panel` when `[widgets.clock].control_panel = true`.
 - Calendar: embedded in the clock control panel through `build_clock_calendar_popover`.
-- Notifications: live in the clock control panel by default; the standalone notification widget has been removed.
+- Notifications: live in the clock control panel by default.
 - Weather: built-in Open-Meteo widget for bar weather; no wrapper script needed for the common path.
 - Media: embedded in the clock control panel through `build_media_popover_with_controller`; the standalone media widget and pop-out window have been removed.
 - Headset: built-in headsetcontrol-backed battery widget; no wrapper script needed for the common path.

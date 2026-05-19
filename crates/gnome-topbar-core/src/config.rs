@@ -71,7 +71,6 @@ const REMOVED_WIDGETS: &[&str] = &[
     "media",
     "memory",
     "network_speed",
-    "notifications",
     "spacer",
     "taskbar",
     "updates",
@@ -2075,7 +2074,7 @@ mod tests {
             right = [
                 "clock",
                 { group = ["battery", "volume"] },
-                "notifications",
+                "weather",
             ]
         "#;
 
@@ -2100,7 +2099,7 @@ mod tests {
 
         // Third: single widget
         match &config.widgets.right[2] {
-            WidgetPlacement::Single(name) => assert_eq!(name, "notifications"),
+            WidgetPlacement::Single(name) => assert_eq!(name, "weather"),
             WidgetPlacement::Group { .. } => panic!("expected single widget"),
         }
     }
