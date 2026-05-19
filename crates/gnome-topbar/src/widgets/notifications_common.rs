@@ -18,7 +18,7 @@ pub const TOAST_TIMEOUT_CRITICAL_MS: u32 = 0;
 
 /// Estimated height per toast (including padding/margins) for stack positioning
 pub const TOAST_ESTIMATED_HEIGHT: i32 = 85;
-pub const TOAST_GAP: i32 = 4;
+pub const TOAST_GAP: i32 = 10;
 
 /// Popover dimensions
 pub const POPOVER_WIDTH: i32 = 400;
