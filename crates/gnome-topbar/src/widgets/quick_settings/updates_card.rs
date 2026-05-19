@@ -16,11 +16,11 @@ use tracing::debug;
 
 use super::components::ToggleCard;
 use super::ui_helpers::{
-    ExpandableCard, ExpandableCardBase, ScanButton, clear_list_box, create_qs_list_box,
-    set_icon_active, set_subtitle_active,
+    CARD_REVEALER_DURATION_MS, ExpandableCard, ExpandableCardBase, ScanButton,
+    build_slide_down_revealer, clear_list_box, create_qs_list_box, set_icon_active,
+    set_subtitle_active,
 };
 use super::window::current_quick_settings_window;
-use crate::services::config_manager::ConfigManager;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::services::updates::{UpdatesService, UpdatesSnapshot};
 use crate::styles::{color, qs, row};
@@ -117,14 +117,8 @@ pub fn build_updates_card(
         });
     }
 
-    // Build revealer with details
-    let revealer = Revealer::new();
-    revealer.set_reveal_child(false);
-    revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
-    revealer.set_transition_duration(ConfigManager::global().animation_duration(250));
-
     let details = build_updates_details(state);
-    revealer.set_child(Some(&details.container));
+    let revealer = build_slide_down_revealer(Some(&details.container), CARD_REVEALER_DURATION_MS);
 
     *state.base.revealer.borrow_mut() = Some(revealer.clone());
 

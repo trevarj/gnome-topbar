@@ -5,13 +5,17 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{CairoSpinner, IconHandle, IconsService};
 use crate::styles::{button, color, qs, row, state};
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Revealer, SelectionMode,
-    ToggleButton,
+    ToggleButton, Widget,
 };
+
+pub const CARD_REVEALER_DURATION_MS: u32 = 250;
+pub const AUDIO_REVEALER_DURATION_MS: u32 = 200;
 
 /// Base state for expandable cards (Wi-Fi, Bluetooth, VPN).
 ///
@@ -38,6 +42,18 @@ impl ExpandableCardBase {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+/// Build the standard Quick Settings slide-down revealer.
+pub fn build_slide_down_revealer(child: Option<&impl IsA<Widget>>, duration_ms: u32) -> Revealer {
+    let revealer = Revealer::new();
+    revealer.set_reveal_child(false);
+    revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
+    revealer.set_transition_duration(ConfigManager::global().animation_duration(duration_ms));
+    if let Some(child) = child {
+        revealer.set_child(Some(child));
+    }
+    revealer
 }
 
 /// Trait for expandable card state types.

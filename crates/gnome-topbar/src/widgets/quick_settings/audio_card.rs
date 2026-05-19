@@ -13,13 +13,15 @@ use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, EventControllerScroll, EventControllerScrollFlags, Label,
-    ListBox, ListBoxRow, Orientation, Overlay, Revealer, RevealerTransitionType, Scale,
+    ListBox, ListBoxRow, Orientation, Overlay, Revealer, Scale,
 };
 
 use super::components::SliderRow;
-use super::ui_helpers::{add_placeholder_row, clear_list_box, create_qs_list_box};
+use super::ui_helpers::{
+    AUDIO_REVEALER_DURATION_MS, add_placeholder_row, build_slide_down_revealer, clear_list_box,
+    create_qs_list_box,
+};
 use crate::services::audio::{AudioService, AudioSnapshot};
-use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{color, qs, row, state};
@@ -171,12 +173,8 @@ pub fn build_audio_details() -> AudioDetailsWidgets {
     let list_box = create_qs_list_box();
     container.append(&list_box);
 
-    // Wrap in revealer
-    let revealer = Revealer::new();
-    revealer.set_transition_type(RevealerTransitionType::SlideDown);
-    revealer.set_transition_duration(ConfigManager::global().animation_duration(200));
-    revealer.set_reveal_child(false);
-    revealer.set_child(Some(&container));
+    // Wrap in the standard audio revealer.
+    let revealer = build_slide_down_revealer(Some(&container), AUDIO_REVEALER_DURATION_MS);
 
     AudioDetailsWidgets { revealer, list_box }
 }

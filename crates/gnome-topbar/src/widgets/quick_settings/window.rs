@@ -11,7 +11,7 @@ use gtk4::glib::{self, ControlFlow};
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, EventControllerKey, Label, Orientation,
-    PolicyType, Revealer, RevealerTransitionType, ScrolledWindow,
+    PolicyType, Revealer, ScrolledWindow,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
@@ -51,7 +51,10 @@ use super::network_card::{
     resolve_material_network_icon,
 };
 use super::power_card::{self, PowerCardBuildResult, PowerCardExpanderState};
-use super::ui_helpers::{AccordionManager, ExpandableCard, collapse_revealer_instant};
+use super::ui_helpers::{
+    AUDIO_REVEALER_DURATION_MS, AccordionManager, CARD_REVEALER_DURATION_MS, ExpandableCard,
+    build_slide_down_revealer, collapse_revealer_instant,
+};
 use super::updates_card::{self, UpdatesCardState, build_updates_card};
 use super::vpn_card::{self, VpnCardState, build_vpn_details, vpn_icon_name};
 
@@ -730,14 +733,10 @@ impl QuickSettingsWindow {
         *qs.network.title_label.borrow_mut() = Some(network_card.title.clone());
         *qs.network.subtitle_label.borrow_mut() = Some(subtitle_result.label);
 
-        let network_revealer = Revealer::new();
-        network_revealer.set_reveal_child(false);
-        network_revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        network_revealer.set_transition_duration(ConfigManager::global().animation_duration(250));
         let network_state = Rc::clone(&qs.network);
-
         let network_details = build_wifi_details(&network_state, qs.window.downgrade());
-        network_revealer.set_child(Some(&network_details.container));
+        let network_revealer =
+            build_slide_down_revealer(Some(&network_details.container), CARD_REVEALER_DURATION_MS);
 
         *qs.network.base.list_box.borrow_mut() = Some(network_details.list_box);
         *qs.network.base.revealer.borrow_mut() = Some(network_revealer.clone());
@@ -836,14 +835,10 @@ impl QuickSettingsWindow {
         *qs.bluetooth.base.subtitle.borrow_mut() = bt_card.subtitle.clone();
         *qs.bluetooth.base.arrow.borrow_mut() = bt_card.expander_icon.clone();
 
-        let bt_revealer = Revealer::new();
-        bt_revealer.set_reveal_child(false);
-        bt_revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        bt_revealer.set_transition_duration(ConfigManager::global().animation_duration(250));
-
         let bt_state = Rc::clone(&qs.bluetooth);
         let bt_details = build_bluetooth_details(&bt_state);
-        bt_revealer.set_child(Some(&bt_details.container));
+        let bt_revealer =
+            build_slide_down_revealer(Some(&bt_details.container), CARD_REVEALER_DURATION_MS);
 
         *qs.bluetooth.base.list_box.borrow_mut() = Some(bt_details.list_box);
         *qs.bluetooth.base.revealer.borrow_mut() = Some(bt_revealer.clone());
@@ -922,14 +917,10 @@ impl QuickSettingsWindow {
         *qs.vpn.base.subtitle.borrow_mut() = vpn_card.subtitle.clone();
         *qs.vpn.base.arrow.borrow_mut() = vpn_card.expander_icon.clone();
 
-        let vpn_revealer = Revealer::new();
-        vpn_revealer.set_reveal_child(false);
-        vpn_revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        vpn_revealer.set_transition_duration(ConfigManager::global().animation_duration(250));
-
         let vpn_state = Rc::clone(&qs.vpn);
         let vpn_details = build_vpn_details(&vpn_state);
-        vpn_revealer.set_child(Some(&vpn_details.container));
+        let vpn_revealer =
+            build_slide_down_revealer(Some(&vpn_details.container), CARD_REVEALER_DURATION_MS);
 
         *qs.vpn.base.list_box.borrow_mut() = Some(vpn_details.list_box);
         *qs.vpn.base.revealer.borrow_mut() = Some(vpn_revealer.clone());
@@ -1220,7 +1211,7 @@ impl QuickSettingsWindow {
         let cfg = ConfigManager::global();
 
         // Toggle cards use the GTK default duration (250ms) when enabled.
-        let card_duration = cfg.animation_duration(250);
+        let card_duration = cfg.animation_duration(CARD_REVEALER_DURATION_MS);
         for revealer in [
             qs.network.base.revealer.borrow(),
             qs.bluetooth.base.revealer.borrow(),
@@ -1240,7 +1231,7 @@ impl QuickSettingsWindow {
         }
 
         // Audio/mic use an explicit 200ms duration.
-        let audio_duration = cfg.animation_duration(200);
+        let audio_duration = cfg.animation_duration(AUDIO_REVEALER_DURATION_MS);
         if let Some(r) = qs.audio.revealer.borrow().as_ref() {
             r.set_transition_duration(audio_duration);
         }

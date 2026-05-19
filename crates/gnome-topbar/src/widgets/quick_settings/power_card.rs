@@ -20,18 +20,20 @@ use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, EventControllerKey, GestureClick, Label, ListBox, ListBoxRow,
-    Orientation, Overlay, Popover, Revealer, RevealerTransitionType,
+    Orientation, Overlay, Popover, Revealer,
 };
 use tracing::{debug, warn};
 
 use crate::services::compositor::CompositorManager;
-use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{IconHandle, IconsService};
 use crate::styles::{button, card, color, qs, row, surface};
 use crate::widgets::base::configure_popover;
 
 use super::components::{CardLabel, ToggleCard};
-use super::ui_helpers::{ExpandableCard, ExpandableCardBase, create_qs_list_box};
+use super::ui_helpers::{
+    CARD_REVEALER_DURATION_MS, ExpandableCard, ExpandableCardBase, build_slide_down_revealer,
+    create_qs_list_box,
+};
 
 /// Animation duration for hold-to-confirm (ms).
 const HOLD_DURATION_MS: u64 = 800;
@@ -589,14 +591,8 @@ pub fn build_power_card_expander() -> (
     *state.base.subtitle.borrow_mut() = card.subtitle.clone();
     *state.base.arrow.borrow_mut() = card.expander_icon.clone();
 
-    // Build revealer with power action rows
-    let revealer = Revealer::new();
-    revealer.set_reveal_child(false);
-    revealer.set_transition_type(RevealerTransitionType::SlideDown);
-    revealer.set_transition_duration(ConfigManager::global().animation_duration(250));
-
     let details = build_power_details();
-    revealer.set_child(Some(&details.container));
+    let revealer = build_slide_down_revealer(Some(&details.container), CARD_REVEALER_DURATION_MS);
 
     *state.base.revealer.borrow_mut() = Some(revealer.clone());
     *state.base.list_box.borrow_mut() = Some(details.list_box);
