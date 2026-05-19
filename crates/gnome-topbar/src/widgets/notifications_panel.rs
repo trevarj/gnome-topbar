@@ -314,7 +314,8 @@ fn populate_grouped_notifications(
             );
             revealer.set_reveal_child(true);
 
-            let row = build_notification_row(notification, list, &revealer, suppress_rebuild, None);
+            let row =
+                build_notification_row(notification, list, &revealer, suppress_rebuild, None, None);
             revealer.set_child(Some(&row));
             list.append(&revealer);
             continue;
@@ -400,6 +401,13 @@ fn clear_notification_list_to_empty(list: &GtkBox) {
         list.remove(&child);
     }
     add_empty_state(list, "No notifications");
+}
+
+fn rebuild_notification_list(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+    populate_notification_list(list, suppress_rebuild);
 }
 
 fn build_notification_group(
@@ -548,11 +556,13 @@ fn build_notification_group(
 
         let outer_list = outer_list_for_clear.clone();
         let group_revealer = group_revealer_for_clear.clone();
+        let suppress_for_timeout = Rc::clone(&suppress_for_clear);
         glib::timeout_add_local_once(duration, move || {
             outer_list.remove(&group_revealer);
             if outer_list.first_child().is_none() {
                 add_empty_state(&outer_list, "No notifications");
             }
+            suppress_for_timeout.set(false);
         });
     });
 
@@ -573,12 +583,19 @@ fn build_notification_group(
             }
         });
 
+        let outer_list_for_refresh = outer_list.clone();
+        let suppress_for_refresh = Rc::clone(suppress_rebuild);
+        let after_group_child_dismiss = Rc::new(move || {
+            rebuild_notification_list(&outer_list_for_refresh, &suppress_for_refresh);
+        });
+
         let row = build_notification_row(
             notification,
             &child_list,
             &row_revealer,
             suppress_rebuild,
             Some(after_empty),
+            Some(after_group_child_dismiss),
         );
         row_revealer.set_child(Some(&row));
         child_list.append(&row_revealer);
@@ -593,6 +610,7 @@ fn build_notification_row(
     revealer: &Revealer,
     suppress_rebuild: &Rc<Cell<bool>>,
     on_list_empty: Option<Rc<dyn Fn()>>,
+    on_after_dismiss: Option<Rc<dyn Fn()>>,
 ) -> GtkBox {
     let card = GtkBox::new(Orientation::Vertical, 0);
     card.add_css_class(notif::ROW);
@@ -742,13 +760,18 @@ fn build_notification_row(
         let revealer = revealer_for_dismiss.clone();
         let list = list_for_dismiss.clone();
         let on_list_empty = on_list_empty.clone();
+        let on_after_dismiss = on_after_dismiss.clone();
+        let suppress_for_timeout = Rc::clone(&suppress);
         glib::timeout_add_local_once(duration, move || {
             list.remove(&revealer);
             if list.first_child().is_none()
                 && let Some(ref on_list_empty) = on_list_empty
             {
                 on_list_empty();
+            } else if let Some(ref on_after_dismiss) = on_after_dismiss {
+                on_after_dismiss();
             }
+            suppress_for_timeout.set(false);
         });
     });
 
