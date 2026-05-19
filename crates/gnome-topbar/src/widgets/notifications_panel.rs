@@ -331,12 +331,7 @@ fn populate_grouped_notifications(
     for group in group_notifications_by_app(notifications) {
         if group.notifications.len() == 1 {
             let notification = &group.notifications[0];
-            let revealer = Revealer::new();
-            revealer.set_transition_type(RevealerTransitionType::SlideDown);
-            revealer.set_transition_duration(
-                ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
-            );
-            revealer.set_reveal_child(true);
+            let revealer = build_dismiss_revealer(true);
 
             let row = build_notification_row(
                 notification,
@@ -352,12 +347,7 @@ fn populate_grouped_notifications(
             continue;
         }
 
-        let revealer = Revealer::new();
-        revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        revealer.set_transition_duration(
-            ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
-        );
-        revealer.set_reveal_child(true);
+        let revealer = build_dismiss_revealer(true);
 
         let group_card = build_notification_group(
             &group,
@@ -369,6 +359,16 @@ fn populate_grouped_notifications(
         revealer.set_child(Some(&group_card));
         list.append(&revealer);
     }
+}
+
+fn build_dismiss_revealer(reveal_child: bool) -> Revealer {
+    let revealer = Revealer::new();
+    revealer.set_transition_type(RevealerTransitionType::SlideDown);
+    revealer.set_transition_duration(
+        ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
+    );
+    revealer.set_reveal_child(reveal_child);
+    revealer
 }
 
 fn group_notifications_by_app(notifications: Vec<Notification>) -> Vec<AppNotificationGroup> {
@@ -595,12 +595,7 @@ fn build_notification_group(
     let child_list = GtkBox::new(Orientation::Vertical, 4);
     child_list.add_css_class(notif::GROUP_LIST);
 
-    let child_revealer = Revealer::new();
-    child_revealer.set_transition_type(RevealerTransitionType::SlideDown);
-    child_revealer.set_transition_duration(
-        ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
-    );
-    child_revealer.set_reveal_child(false);
+    let child_revealer = build_dismiss_revealer(false);
     child_revealer.set_child(Some(&child_list));
 
     let expanded = Rc::new(Cell::new(false));
@@ -653,12 +648,7 @@ fn build_notification_group(
     });
 
     for notification in &group.notifications {
-        let row_revealer = Revealer::new();
-        row_revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        row_revealer.set_transition_duration(
-            ConfigManager::global().animation_duration(DISMISS_ANIMATION_MS as u32),
-        );
-        row_revealer.set_reveal_child(true);
+        let row_revealer = build_dismiss_revealer(true);
 
         let outer_list_for_empty = outer_list.clone();
         let group_revealer_for_empty = group_revealer.clone();
