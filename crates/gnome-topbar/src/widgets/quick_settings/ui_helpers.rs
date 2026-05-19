@@ -14,8 +14,8 @@ use gtk4::{
     ToggleButton, Widget,
 };
 
-pub const CARD_REVEALER_DURATION_MS: u32 = 250;
-pub const AUDIO_REVEALER_DURATION_MS: u32 = 200;
+pub const CARD_REVEALER_DURATION_MS: u32 = 275;
+pub const AUDIO_REVEALER_DURATION_MS: u32 = 225;
 
 /// Base state for expandable cards (Wi-Fi, Bluetooth, VPN).
 ///

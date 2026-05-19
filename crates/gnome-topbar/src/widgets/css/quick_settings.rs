@@ -3,7 +3,7 @@
 /// Return quick settings CSS.
 pub fn css(animations: bool) -> String {
     let qs_transition = if animations {
-        "transition: transform 200ms ease;"
+        "transition: transform 225ms ease;"
     } else {
         "transition: none;"
     };
@@ -564,7 +564,7 @@ mod tests {
         let animated = css(true);
         let still = css(false);
 
-        assert!(animated.contains("transition: transform 200ms ease;"));
+        assert!(animated.contains("transition: transform 225ms ease;"));
         assert!(still.contains("transition: none;"));
     }
 }

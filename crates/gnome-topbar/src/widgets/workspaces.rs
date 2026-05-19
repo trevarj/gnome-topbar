@@ -991,7 +991,7 @@ const ICON_ACTIVE: &str = "◆";
 
 /// Duration of the enter/exit animation for workspace indicators (in microseconds).
 /// Matches the CSS transition duration on `.workspace-indicator`.
-const INDICATOR_ANIM_DURATION_US: i64 = 200_000;
+const INDICATOR_ANIM_DURATION_US: i64 = 225_000;
 
 /// Number of consecutive frames where children width must be stable (delta < 1px)
 /// before we consider CSS transitions settled. 3 frames guards against false

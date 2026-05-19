@@ -28,12 +28,12 @@ pub const POPOVER_BG_WITH_OPACITY: &str = "color-mix(in srgb, var(--widget-backg
 /// Single source of truth for tick-callback animation durations.
 /// Used by `layer_shell_popover.rs` and `quick_settings/window.rs` for
 /// open/close animations driven by frame-clock tick callbacks.
-pub const POPOVER_ANIMATION_MS: u64 = 150;
+pub const POPOVER_ANIMATION_MS: u64 = 175;
 
 /// Dismiss animation duration in milliseconds (matches quick settings revealers).
 ///
 /// Used for notification row dismiss (CSS opacity fade + Revealer collapse).
-pub const DISMISS_ANIMATION_MS: u64 = 200;
+pub const DISMISS_ANIMATION_MS: u64 = 225;
 
 /// Base horizontal padding (px) for `.content` inside widgets.
 ///

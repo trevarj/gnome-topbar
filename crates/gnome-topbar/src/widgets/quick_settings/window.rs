@@ -1210,7 +1210,7 @@ impl QuickSettingsWindow {
     fn update_revealer_durations(qs: &Rc<Self>) {
         let cfg = ConfigManager::global();
 
-        // Toggle cards use the GTK default duration (250ms) when enabled.
+        // Toggle card revealers share the standard Quick Settings duration.
         let card_duration = cfg.animation_duration(CARD_REVEALER_DURATION_MS);
         for revealer in [
             qs.network.base.revealer.borrow(),
@@ -1230,7 +1230,7 @@ impl QuickSettingsWindow {
             r.set_transition_duration(card_duration);
         }
 
-        // Audio/mic use an explicit 200ms duration.
+        // Audio/mic revealers use the shorter Quick Settings duration.
         let audio_duration = cfg.animation_duration(AUDIO_REVEALER_DURATION_MS);
         if let Some(r) = qs.audio.revealer.borrow().as_ref() {
             r.set_transition_duration(audio_duration);

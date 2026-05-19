@@ -20,7 +20,7 @@ pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> Stri
     let content_pad_x_half = CONTENT_PADDING_X / 2;
     let content_pad_x_double = 2 * CONTENT_PADDING_X;
     let workspace_transition = if workspace_animations {
-        "transition: min-width 200ms linear, background-color 100ms ease;"
+        "transition: min-width 225ms linear, background-color 125ms ease;"
     } else {
         "transition: none;"
     };
