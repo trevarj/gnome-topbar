@@ -472,20 +472,33 @@ pub fn build_album_art(
     let radius_percent = art_radius_percent();
     let corner_radius = size as f32 * radius_percent;
 
-    let container = GtkBox::new(Orientation::Vertical, 0);
-    container.set_size_request(size, size);
-    container.set_valign(Align::Center);
+    let art_slot = Overlay::new();
+    art_slot.set_size_request(size, size);
+    art_slot.set_halign(Align::Center);
+    art_slot.set_valign(Align::Center);
+
+    // Keep a permanently visible fixed-size child so toggling async album art
+    // never changes the media card's measured allocation.
+    let fixed_measure = GtkBox::new(Orientation::Vertical, 0);
+    fixed_measure.set_size_request(size, size);
+    art_slot.set_child(Some(&fixed_measure));
 
     let picture = RoundedPicture::new();
     picture.set_pixel_size(size);
     picture.set_corner_radius(corner_radius);
+    picture.set_size_request(size, size);
+    picture.set_halign(Align::Center);
+    picture.set_valign(Align::Center);
     picture.set_visible(false);
-    container.append(&picture);
+    art_slot.add_overlay(&picture);
+    art_slot.set_measure_overlay(&picture, false);
 
     let placeholder_box = GtkBox::new(Orientation::Vertical, 0);
     placeholder_box.add_css_class(media::ART);
     placeholder_box.add_css_class(media::ART_PLACEHOLDER);
     placeholder_box.set_size_request(size, size);
+    placeholder_box.set_halign(Align::Center);
+    placeholder_box.set_valign(Align::Center);
     // Override CSS border-radius to match the RoundedPicture radius.
     let radius_provider = gtk4::CssProvider::new();
     radius_provider.load_from_string(&format!(
@@ -503,7 +516,8 @@ pub fn build_album_art(
     art_icon.widget().set_halign(Align::Center);
     art_icon.widget().set_hexpand(true);
     placeholder_box.append(&art_icon.widget());
-    container.append(&placeholder_box);
+    art_slot.add_overlay(&placeholder_box);
+    art_slot.set_measure_overlay(&placeholder_box, false);
 
     let art_state = Rc::new(RefCell::new(ArtState::new()));
 
@@ -522,7 +536,7 @@ pub fn build_album_art(
     };
 
     let overlay = Overlay::new();
-    overlay.set_child(Some(&container));
+    overlay.set_child(Some(&art_slot));
     if let Some(ref viz) = visualizer {
         overlay.add_overlay(viz.widget());
         overlay.set_measure_overlay(viz.widget(), false);

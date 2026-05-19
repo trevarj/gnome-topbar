@@ -435,6 +435,13 @@ pub struct LayerShellPopover {
     /// Cached content widget for reuse mode. Kept alive across close cycles
     /// so it can be re-parented on the next open.
     cached_content: RefCell<Option<gtk4::Widget>>,
+    /// Last natural width measured from the popover content plus shadow margin.
+    /// Used for initial layer-shell positioning before the mapped window has a
+    /// reliable allocation, avoiding a visible horizontal correction on open.
+    content_width_estimate: Cell<i32>,
+    /// Large multi-column panels should fade without the grow-clip animation so
+    /// fixed-position child content does not appear to slide during reveal.
+    scale_animation_enabled: Cell<bool>,
     /// One-shot key controller installed by `prepare_keyboard_nav()`.
     /// Stored so `hide()` can remove it if Tab was never pressed.
     deferred_kbd_controller: RefCell<Option<EventControllerKey>>,
@@ -469,6 +476,8 @@ impl LayerShellPopover {
             content_dirty: Cell::new(false),
             reuse_content: Cell::new(false),
             cached_content: RefCell::new(None),
+            content_width_estimate: Cell::new(0),
+            scale_animation_enabled: Cell::new(true),
             deferred_kbd_controller: RefCell::new(None),
         })
     }
@@ -644,7 +653,7 @@ impl LayerShellPopover {
         // If animations are disabled, snap closed immediately.
         if !ConfigManager::global().animations_enabled() {
             if let Some(ref shell) = anim_shell {
-                snap_anim_shell(shell, &self.widget_name, 0.0, ANIM_SCALE_FROM);
+                snap_anim_shell(shell, &self.widget_name, 0.0, self.hidden_scale());
                 shell.remove_child();
             }
             // No explicit blur removal needed — unmapping suspends
@@ -703,6 +712,8 @@ impl LayerShellPopover {
             *self.cached_content.borrow_mut() = Some(content.clone());
         }
 
+        self.update_content_width_estimate(&content);
+        self.update_content_animation_mode(&content);
         anim_shell.set_child(&content);
         if self.anim_state.borrow().active {
             SurfaceStyleManager::global().apply_animated_surface_outline(
@@ -780,7 +791,7 @@ impl LayerShellPopover {
         {
             // Snap-close without animation to avoid recursion.
             if let Some(ref shell) = *self.anim_shell.borrow() {
-                snap_anim_shell(shell, &self.widget_name, 0.0, ANIM_SCALE_FROM);
+                snap_anim_shell(shell, &self.widget_name, 0.0, self.hidden_scale());
                 shell.remove_child();
             }
             if let Some(ref window) = *self.window.borrow() {
@@ -821,6 +832,8 @@ impl LayerShellPopover {
         };
 
         anim_shell.set_child(&content);
+        self.update_content_width_estimate(&content);
+        self.update_content_animation_mode(&content);
 
         // Fire on_show callback (e.g. to refresh calendar to today's date).
         if let Some(ref cb) = *self.on_show.borrow() {
@@ -835,7 +848,7 @@ impl LayerShellPopover {
 
         // Set the shell to the hidden state (will be animated to visible).
         anim_shell.set_opacity(0.0);
-        anim_shell.set_scale(ANIM_SCALE_FROM);
+        anim_shell.set_scale(self.hidden_scale());
 
         // Ensure the outer wrapper is set as the window's child (persists).
         if window.child().is_none() {
@@ -995,6 +1008,33 @@ impl LayerShellPopover {
         shell
     }
 
+    fn hidden_scale(&self) -> f64 {
+        if self.scale_animation_enabled.get() {
+            ANIM_SCALE_FROM
+        } else {
+            1.0
+        }
+    }
+
+    fn update_content_animation_mode(&self, content: &gtk4::Widget) {
+        self.scale_animation_enabled
+            .set(!content.has_css_class("control-panel"));
+    }
+
+    fn update_content_width_estimate(&self, content: &gtk4::Widget) {
+        let (_, natural_width, _, _) = content.measure(Orientation::Horizontal, -1);
+        let shadow_margin = SurfaceStyleManager::global().shadow_margin(POPOVER_SHADOW_MARGIN);
+        let estimated_width = natural_width + shadow_margin * 2;
+        if estimated_width <= POPOVER_MIN_VALID_WIDTH {
+            return;
+        }
+
+        self.content_width_estimate.set(estimated_width);
+        if let Some(ref window) = *self.window.borrow() {
+            window.set_default_size(estimated_width, -1);
+        }
+    }
+
     /// Ensure the persistent click-catcher exists, creating it lazily.
     ///
     /// The click-catcher is shown/hidden each cycle rather than created/destroyed
@@ -1058,6 +1098,7 @@ impl LayerShellPopover {
         let shell_for_scale = anim_shell.clone();
         let on_close = self.on_close.borrow().clone();
         let widget_name = self.widget_name.clone();
+        let scale_from = self.hidden_scale();
 
         anim_shell.add_tick_callback(move |shell, frame_clock| {
             // Generation check — bail if a newer cycle started.
@@ -1082,7 +1123,7 @@ impl LayerShellPopover {
             // Apply visual state — opacity and scale, no CSS involvement.
             shell.set_opacity(progress);
             // Interpolate scale: ANIM_SCALE_FROM at progress=0 → 1.0 at progress=1.
-            let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
+            let scale = scale_from + (1.0 - scale_from) * progress;
             shell_for_scale.set_scale(scale);
 
             if direction == AnimDirection::Opening
@@ -1099,7 +1140,7 @@ impl LayerShellPopover {
 
                 if direction == AnimDirection::Closing {
                     // Close complete — remove content and hide window.
-                    snap_anim_shell(&shell_for_scale, &widget_name, 0.0, ANIM_SCALE_FROM);
+                    snap_anim_shell(&shell_for_scale, &widget_name, 0.0, scale_from);
                     shell_for_scale.remove_child();
                     if let Some(ref w) = window {
                         w.set_visible(false);
@@ -1149,9 +1190,11 @@ impl LayerShellPopover {
         // Calculate horizontal position (center on anchor_x)
         if anchor_x > 0 {
             let window_width = {
-                let w = window.width();
-                if w > POPOVER_MIN_VALID_WIDTH {
-                    w
+                let estimated = self.content_width_estimate.get();
+                if estimated > POPOVER_MIN_VALID_WIDTH {
+                    estimated
+                } else if window.width() > POPOVER_MIN_VALID_WIDTH {
+                    window.width()
                 } else {
                     POPOVER_DEFAULT_WIDTH_ESTIMATE
                 }
