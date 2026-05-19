@@ -14,6 +14,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
+use tracing::debug;
 
 use crate::services::config_manager::ConfigManager;
 use crate::services::icons::IconsService;
@@ -406,6 +407,14 @@ fn notification_count_text(count: usize) -> String {
     }
 }
 
+fn invoke_notification_action_from_ui(source: &str, notification_id: u32, action_id: &str) {
+    debug!(
+        "NotificationsPanel: invoking action from {}, id={}, action_key={}",
+        source, notification_id, action_id
+    );
+    NotificationService::global().invoke_action(notification_id, action_id);
+}
+
 fn add_empty_state(list: &GtkBox, message: &str) {
     let empty = GtkBox::new(Orientation::Vertical, 8);
     empty.add_css_class(notif::EMPTY);
@@ -519,6 +528,7 @@ fn build_notification_group(
     expand_btn.add_css_class(button::RESET);
     expand_btn.set_focus_on_click(false);
     expand_btn.set_hexpand(true);
+    TooltipManager::global().set_styled_tooltip(&expand_btn, "Expand notification group");
 
     let expand_content = GtkBox::new(Orientation::Horizontal, 8);
 
@@ -602,6 +612,7 @@ fn build_notification_group(
     let expanded_for_click = Rc::clone(&expanded);
     let child_revealer_for_click = child_revealer.clone();
     let arrow_for_click = arrow.clone();
+    let expand_btn_for_tooltip = expand_btn.clone();
     expand_btn.connect_clicked(move |_| {
         let next = !expanded_for_click.get();
         expanded_for_click.set(next);
@@ -611,6 +622,14 @@ fn build_notification_group(
         } else {
             "pan-end-symbolic"
         }));
+        TooltipManager::global().set_styled_tooltip(
+            &expand_btn_for_tooltip,
+            if next {
+                "Collapse notification group"
+            } else {
+                "Expand notification group"
+            },
+        );
     });
 
     card.append(&child_revealer);
@@ -871,7 +890,11 @@ fn build_notification_row(
             if n_press == 1 {
                 gesture.set_state(gtk4::EventSequenceState::Claimed);
                 suppress_for_action.set(true);
-                NotificationService::global().invoke_action(notification_id, &primary_id);
+                invoke_notification_action_from_ui(
+                    "row-primary-click",
+                    notification_id,
+                    &primary_id,
+                );
                 schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
@@ -960,7 +983,7 @@ fn build_notification_row(
             open_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
                 suppress_for_action.set(true);
-                NotificationService::global().invoke_action(notification_id, &primary_id);
+                invoke_notification_action_from_ui("open-button", notification_id, &primary_id);
                 schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
@@ -993,7 +1016,7 @@ fn build_notification_row(
             action_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
                 suppress_for_action.set(true);
-                NotificationService::global().invoke_action(notification_id, &action_id);
+                invoke_notification_action_from_ui("action-button", notification_id, &action_id);
                 schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
@@ -1124,6 +1147,28 @@ mod tests {
         ]);
 
         assert_eq!(groups[0].notification_ids(), vec![5, 4, 3]);
+    }
+
+    #[test]
+    fn groups_match_desktop_entry_case_insensitively() {
+        let groups = group_notifications_by_app(vec![
+            notification(2, "Chat", Some("Org.Example.Chat")),
+            notification(1, "Chat", Some("org.example.chat")),
+        ]);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].notification_ids(), vec![2, 1]);
+    }
+
+    #[test]
+    fn empty_desktop_entry_falls_back_to_app_name() {
+        let groups = group_notifications_by_app(vec![
+            notification(2, "Mail", Some("")),
+            notification(1, "Mail", None),
+        ]);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].notification_ids(), vec![2, 1]);
     }
 
     #[test]

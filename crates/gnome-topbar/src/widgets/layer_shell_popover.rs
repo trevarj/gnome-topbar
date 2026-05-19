@@ -1257,3 +1257,45 @@ impl Dismissible for LayerShellPopover {
         self.is_visible()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keynav_key_classification_matches_focus_navigation_keys() {
+        assert!(is_keynav_key(gdk::Key::Tab));
+        assert!(is_keynav_key(gdk::Key::ISO_Left_Tab));
+        assert!(is_keynav_key(gdk::Key::Up));
+        assert!(is_keynav_key(gdk::Key::Down));
+        assert!(is_keynav_key(gdk::Key::Left));
+        assert!(is_keynav_key(gdk::Key::Right));
+        assert!(is_keynav_key(gdk::Key::Home));
+        assert!(is_keynav_key(gdk::Key::End));
+
+        assert!(!is_keynav_key(gdk::Key::Escape));
+        assert!(!is_keynav_key(gdk::Key::space));
+        assert!(!is_keynav_key(gdk::Key::Return));
+    }
+
+    #[test]
+    fn anim_state_prepares_new_tick_only_when_needed() {
+        let mut state = AnimState::new_idle();
+
+        assert!(state.prepare(AnimDirection::Opening, 1, 0, 0.0));
+        assert!(!state.prepare(AnimDirection::Closing, 1, 10_000, 1.0));
+        assert!(state.prepare(AnimDirection::Opening, 2, 20_000, 0.5));
+    }
+
+    #[test]
+    fn anim_state_progress_moves_toward_target() {
+        let mut state = AnimState::new_idle();
+        state.prepare(AnimDirection::Opening, 1, 0, 0.0);
+
+        let progress = state.current_progress(50_000);
+
+        assert!(progress > 0.0);
+        assert!(progress < 1.0);
+        assert!(state.is_complete((ANIM_DURATION_MS as i64 * 1000) + 1));
+    }
+}

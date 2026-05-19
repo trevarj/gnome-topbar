@@ -13,6 +13,7 @@
 //! identity for per-widget styling (e.g., `[widgets.clock].background_color`).
 //! This class is also used to generate popover class names like `clock-popover`.
 
+mod animation;
 mod base;
 mod battery;
 mod calendar_popover;

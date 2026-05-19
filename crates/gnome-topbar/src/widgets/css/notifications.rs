@@ -2,6 +2,11 @@
 
 use super::DISMISS_ANIMATION_MS;
 
+const NOTIFICATION_CARD_RADIUS: &str = "var(--radius-pill)";
+const NOTIFICATION_ROW_PADDING: i32 = 6;
+const NOTIFICATION_ACTION_GAP: i32 = 6;
+const NOTIFICATION_CONTENT_INSET: i32 = 16;
+
 /// Return notifications CSS.
 pub fn css(animations: bool) -> String {
     let row_transition = if animations {
@@ -12,6 +17,10 @@ pub fn css(animations: bool) -> String {
     } else {
         "transition: none;".to_string()
     };
+    let action_gap = NOTIFICATION_ACTION_GAP;
+    let card_radius = NOTIFICATION_CARD_RADIUS;
+    let content_inset = NOTIFICATION_CONTENT_INSET;
+    let row_padding = NOTIFICATION_ROW_PADDING;
 
     format!(
         r#"
@@ -132,7 +141,7 @@ pub fn css(animations: bool) -> String {
 }}
 
 .notification-header {{
-    padding: 0 16px 8px 0;
+    padding: 0 {content_inset}px 8px 0;
     margin: 0;
 }}
 
@@ -165,12 +174,12 @@ pub fn css(animations: bool) -> String {
 }}
 
 .notification-list {{
-    padding: 8px 16px 0 0;
+    padding: 8px {content_inset}px 0 0;
 }}
 
 .notification-app-group {{
     padding: 0;
-    border-radius: var(--radius-pill);
+    border-radius: {card_radius};
 }}
 
 .notification-group-header {{
@@ -181,7 +190,7 @@ button.notification-group-header,
 button.notification-group-clear {{
     min-height: 0;
     min-width: 0;
-    border-radius: var(--radius-pill);
+    border-radius: {card_radius};
 }}
 
 button.notification-group-header {{
@@ -217,8 +226,8 @@ button.notification-group-clear:hover {{
 
 /* Notification row (spacing between rows handled by GtkBox) */
 .notification-row {{
-    padding: 6px;
-    border-radius: var(--radius-pill);
+    padding: {row_padding}px;
+    border-radius: {card_radius};
     {row_transition}
 }}
 
@@ -234,7 +243,7 @@ button.notification-group-clear:hover {{
 
 /* Action buttons */
 .notification-actions {{
-    margin-top: 6px;
+    margin-top: {action_gap}px;
 }}
 
 button.notification-action-btn {{

@@ -31,10 +31,6 @@ fn toast_visible_margin(logical_margin: i32) -> i32 {
     logical_margin.max(4)
 }
 
-fn ease_out_cubic(progress: f64) -> f64 {
-    1.0 - (1.0 - progress).powi(3)
-}
-
 fn toast_stack_step(measured_height: i32) -> i32 {
     measured_height.max(0) + TOAST_GAP
 }
@@ -44,6 +40,7 @@ use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{button, color, notification as notif};
 
+use super::animation::{FRAME_INTERVAL_MS, animation_steps, ease_out_cubic};
 use super::notifications_common::{
     POPOVER_WIDTH, SURFACE_SHADOW_MARGIN, TOAST_ESTIMATED_HEIGHT, TOAST_GAP,
     TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget,
@@ -68,7 +65,6 @@ pub(super) struct NotificationToast {
 
 impl NotificationToast {
     const ANIMATION_DURATION_MS: i32 = 150;
-    const ANIMATION_STEP_MS: u32 = 16; // ~60fps
 
     pub fn new(
         app: &Application,
@@ -369,6 +365,10 @@ impl NotificationToast {
                     gesture.set_state(gtk4::EventSequenceState::Claimed);
                     if let Some(toast) = toast_weak.upgrade() {
                         let on_dismiss_clone = on_dismiss_clone.clone();
+                        debug!(
+                            "NotificationToast: invoking primary action from toast click id={}, action_key={}",
+                            notification_id, primary_id
+                        );
                         on_action_clone(notification_id, &primary_id);
                         toast.close_with_animation(move || {
                             on_dismiss_clone(notification_id);
@@ -408,6 +408,10 @@ impl NotificationToast {
                 action_btn.connect_clicked(move |_| {
                     if let Some(toast) = toast_weak.upgrade() {
                         let on_dismiss_clone = on_dismiss_clone.clone();
+                        debug!(
+                            "NotificationToast: invoking action button id={}, action_key={}",
+                            notification_id, action_id
+                        );
                         on_action_clone(notification_id, &action_id);
                         toast.close_with_animation(move || {
                             on_dismiss_clone(notification_id);
@@ -471,10 +475,9 @@ impl NotificationToast {
 
         let current_step = Rc::new(Cell::new(0));
         let toast_weak = Rc::downgrade(self);
-        let total_steps = (Self::ANIMATION_DURATION_MS / Self::ANIMATION_STEP_MS as i32).max(1);
-        let source_id = glib::timeout_add_local(
-            Duration::from_millis(Self::ANIMATION_STEP_MS as u64),
-            move || {
+        let total_steps = animation_steps(Self::ANIMATION_DURATION_MS, FRAME_INTERVAL_MS);
+        let source_id =
+            glib::timeout_add_local(Duration::from_millis(FRAME_INTERVAL_MS as u64), move || {
                 let Some(toast) = toast_weak.upgrade() else {
                     return glib::ControlFlow::Break;
                 };
@@ -502,8 +505,7 @@ impl NotificationToast {
                 } else {
                     glib::ControlFlow::Continue
                 }
-            },
-        );
+            });
         *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
     }
 
@@ -538,10 +540,9 @@ impl NotificationToast {
         let end_margin = target_margin.saturating_sub(8);
         let current_step = Rc::new(Cell::new(0));
         let toast_weak = Rc::downgrade(self);
-        let total_steps = (Self::ANIMATION_DURATION_MS / Self::ANIMATION_STEP_MS as i32).max(1);
-        let source_id = glib::timeout_add_local(
-            Duration::from_millis(Self::ANIMATION_STEP_MS as u64),
-            move || {
+        let total_steps = animation_steps(Self::ANIMATION_DURATION_MS, FRAME_INTERVAL_MS);
+        let source_id =
+            glib::timeout_add_local(Duration::from_millis(FRAME_INTERVAL_MS as u64), move || {
                 let Some(toast) = toast_weak.upgrade() else {
                     return glib::ControlFlow::Break;
                 };
@@ -567,8 +568,7 @@ impl NotificationToast {
                 } else {
                     glib::ControlFlow::Continue
                 }
-            },
-        );
+            });
         *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
     }
 
@@ -587,12 +587,12 @@ impl NotificationToast {
 
         // Animate position change
         let start_margin = current;
-        let total_steps = (Self::ANIMATION_DURATION_MS / Self::ANIMATION_STEP_MS as i32).max(1);
+        let total_steps = animation_steps(Self::ANIMATION_DURATION_MS, FRAME_INTERVAL_MS);
         let current_step = Rc::new(Cell::new(0));
         let toast_weak = Rc::downgrade(self);
 
         let source_id = glib::timeout_add_local(
-            std::time::Duration::from_millis(Self::ANIMATION_STEP_MS as u64),
+            std::time::Duration::from_millis(FRAME_INTERVAL_MS as u64),
             move || {
                 let Some(toast) = toast_weak.upgrade() else {
                     return glib::ControlFlow::Break;
@@ -601,12 +601,11 @@ impl NotificationToast {
                 let step = current_step.get() + 1;
                 current_step.set(step);
 
-                let progress = (step as f32 / total_steps as f32).min(1.0);
-                // Ease-out cubic
-                let eased = 1.0 - (1.0 - progress).powi(3);
+                let progress = (step as f64 / total_steps as f64).min(1.0);
+                let eased = ease_out_cubic(progress);
 
                 let new_margin =
-                    start_margin + ((target_margin - start_margin) as f32 * eased) as i32;
+                    start_margin + ((target_margin - start_margin) as f64 * eased) as i32;
                 toast.current_bar_margin.set(new_margin);
                 toast
                     .window
@@ -800,13 +799,6 @@ mod tests {
         assert_eq!(toast_visible_margin(-20), 4);
         assert_eq!(toast_visible_margin(0), 4);
         assert_eq!(toast_visible_margin(24), 24);
-    }
-
-    #[test]
-    fn ease_out_cubic_reaches_expected_bounds() {
-        assert_eq!(ease_out_cubic(0.0), 0.0);
-        assert_eq!(ease_out_cubic(1.0), 1.0);
-        assert!(ease_out_cubic(0.5) > 0.5);
     }
 
     #[test]

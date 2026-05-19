@@ -325,10 +325,53 @@ impl NotificationService {
 
     /// Invoke an action on a notification.
     pub fn invoke_action(&self, id: u32, action_key: &str) {
+        let notification = {
+            let notifications = self.notifications.borrow();
+            let Some(notification) = notifications.get(&id) else {
+                warn!(
+                    "NotificationService: action ignored for missing notification id={}, action_key={}",
+                    id, action_key
+                );
+                return;
+            };
+            notification.clone()
+        };
+
+        let available_actions = notification
+            .actions
+            .iter()
+            .map(|(key, label)| format!("{key}:{label}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
         debug!(
-            "NotificationService: invoke_action() called for id={}, action_key={}",
-            id, action_key
+            "NotificationService: invoking action id={}, action_key={}, app={}, summary={:?}, desktop_entry={:?}, available_actions=[{}]",
+            id,
+            action_key,
+            notification.app_name,
+            notification.summary,
+            notification.desktop_entry,
+            available_actions
         );
+
+        if !notification
+            .actions
+            .iter()
+            .any(|(key, _)| key == action_key)
+        {
+            warn!(
+                "NotificationService: action key not advertised by notification id={}, action_key={}, app={}, available_actions=[{}]",
+                id, action_key, notification.app_name, available_actions
+            );
+        }
+
+        if self.bus.borrow().is_none() {
+            debug!(
+                "NotificationService: no D-Bus connection while invoking action id={}, action_key={}",
+                id, action_key
+            );
+        }
+
         if !self.notifications.borrow().contains_key(&id) {
             return;
         }
@@ -995,5 +1038,29 @@ mod tests {
                 1000 + i
             );
         }
+    }
+
+    #[test]
+    fn invoke_action_closes_existing_notification() {
+        let svc = make_service();
+        let mut notification = make_notification(1, false, 1.0);
+        notification.actions = vec![("default".to_string(), String::new())];
+        svc.notifications.borrow_mut().insert(1, notification);
+
+        svc.invoke_action(1, "default");
+
+        assert!(
+            !svc.notifications.borrow().contains_key(&1),
+            "invoked action should close the notification after emitting ActionInvoked"
+        );
+    }
+
+    #[test]
+    fn invoke_action_missing_notification_is_noop() {
+        let svc = make_service();
+
+        svc.invoke_action(404, "default");
+
+        assert!(svc.notifications.borrow().is_empty());
     }
 }
