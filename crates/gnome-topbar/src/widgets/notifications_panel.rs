@@ -272,6 +272,22 @@ struct AppNotificationGroup {
     notifications: Vec<Notification>,
 }
 
+impl AppNotificationGroup {
+    fn app_name(&self) -> &str {
+        self.notifications
+            .first()
+            .map(|notification| notification.app_name.as_str())
+            .unwrap_or("Notifications")
+    }
+
+    fn notification_ids(&self) -> Vec<u32> {
+        self.notifications
+            .iter()
+            .map(|notification| notification.id)
+            .collect()
+    }
+}
+
 fn populate_grouped_notifications(
     list: &GtkBox,
     notifications: Vec<Notification>,
@@ -334,6 +350,13 @@ fn notification_group_key(notification: &Notification) -> String {
         .to_ascii_lowercase()
 }
 
+fn notification_count_text(count: usize) -> String {
+    match count {
+        1 => "1 notification".to_string(),
+        _ => format!("{count} notifications"),
+    }
+}
+
 fn add_empty_state(list: &GtkBox, message: &str) {
     let empty = GtkBox::new(Orientation::Vertical, 8);
     empty.add_css_class(notif::EMPTY);
@@ -380,17 +403,20 @@ fn build_notification_group(
     card.add_css_class(notif::APP_GROUP);
     card.add_css_class(card::BASE);
 
-    let header_btn = Button::new();
-    header_btn.set_has_frame(false);
-    header_btn.add_css_class(notif::GROUP_HEADER);
-    header_btn.add_css_class(button::RESET);
-    header_btn.set_focus_on_click(false);
+    let header_row = GtkBox::new(Orientation::Horizontal, 2);
 
-    let header = GtkBox::new(Orientation::Horizontal, 8);
+    let expand_btn = Button::new();
+    expand_btn.set_has_frame(false);
+    expand_btn.add_css_class(notif::GROUP_HEADER);
+    expand_btn.add_css_class(button::RESET);
+    expand_btn.set_focus_on_click(false);
+    expand_btn.set_hexpand(true);
+
+    let expand_content = GtkBox::new(Orientation::Horizontal, 8);
 
     let icon = create_notification_image_widget(latest);
     icon.add_css_class(notif::ROW_ICON);
-    header.append(&icon);
+    expand_content.append(&icon);
 
     let content = GtkBox::new(Orientation::Vertical, 2);
     content.set_hexpand(true);
@@ -405,10 +431,7 @@ fn build_notification_group(
     app_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     top_row.append(&app_label);
 
-    let count_label = Label::new(Some(&format!(
-        "{} notifications",
-        group.notifications.len()
-    )));
+    let count_label = Label::new(Some(&notification_count_text(group.notifications.len())));
     count_label.add_css_class(notif::GROUP_COUNT);
     count_label.add_css_class(color::MUTED);
     top_row.append(&count_label);
@@ -428,15 +451,38 @@ fn build_notification_group(
         content.append(&summary_label);
     }
 
-    header.append(&content);
+    expand_content.append(&content);
 
     let arrow = Image::from_icon_name("pan-end-symbolic");
     arrow.add_css_class(notif::DISMISS_ICON);
     arrow.set_valign(Align::Center);
-    header.append(&arrow);
+    expand_content.append(&arrow);
 
-    header_btn.set_child(Some(&header));
-    card.append(&header_btn);
+    expand_btn.set_child(Some(&expand_content));
+    header_row.append(&expand_btn);
+
+    let clear_btn = Button::new();
+    clear_btn.set_has_frame(false);
+    clear_btn.add_css_class(notif::GROUP_CLEAR);
+    clear_btn.add_css_class(button::RESET);
+    clear_btn.set_focus_on_click(false);
+    clear_btn.set_valign(Align::Center);
+    TooltipManager::global().set_styled_tooltip(
+        &clear_btn,
+        &format!("Clear {} notifications", group.app_name()),
+    );
+
+    let clear_icon = IconsService::global().create_icon(
+        "user-trash-symbolic",
+        &[color::PRIMARY, notif::DISMISS_ICON],
+    );
+    let clear_icon_widget = clear_icon.widget();
+    clear_icon_widget.set_halign(Align::Center);
+    clear_icon_widget.set_valign(Align::Center);
+    clear_btn.set_child(Some(&clear_icon_widget));
+
+    header_row.append(&clear_btn);
+    card.append(&header_row);
 
     let child_list = GtkBox::new(Orientation::Vertical, 4);
     child_list.add_css_class(notif::GROUP_LIST);
@@ -453,7 +499,7 @@ fn build_notification_group(
     let expanded_for_click = Rc::clone(&expanded);
     let child_revealer_for_click = child_revealer.clone();
     let arrow_for_click = arrow.clone();
-    header_btn.connect_clicked(move |_| {
+    expand_btn.connect_clicked(move |_| {
         let next = !expanded_for_click.get();
         expanded_for_click.set(next);
         child_revealer_for_click.set_reveal_child(next);
@@ -465,6 +511,39 @@ fn build_notification_group(
     });
 
     card.append(&child_revealer);
+
+    let notification_ids = group.notification_ids();
+    let outer_list_for_clear = outer_list.clone();
+    let group_revealer_for_clear = group_revealer.clone();
+    let card_for_clear = card.clone();
+    let suppress_for_clear = Rc::clone(suppress_rebuild);
+    clear_btn.connect_clicked(move |btn| {
+        TooltipManager::global().cancel_and_hide();
+        btn.set_sensitive(false);
+
+        suppress_for_clear.set(true);
+        for notification_id in &notification_ids {
+            NotificationService::global().close(*notification_id);
+        }
+
+        card_for_clear.add_css_class(notif::ROW_DISMISSING);
+        group_revealer_for_clear.set_reveal_child(false);
+
+        let duration = if ConfigManager::global().animations_enabled() {
+            DISMISS_ANIMATION_DURATION
+        } else {
+            Duration::ZERO
+        };
+
+        let outer_list = outer_list_for_clear.clone();
+        let group_revealer = group_revealer_for_clear.clone();
+        glib::timeout_add_local_once(duration, move || {
+            outer_list.remove(&group_revealer);
+            if outer_list.first_child().is_none() {
+                add_empty_state(&outer_list, "No notifications");
+            }
+        });
+    });
 
     for notification in &group.notifications {
         let row_revealer = Revealer::new();
@@ -832,5 +911,22 @@ mod tests {
             vec![4, 2]
         );
         assert_eq!(groups[1].notifications[0].app_name, "Chat");
+    }
+
+    #[test]
+    fn grouped_notification_ids_preserve_newest_first_order() {
+        let groups = group_notifications_by_app(vec![
+            notification(5, "Chat", None),
+            notification(4, "Chat", None),
+            notification(3, "Chat", None),
+        ]);
+
+        assert_eq!(groups[0].notification_ids(), vec![5, 4, 3]);
+    }
+
+    #[test]
+    fn notification_count_text_uses_singular_for_one() {
+        assert_eq!(notification_count_text(1), "1 notification");
+        assert_eq!(notification_count_text(2), "2 notifications");
     }
 }

@@ -16,6 +16,7 @@
 - Use NetworkManager as the only network service backend.
 - Keep the default experience quiet, continuous, system-owned, and low-distraction.
 - Keep `custom-*` as a narrow escape hatch for small status scripts, not as a path toward Waybar-style module parity.
+- Keep Quick Settings separate from the clock control panel; it remains its own system panel entry point.
 - Remove or simplify features whose main value is configurability, theme breadth, or standalone status-module coverage.
 - Use idiomatic Rust: typed config boundaries, serde for structured parsing, small service APIs, GTK work on the main thread, and tests with every feature or behavior change.
 
@@ -94,7 +95,7 @@ Visual audit notes:
 ### Phase 6: Control Panel And Popovers
 
 - [x] Inventory clock, calendar, notifications, weather, media, and quick settings entry points.
-- [x] Continue converging those widgets into one GNOME-like control panel entry point one behavior slice at a time.
+- [x] Converge clock-owned calendar, notifications, weather, and media into one GNOME-like control panel entry point.
 - [x] Keep the notification bell visible only when notifications exist.
 - [x] Standardize blur, background, radius, padding, heading typography, and body typography across popovers, using GNOME Shell top-bar popovers as the primary visual reference where applicable.
 
@@ -106,7 +107,7 @@ Current control panel inventory:
 - Weather: built-in Open-Meteo widget for bar weather; no wrapper script needed for the common path.
 - Media: embedded in the clock control panel through `build_media_popover_with_controller`; the standalone media widget and pop-out window have been removed.
 - Headset: built-in headsetcontrol-backed battery widget; no wrapper script needed for the common path.
-- Quick settings: currently opens its own keep-alive window from the bar widget; convergence should happen one behavior slice at a time.
+- Quick settings: opens its own keep-alive window from the bar widget and must remain separate from the clock control panel.
 
 Completed control-panel slice:
 

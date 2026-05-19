@@ -118,30 +118,6 @@ pub fn css(animations: bool) -> String {
     opacity: 0.8;
 }}
 
-.notification-app-group {{
-    padding: 0;
-    border-radius: var(--radius-pill);
-}}
-
-button.notification-group-header {{
-    padding: 6px;
-    min-height: 0;
-    min-width: 0;
-    border-radius: var(--radius-pill);
-}}
-
-button.notification-group-header:hover {{
-    background: var(--color-card-overlay-hover);
-}}
-
-.notification-group-count {{
-    font-size: var(--font-size-xs);
-}}
-
-.notification-group-list {{
-    padding: 4px 6px 6px 6px;
-}}
-
 .notification-toast-low {{
     opacity: 0.9;
 }}
@@ -176,6 +152,44 @@ button.notification-group-header:hover {{
 
 .notification-list {{
     padding: 8px 16px 0 0;
+}}
+
+.notification-app-group {{
+    padding: 0;
+    border-radius: var(--radius-pill);
+}}
+
+.notification-group-header {{
+    padding: 0;
+}}
+
+button.notification-group-header,
+button.notification-group-clear {{
+    min-height: 0;
+    min-width: 0;
+    border-radius: var(--radius-pill);
+}}
+
+button.notification-group-header {{
+    padding: 6px;
+}}
+
+button.notification-group-clear {{
+    margin: 4px 4px 4px 0;
+    padding: 4px;
+}}
+
+button.notification-group-header:hover,
+button.notification-group-clear:hover {{
+    background: var(--color-card-overlay-hover);
+}}
+
+.notification-group-count {{
+    font-size: var(--font-size-xs);
+}}
+
+.notification-group-list {{
+    padding: 4px 6px 6px 6px;
 }}
 
 /* Empty state */

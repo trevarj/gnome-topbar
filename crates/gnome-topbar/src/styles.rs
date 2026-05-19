@@ -837,6 +837,9 @@ pub mod notification {
     /// Group count label (`.notification-group-count`).
     pub const GROUP_COUNT: &str = "notification-group-count";
 
+    /// Group clear button (`.notification-group-clear`).
+    pub const GROUP_CLEAR: &str = "notification-group-clear";
+
     /// Expanded grouped row list (`.notification-group-list`).
     pub const GROUP_LIST: &str = "notification-group-list";
 
