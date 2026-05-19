@@ -1412,8 +1412,11 @@ impl QuickSettingsWindow {
         // even if a close animation is still in flight.
         self.logically_open.set(true);
 
-        // Note: unlike LayerShellPopover, we don't attempt mid-close reversal
-        // here — not worth the complexity for a 150ms animation.
+        let was_closing = {
+            let state = self.anim_state.borrow();
+            state.active && state.direction == AnimDirection::Closing
+        };
+
         self.is_animating_out.set(false);
 
         // Bump generation to cancel stale tick callbacks and idle callbacks.
@@ -1437,6 +1440,28 @@ impl QuickSettingsWindow {
 
         // Set the global current QS window reference
         set_current_qs_window(self);
+
+        if was_closing {
+            // Keep the current visual progress and reverse it into an open
+            // animation, matching the shared LayerShellPopover behavior.
+            self.update_position();
+            self.window.set_opacity(1.0);
+            self.window.set_visible(true);
+            self.window.present();
+
+            // Install deferred Tab controller for keyboard nav on first Tab.
+            self.prepare_keyboard_nav();
+
+            if ConfigManager::global().animations_enabled() {
+                self.start_animation(AnimDirection::Opening, generation);
+            } else {
+                snap_anim_shell(&self.anim_shell, QUICK_SETTINGS_WIDGET, 1.0, 1.0);
+            }
+
+            let snapshot = NetworkService::global().snapshot();
+            network_card::on_network_changed(&self.network, &snapshot, &self.window);
+            return;
+        }
 
         // Set animation shell to hidden state for open animation.
         self.anim_shell.set_opacity(0.0);
