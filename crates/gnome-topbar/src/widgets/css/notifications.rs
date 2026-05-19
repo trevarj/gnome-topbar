@@ -136,8 +136,22 @@ pub fn css(animations: bool) -> String {
     margin: 0;
 }}
 
-.notification-header .vp-popover-icon-btn {{
+.notification-header .notification-header-icon-btn {{
     margin-top: -4px;
+}}
+
+.notification-header-icon-btn.notification-mute-active {{
+    background: var(--color-accent-primary);
+    color: var(--color-accent-text, #fff);
+}}
+
+.notification-header-icon-btn.notification-mute-active:hover {{
+    background: var(--color-accent-hover-bg);
+}}
+
+.notification-header-icon-btn.notification-mute-active .notification-header-icon,
+.notification-header-icon-btn.notification-mute-active .vp-primary {{
+    color: var(--color-accent-text, #fff);
 }}
 
 .notification-header-icon {{
@@ -268,4 +282,19 @@ button.notification-toast-action label {{
 }}
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notification_css_styles_muted_header_button_as_active() {
+        let css = css(true);
+
+        assert!(css.contains(".notification-header-icon-btn.notification-mute-active"));
+        assert!(css.contains("background: var(--color-accent-primary);"));
+        assert!(css.contains("color: var(--color-accent-text, #fff);"));
+        assert!(css.contains(".notification-header-icon-btn.notification-mute-active .vp-primary"));
+    }
 }

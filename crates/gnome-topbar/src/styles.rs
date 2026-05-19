@@ -765,6 +765,9 @@ pub mod notification {
     /// Header icon button (`.notification-header-icon-btn`).
     pub const HEADER_ICON_BTN: &str = "notification-header-icon-btn";
 
+    /// Muted notification header button (`.notification-mute-active`).
+    pub const MUTE_ACTIVE: &str = "notification-mute-active";
+
     /// Header icon (`.notification-header-icon`) - for icon sizing.
     pub const HEADER_ICON: &str = "notification-header-icon";
 

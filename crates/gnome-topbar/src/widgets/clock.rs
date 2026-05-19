@@ -328,6 +328,7 @@ impl ClockNotificationCompanion {
                 }
             })
         };
+        inner.on_service_update(&service);
 
         Self {
             inner,
@@ -347,8 +348,11 @@ impl ClockNotificationInner {
         self.show_new_toasts(service);
 
         let count = service.history_count();
-        self.container
-            .set_visible(!service.backend_available() || count > 0);
+        self.container.set_visible(notification_indicator_visible(
+            service.backend_available(),
+            count,
+            service.is_muted(),
+        ));
 
         let unread = self.calculate_unread_count(service);
         self.badge.set_visible(unread > 0);
@@ -486,6 +490,14 @@ impl ClockNotificationInner {
     }
 }
 
+fn notification_indicator_visible(
+    backend_available: bool,
+    history_count: usize,
+    muted: bool,
+) -> bool {
+    !backend_available || history_count > 0 || muted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,5 +571,21 @@ mod tests {
         let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
 
         assert!(config.control_panel_weather_widget.is_none());
+    }
+
+    #[test]
+    fn notification_indicator_remains_visible_when_muted_without_history() {
+        assert!(notification_indicator_visible(true, 0, true));
+    }
+
+    #[test]
+    fn notification_indicator_hides_when_available_unmuted_and_empty() {
+        assert!(!notification_indicator_visible(true, 0, false));
+    }
+
+    #[test]
+    fn notification_indicator_visible_for_history_or_unavailable_backend() {
+        assert!(notification_indicator_visible(true, 1, false));
+        assert!(notification_indicator_visible(false, 0, false));
     }
 }

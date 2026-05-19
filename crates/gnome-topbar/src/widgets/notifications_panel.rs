@@ -150,9 +150,14 @@ fn build_header(notification_list: &GtkBox) -> GtkBox {
     mute_btn.set_has_frame(false);
     mute_btn.set_focus_on_click(false);
     mute_btn.add_css_class(surface::POPOVER_ICON_BTN);
+    mute_btn.add_css_class(notif::HEADER_ICON_BTN);
     mute_btn.set_valign(Align::Start);
 
     let is_muted = service.is_muted();
+    if is_muted {
+        mute_btn.add_css_class(notif::MUTE_ACTIVE);
+    }
+
     let mute_icon_handle = icons.create_icon(
         if is_muted {
             "notifications-disabled"
@@ -191,6 +196,11 @@ fn build_header(notification_list: &GtkBox) -> GtkBox {
         } else {
             "notifications"
         });
+        if is_muted {
+            btn.add_css_class(notif::MUTE_ACTIVE);
+        } else {
+            btn.remove_css_class(notif::MUTE_ACTIVE);
+        }
         tooltip_manager.set_styled_tooltip(
             btn,
             if is_muted {
@@ -211,6 +221,7 @@ fn build_header(notification_list: &GtkBox) -> GtkBox {
         clear_btn.set_has_frame(false);
         clear_btn.set_focus_on_click(false);
         clear_btn.add_css_class(surface::POPOVER_ICON_BTN);
+        clear_btn.add_css_class(notif::HEADER_ICON_BTN);
         clear_btn.set_valign(Align::Start);
         tooltip_manager.set_styled_tooltip(&clear_btn, "Clear all notifications");
 
