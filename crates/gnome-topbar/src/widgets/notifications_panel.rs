@@ -369,6 +369,22 @@ fn notification_count_text(count: usize) -> String {
     }
 }
 
+fn notification_primary_action(actions: &[(String, String)]) -> Option<String> {
+    let mut open_action: Option<String> = None;
+
+    for (id, label) in actions {
+        if id == "default" {
+            return Some(id.clone());
+        }
+
+        if label == "Open" && open_action.is_none() {
+            open_action = Some(id.clone());
+        }
+    }
+
+    open_action
+}
+
 fn add_empty_state(list: &GtkBox, message: &str) {
     let empty = GtkBox::new(Orientation::Vertical, 8);
     empty.add_css_class(notif::EMPTY);
@@ -763,28 +779,46 @@ fn build_notification_row(
 
     main_row.append(&dismiss_btn);
 
-    // Actions at the bottom (non-default actions) and optional expand button
+    let has_expand = body_label_opt.is_some();
+    let primary_action = notification_primary_action(&notification.actions);
+
+    if let Some(primary_id) = primary_action.clone() {
+        let click_gesture = gtk4::GestureClick::new();
+        click_gesture.set_button(1);
+        let notification_id = notification.id;
+        let card_for_action = card.clone();
+        let revealer_for_action = revealer.clone();
+        let list_for_action = list.clone();
+        let suppress_for_action = Rc::clone(suppress_rebuild);
+        let on_list_empty_for_action = on_list_empty.clone();
+        let on_after_dismiss_for_action = on_after_dismiss.clone();
+        click_gesture.connect_pressed(move |gesture, n_press, _, _| {
+            if n_press == 1 {
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
+                invoke_notification_action_and_remove(
+                    notification_id,
+                    &primary_id,
+                    &card_for_action,
+                    &revealer_for_action,
+                    &list_for_action,
+                    &suppress_for_action,
+                    &on_list_empty_for_action,
+                    &on_after_dismiss_for_action,
+                );
+            }
+        });
+        content.add_controller(click_gesture);
+        content.add_css_class(notif::TOAST_CLICKABLE);
+    }
+
+    // Actions at the bottom (non-default actions) and optional expand button.
+    // If a non-default action is promoted to primary "Open", keep it out of the
+    // secondary action row to avoid duplicate buttons for the same action id.
     let non_default_actions: Vec<_> = notification
         .actions
         .iter()
-        .filter(|(id, _)| id != "default")
+        .filter(|(id, _)| id != "default" && Some(id.as_str()) != primary_action.as_deref())
         .collect();
-
-    let has_expand = body_label_opt.is_some();
-
-    // Determine primary action (default or explicit "Open")
-    let mut default_action: Option<String> = None;
-    let mut open_action: Option<String> = None;
-
-    for (id, label) in &notification.actions {
-        if id == "default" {
-            default_action = Some(id.clone());
-        } else if label == "Open" && open_action.is_none() {
-            open_action = Some(id.clone());
-        }
-    }
-
-    let primary_action = default_action.clone().or(open_action.clone());
 
     if !non_default_actions.is_empty() || has_expand || primary_action.is_some() {
         let actions_row = GtkBox::new(Orientation::Horizontal, 8);
@@ -848,8 +882,9 @@ fn build_notification_row(
             let on_after_dismiss_for_action = on_after_dismiss.clone();
             open_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
-                NotificationService::global().invoke_action(notification_id, &primary_id);
-                schedule_notification_row_removal(
+                invoke_notification_action_and_remove(
+                    notification_id,
+                    &primary_id,
                     &card_for_action,
                     &revealer_for_action,
                     &list_for_action,
@@ -878,8 +913,9 @@ fn build_notification_row(
             let on_after_dismiss_for_action = on_after_dismiss.clone();
             action_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
-                NotificationService::global().invoke_action(notification_id, &action_id);
-                schedule_notification_row_removal(
+                invoke_notification_action_and_remove(
+                    notification_id,
+                    &action_id,
                     &card_for_action,
                     &revealer_for_action,
                     &list_for_action,
@@ -896,6 +932,27 @@ fn build_notification_row(
     }
 
     card
+}
+
+fn invoke_notification_action_and_remove(
+    notification_id: u32,
+    action_id: &str,
+    card: &GtkBox,
+    revealer: &Revealer,
+    list: &GtkBox,
+    suppress_rebuild: &Rc<Cell<bool>>,
+    on_list_empty: &Option<Rc<dyn Fn()>>,
+    on_after_dismiss: &Option<Rc<dyn Fn()>>,
+) {
+    NotificationService::global().invoke_action(notification_id, action_id);
+    schedule_notification_row_removal(
+        card,
+        revealer,
+        list,
+        suppress_rebuild,
+        on_list_empty,
+        on_after_dismiss,
+    );
 }
 
 fn schedule_notification_row_removal(
@@ -1017,5 +1074,38 @@ mod tests {
     fn notification_count_text_uses_singular_for_one() {
         assert_eq!(notification_count_text(1), "1 notification");
         assert_eq!(notification_count_text(2), "2 notifications");
+    }
+
+    #[test]
+    fn notification_primary_action_prefers_default() {
+        let actions = vec![
+            ("open".to_string(), "Open".to_string()),
+            ("default".to_string(), String::new()),
+        ];
+
+        assert_eq!(
+            notification_primary_action(&actions),
+            Some("default".to_string())
+        );
+    }
+
+    #[test]
+    fn notification_primary_action_falls_back_to_open_label() {
+        let actions = vec![
+            ("reply".to_string(), "Reply".to_string()),
+            ("open-chat".to_string(), "Open".to_string()),
+        ];
+
+        assert_eq!(
+            notification_primary_action(&actions),
+            Some("open-chat".to_string())
+        );
+    }
+
+    #[test]
+    fn notification_primary_action_ignores_other_actions() {
+        let actions = vec![("reply".to_string(), "Reply".to_string())];
+
+        assert_eq!(notification_primary_action(&actions), None);
     }
 }
