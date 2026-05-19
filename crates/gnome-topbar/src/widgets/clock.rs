@@ -276,7 +276,7 @@ impl ClockNotificationCompanion {
         badge.set_visible(false);
         badge.set_halign(Align::End);
         badge.set_valign(Align::Start);
-        badge.set_size_request(8, 8);
+        badge.set_size_request(4, 4);
         overlay.add_overlay(&badge);
 
         container.append(&overlay);

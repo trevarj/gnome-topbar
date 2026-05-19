@@ -34,8 +34,8 @@ pub fn css(animations: bool) -> String {
 }}
 
 .notification-badge-dot {{
-    min-width: 8px;
-    min-height: 8px;
+    min-width: 4px;
+    min-height: 4px;
     padding: 0;
     border-radius: var(--radius-round);
     background-color: var(--color-accent-primary);
