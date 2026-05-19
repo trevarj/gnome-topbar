@@ -28,7 +28,7 @@ fn should_close_service_notification_on_toast_end(is_transient: bool, exists: bo
 }
 
 fn toast_visible_margin(logical_margin: i32) -> i32 {
-    logical_margin.max(12)
+    logical_margin.max(6)
 }
 
 fn ease_out_cubic(progress: f64) -> f64 {
@@ -794,8 +794,8 @@ mod tests {
 
     #[test]
     fn toast_visible_margin_preserves_top_gap() {
-        assert_eq!(toast_visible_margin(-20), 12);
-        assert_eq!(toast_visible_margin(0), 12);
+        assert_eq!(toast_visible_margin(-20), 6);
+        assert_eq!(toast_visible_margin(0), 6);
         assert_eq!(toast_visible_margin(24), 24);
     }
 
