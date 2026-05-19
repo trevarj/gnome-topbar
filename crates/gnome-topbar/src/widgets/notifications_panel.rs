@@ -764,10 +764,12 @@ fn build_notification_row(
         let suppress_for_timeout = Rc::clone(&suppress);
         glib::timeout_add_local_once(duration, move || {
             list.remove(&revealer);
-            if list.first_child().is_none()
-                && let Some(ref on_list_empty) = on_list_empty
-            {
-                on_list_empty();
+            if list.first_child().is_none() {
+                if let Some(ref on_list_empty) = on_list_empty {
+                    on_list_empty();
+                } else {
+                    add_empty_state(&list, "No notifications");
+                }
             } else if let Some(ref on_after_dismiss) = on_after_dismiss {
                 on_after_dismiss();
             }
