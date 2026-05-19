@@ -6,7 +6,30 @@ use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Calendar, Label, Orientation, Overlay, Widget};
 
 use crate::services::icons::IconsService;
+use crate::services::tooltip::TooltipManager;
 use crate::styles::{calendar as cal, icon, surface};
+
+fn month_start(date: NaiveDate) -> NaiveDate {
+    NaiveDate::from_ymd_opt(date.year(), date.month(), 1)
+        .expect("existing NaiveDate month must have a first day")
+}
+
+fn shift_month(date: NaiveDate, delta_months: i32) -> Option<NaiveDate> {
+    let month_index = date.year().checked_mul(12)? + date.month0() as i32;
+    let shifted = month_index.checked_add(delta_months)?;
+    let year = shifted.div_euclid(12);
+    let month0 = shifted.rem_euclid(12) as u32;
+
+    NaiveDate::from_ymd_opt(year, month0 + 1, 1)
+}
+
+fn header_text(date: NaiveDate) -> String {
+    date.format("%B %Y").to_string()
+}
+
+fn same_month(left: NaiveDate, right: NaiveDate) -> bool {
+    left.year() == right.year() && left.month() == right.month()
+}
 
 /// Build a calendar popover for the clock widget.
 ///
@@ -48,6 +71,7 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
 
     let prev_button = crate::widgets::base::vp_button_from_icon_name("go-previous-symbolic");
     prev_button.add_css_class(surface::POPOVER_ICON_BTN);
+    prev_button.add_css_class(cal::NAV_BUTTON);
     prev_button.set_has_frame(false);
     prev_button.set_focus_on_click(false);
 
@@ -58,12 +82,14 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
     let today_button = crate::widgets::base::vp_button();
     today_button.set_child(Some(&today_icon.widget()));
     today_button.add_css_class(surface::POPOVER_ICON_BTN);
+    today_button.add_css_class(cal::NAV_BUTTON);
     today_button.set_has_frame(false);
     today_button.set_focus_on_click(false);
-    today_button.set_tooltip_text(Some("Go to today"));
+    TooltipManager::global().set_styled_tooltip(&today_button, "Go to today");
 
     let next_button = crate::widgets::base::vp_button_from_icon_name("go-next-symbolic");
     next_button.add_css_class(surface::POPOVER_ICON_BTN);
+    next_button.add_css_class(cal::NAV_BUTTON);
     next_button.set_has_frame(false);
     next_button.set_focus_on_click(false);
 
@@ -115,7 +141,7 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
     let update_header = {
         let header_label = header_label.clone();
         move |date: NaiveDate| {
-            header_label.set_label(&date.format("%B %Y").to_string());
+            header_label.set_label(&header_text(date));
         }
     };
 
@@ -127,13 +153,12 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
         let today = today.clone();
         move |date: NaiveDate| {
             let today = today.get();
-            let is_current_month = date.month() == today.month() && date.year() == today.year();
+            let is_current_month = same_month(date, today);
 
-            // Set flag to prevent signal handler from interfering
+            // Guard against notify signals emitted by programmatic calendar updates.
             updating.set(true);
 
-            // Always set day to 1 first to avoid invalid intermediate states (e.g., Feb 30).
-            // This ensures month/year changes never fail due to the current day being invalid.
+            // Avoid invalid intermediate states when moving from longer to shorter months.
             calendar.set_day(1);
             calendar.set_year(date.year());
             // GtkCalendar expects month in the 0-11 range (i32)
@@ -167,18 +192,7 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
         let update_header = update_header.clone();
         let update_calendar = update_calendar.clone();
         prev_button.connect_clicked(move |_| {
-            let new_date = {
-                let date = current_date.borrow();
-                let mut year = date.year();
-                let mut month = date.month();
-                if month == 1 {
-                    month = 12;
-                    year -= 1;
-                } else {
-                    month -= 1;
-                }
-                NaiveDate::from_ymd_opt(year, month, 1)
-            };
+            let new_date = shift_month(*current_date.borrow(), -1);
             if let Some(new_date) = new_date {
                 *current_date.borrow_mut() = new_date;
                 update_header(new_date);
@@ -193,13 +207,10 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
         let update_calendar = update_calendar.clone();
         let today = today.clone();
         today_button.connect_clicked(move |_| {
-            let today = today.get();
-            let today_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1);
-            if let Some(new_date) = today_month {
-                *current_date.borrow_mut() = new_date;
-                update_header(new_date);
-                update_calendar(new_date);
-            }
+            let new_date = month_start(today.get());
+            *current_date.borrow_mut() = new_date;
+            update_header(new_date);
+            update_calendar(new_date);
         });
     }
 
@@ -208,18 +219,7 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
         let update_header = update_header.clone();
         let update_calendar = update_calendar.clone();
         next_button.connect_clicked(move |_| {
-            let new_date = {
-                let date = current_date.borrow();
-                let mut year = date.year();
-                let mut month = date.month();
-                if month == 12 {
-                    month = 1;
-                    year += 1;
-                } else {
-                    month += 1;
-                }
-                NaiveDate::from_ymd_opt(year, month, 1)
-            };
+            let new_date = shift_month(*current_date.borrow(), 1);
             if let Some(new_date) = new_date {
                 *current_date.borrow_mut() = new_date;
                 update_header(new_date);
@@ -297,7 +297,7 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
         Rc::new(move || {
             let new_today = Local::now().date_naive();
             today.set(new_today);
-            let new_date = NaiveDate::from_ymd_opt(new_today.year(), new_today.month(), 1).unwrap();
+            let new_date = month_start(new_today);
             *current_date.borrow_mut() = new_date;
             update_header(new_date);
             update_calendar(new_date);
@@ -305,4 +305,41 @@ pub fn build_clock_calendar_popover(show_week_numbers: bool) -> (Widget, Rc<dyn 
     };
 
     (container.upcast::<Widget>(), refresh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
+    #[test]
+    fn month_start_keeps_year_month_and_sets_first_day() {
+        assert_eq!(month_start(date(2026, 5, 19)), date(2026, 5, 1));
+    }
+
+    #[test]
+    fn shift_month_wraps_year_boundaries() {
+        assert_eq!(shift_month(date(2026, 1, 31), -1), Some(date(2025, 12, 1)));
+        assert_eq!(shift_month(date(2026, 12, 31), 1), Some(date(2027, 1, 1)));
+    }
+
+    #[test]
+    fn shift_month_handles_larger_offsets() {
+        assert_eq!(shift_month(date(2026, 5, 19), -15), Some(date(2025, 2, 1)));
+        assert_eq!(shift_month(date(2026, 5, 19), 20), Some(date(2028, 1, 1)));
+    }
+
+    #[test]
+    fn header_text_formats_month_and_year() {
+        assert_eq!(header_text(date(2026, 5, 1)), "May 2026");
+    }
+
+    #[test]
+    fn same_month_ignores_day() {
+        assert!(same_month(date(2026, 5, 1), date(2026, 5, 31)));
+        assert!(!same_month(date(2026, 5, 1), date(2026, 6, 1)));
+    }
 }

@@ -10,6 +10,11 @@ pub fn css() -> &'static str {
     margin-top: 0;
 }
 
+.calendar-popover .calendar-nav-button {
+    min-width: 32px;
+    min-height: 32px;
+}
+
 /* Pull last nav button flush with popover edge */
 .calendar-popover .vp-popover-icon-btn:last-child {
     margin-right: -8px;
