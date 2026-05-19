@@ -21,6 +21,11 @@ use crate::services::notification::{
 type ToastCallback = Rc<dyn Fn(u32)>;
 /// Type alias for toast action callbacks.
 type ToastActionCallback = Rc<dyn Fn(u32, &str)>;
+
+fn should_close_service_notification_on_toast_end(is_transient: bool, exists: bool) -> bool {
+    is_transient && exists
+}
+
 use crate::services::background_effect::attach_blur_surface_lifecycle;
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
@@ -503,7 +508,10 @@ impl NotificationToastManager {
 
         let manager = Rc::clone(self);
         let on_dismiss: Rc<dyn Fn(u32)> = Rc::new(move |id| {
-            if is_transient {
+            if should_close_service_notification_on_toast_end(
+                is_transient,
+                NotificationService::global().get(id).is_some(),
+            ) {
                 NotificationService::global().close(id);
             }
             manager.remove_toast(id);
@@ -512,7 +520,10 @@ impl NotificationToastManager {
         // When toast times out, we need to remove it and notify the widget to update badge
         let manager_for_timeout = Rc::clone(self);
         let on_timeout: Rc<dyn Fn(u32)> = Rc::new(move |id| {
-            if is_transient {
+            if should_close_service_notification_on_toast_end(
+                is_transient,
+                NotificationService::global().get(id).is_some(),
+            ) {
                 NotificationService::global().close(id);
             }
             manager_for_timeout.remove_toast(id);
@@ -609,5 +620,20 @@ impl NotificationToastManager {
 
     pub fn active_ids(&self) -> HashSet<u32> {
         self.toasts.borrow().keys().cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closes_service_notification_only_for_existing_transients() {
+        assert!(should_close_service_notification_on_toast_end(true, true));
+        assert!(!should_close_service_notification_on_toast_end(true, false));
+        assert!(!should_close_service_notification_on_toast_end(false, true));
+        assert!(!should_close_service_notification_on_toast_end(
+            false, false
+        ));
     }
 }
