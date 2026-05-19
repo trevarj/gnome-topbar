@@ -403,13 +403,6 @@ fn clear_notification_list_to_empty(list: &GtkBox) {
     add_empty_state(list, "No notifications");
 }
 
-fn rebuild_notification_list(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) {
-    while let Some(child) = list.first_child() {
-        list.remove(&child);
-    }
-    populate_notification_list(list, suppress_rebuild);
-}
-
 fn build_notification_group(
     group: &AppNotificationGroup,
     outer_list: &GtkBox,
@@ -583,10 +576,12 @@ fn build_notification_group(
             }
         });
 
-        let outer_list_for_refresh = outer_list.clone();
-        let suppress_for_refresh = Rc::clone(suppress_rebuild);
+        let child_list_for_count = child_list.clone();
+        let count_label_for_dismiss = count_label.clone();
         let after_group_child_dismiss = Rc::new(move || {
-            rebuild_notification_list(&outer_list_for_refresh, &suppress_for_refresh);
+            count_label_for_dismiss.set_label(&notification_count_text(widget_child_count(
+                &child_list_for_count,
+            )));
         });
 
         let row = build_notification_row(
@@ -602,6 +597,16 @@ fn build_notification_group(
     }
 
     card
+}
+
+fn widget_child_count(container: &GtkBox) -> usize {
+    let mut count = 0;
+    let mut child = container.first_child();
+    while let Some(widget) = child {
+        count += 1;
+        child = widget.next_sibling();
+    }
+    count
 }
 
 fn build_notification_row(
@@ -739,42 +744,21 @@ fn build_notification_row(
     let revealer_for_dismiss = revealer.clone();
     let list_for_dismiss = list.clone();
     let suppress = Rc::clone(suppress_rebuild);
+    let on_list_empty_for_dismiss = on_list_empty.clone();
+    let on_after_dismiss_for_dismiss = on_after_dismiss.clone();
     dismiss_btn.connect_clicked(move |btn| {
         // Prevent double-clicks from leaving suppress_rebuild stuck.
         btn.set_sensitive(false);
 
-        suppress.set(true);
         NotificationService::global().close(notification_id);
-
-        // Fade out the row content and collapse height via the Revealer
-        card_for_dismiss.add_css_class(notif::ROW_DISMISSING);
-        revealer_for_dismiss.set_reveal_child(false);
-
-        // Remove immediately when animations are disabled.
-        let duration = if ConfigManager::global().animations_enabled() {
-            DISMISS_ANIMATION_DURATION
-        } else {
-            Duration::ZERO
-        };
-
-        let revealer = revealer_for_dismiss.clone();
-        let list = list_for_dismiss.clone();
-        let on_list_empty = on_list_empty.clone();
-        let on_after_dismiss = on_after_dismiss.clone();
-        let suppress_for_timeout = Rc::clone(&suppress);
-        glib::timeout_add_local_once(duration, move || {
-            list.remove(&revealer);
-            if list.first_child().is_none() {
-                if let Some(ref on_list_empty) = on_list_empty {
-                    on_list_empty();
-                } else {
-                    add_empty_state(&list, "No notifications");
-                }
-            } else if let Some(ref on_after_dismiss) = on_after_dismiss {
-                on_after_dismiss();
-            }
-            suppress_for_timeout.set(false);
-        });
+        schedule_notification_row_removal(
+            &card_for_dismiss,
+            &revealer_for_dismiss,
+            &list_for_dismiss,
+            &suppress,
+            &on_list_empty_for_dismiss,
+            &on_after_dismiss_for_dismiss,
+        );
     });
 
     main_row.append(&dismiss_btn);
@@ -856,15 +840,29 @@ fn build_notification_row(
             open_btn.add_css_class(button::GHOST);
 
             let notification_id = notification.id;
-            open_btn.connect_clicked(move |_| {
+            let card_for_action = card.clone();
+            let revealer_for_action = revealer.clone();
+            let list_for_action = list.clone();
+            let suppress_for_action = Rc::clone(suppress_rebuild);
+            let on_list_empty_for_action = on_list_empty.clone();
+            let on_after_dismiss_for_action = on_after_dismiss.clone();
+            open_btn.connect_clicked(move |btn| {
+                btn.set_sensitive(false);
                 NotificationService::global().invoke_action(notification_id, &primary_id);
+                schedule_notification_row_removal(
+                    &card_for_action,
+                    &revealer_for_action,
+                    &list_for_action,
+                    &suppress_for_action,
+                    &on_list_empty_for_action,
+                    &on_after_dismiss_for_action,
+                );
             });
 
             actions_row.append(&open_btn);
         }
 
         // Action buttons on the right (non-default actions like "Mark as Read", "Reply", etc.)
-        // These do NOT close the popover - user may be processing multiple notifications
         for (action_id, action_label) in non_default_actions {
             let action_btn = crate::widgets::base::vp_button_with_label(action_label);
             action_btn.add_css_class(notif::ACTION_BTN);
@@ -872,8 +870,23 @@ fn build_notification_row(
 
             let notification_id = notification.id;
             let action_id = action_id.clone();
-            action_btn.connect_clicked(move |_| {
+            let card_for_action = card.clone();
+            let revealer_for_action = revealer.clone();
+            let list_for_action = list.clone();
+            let suppress_for_action = Rc::clone(suppress_rebuild);
+            let on_list_empty_for_action = on_list_empty.clone();
+            let on_after_dismiss_for_action = on_after_dismiss.clone();
+            action_btn.connect_clicked(move |btn| {
+                btn.set_sensitive(false);
                 NotificationService::global().invoke_action(notification_id, &action_id);
+                schedule_notification_row_removal(
+                    &card_for_action,
+                    &revealer_for_action,
+                    &list_for_action,
+                    &suppress_for_action,
+                    &on_list_empty_for_action,
+                    &on_after_dismiss_for_action,
+                );
             });
 
             actions_row.append(&action_btn);
@@ -883,6 +896,46 @@ fn build_notification_row(
     }
 
     card
+}
+
+fn schedule_notification_row_removal(
+    card: &GtkBox,
+    revealer: &Revealer,
+    list: &GtkBox,
+    suppress_rebuild: &Rc<Cell<bool>>,
+    on_list_empty: &Option<Rc<dyn Fn()>>,
+    on_after_dismiss: &Option<Rc<dyn Fn()>>,
+) {
+    suppress_rebuild.set(true);
+
+    // Fade out the row content and collapse height via the Revealer.
+    card.add_css_class(notif::ROW_DISMISSING);
+    revealer.set_reveal_child(false);
+
+    let duration = if ConfigManager::global().animations_enabled() {
+        DISMISS_ANIMATION_DURATION
+    } else {
+        Duration::ZERO
+    };
+
+    let revealer = revealer.clone();
+    let list = list.clone();
+    let on_list_empty = on_list_empty.clone();
+    let on_after_dismiss = on_after_dismiss.clone();
+    let suppress_for_timeout = Rc::clone(suppress_rebuild);
+    glib::timeout_add_local_once(duration, move || {
+        list.remove(&revealer);
+        if list.first_child().is_none() {
+            if let Some(ref on_list_empty) = on_list_empty {
+                on_list_empty();
+            } else {
+                add_empty_state(&list, "No notifications");
+            }
+        } else if let Some(ref on_after_dismiss) = on_after_dismiss {
+            on_after_dismiss();
+        }
+        suppress_for_timeout.set(false);
+    });
 }
 
 #[cfg(test)]
