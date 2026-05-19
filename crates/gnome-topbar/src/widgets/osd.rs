@@ -25,12 +25,14 @@ use tracing::{debug, warn};
 use gnome_topbar_core::config::OsdConfig;
 
 use crate::services::audio::AudioSnapshot;
-use crate::services::background_effect::attach_blur_surface_lifecycle;
+use crate::services::background_effect::{BackgroundEffectManager, attach_blur_surface_lifecycle};
 use crate::services::brightness::BrightnessSnapshot;
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::ipc::IpcMessage;
 use crate::services::surfaces::SurfaceStyleManager;
+use crate::widgets::layer_shell_popover::{ANIM_SCALE_FROM, AnimDirection, AnimState};
+use crate::widgets::scale_box::ScaleBox;
 
 /// Valid OSD positions for anchoring.
 const VALID_POSITIONS: &[&str] = &["bottom", "left", "right", "top"];
@@ -189,9 +191,12 @@ impl OsdWidget {
 /// - Auto-hides after a timeout
 pub struct OsdOverlay {
     window: gtk4::Window,
+    anim_shell: ScaleBox,
     osd_widget: OsdWidget,
     timeout_ms: u32,
     hide_source: RefCell<Option<glib::SourceId>>,
+    anim_state: Rc<RefCell<AnimState>>,
+    anim_generation: Rc<Cell<u32>>,
 
     // Brightness state tracking.
     brightness_baseline_seen: Cell<bool>,
@@ -256,7 +261,11 @@ impl OsdOverlay {
         // Child OSD widget.
         let osd_widget = OsdWidget::new(orientation, 24, osd_config.show_value);
         container.append(osd_widget.widget());
-        window.set_child(Some(&container));
+        let anim_shell = ScaleBox::new();
+        anim_shell.set_opacity(0.0);
+        anim_shell.set_scale(ANIM_SCALE_FROM);
+        anim_shell.set_child(&container);
+        window.set_child(Some(&anim_shell));
 
         // Apply Pango font attributes to all labels if enabled in config.
         // This is the central hook for OSD - widgets create standard
@@ -277,9 +286,12 @@ impl OsdOverlay {
 
         let overlay = Rc::new(Self {
             window,
+            anim_shell,
             osd_widget,
             timeout_ms,
             hide_source: RefCell::new(None),
+            anim_state: Rc::new(RefCell::new(AnimState::new_idle())),
+            anim_generation: Rc::new(Cell::new(0)),
             brightness_baseline_seen: Cell::new(false),
             last_brightness: Cell::new(0),
             audio_baseline_seen: Cell::new(false),
@@ -301,7 +313,7 @@ impl OsdOverlay {
         self.osd_widget.set_icon(icon_name);
         self.osd_widget.set_value(value, max_value);
 
-        self.window.set_visible(true);
+        self.show_window();
         self.reset_hide_timer();
     }
 
@@ -338,7 +350,7 @@ impl OsdOverlay {
         self.osd_widget
             .set_unavailable("audio-volume-muted-symbolic", "Play audio to enable");
 
-        self.window.set_visible(true);
+        self.show_window();
         self.reset_hide_timer();
     }
 
@@ -400,16 +412,126 @@ impl OsdOverlay {
 
         let source_id = glib::timeout_add_local(Duration::from_millis(timeout as u64), move || {
             if let Some(this) = this_weak.upgrade() {
-                // No explicit blur removal needed — unmapping suspends
-                // compositor-side blur while the protocol object persists.
-                // connect_map re-applies blur on next show.
-                this.window.set_visible(false);
                 *this.hide_source.borrow_mut() = None;
+                this.hide_window();
             }
             glib::ControlFlow::Break
         });
 
         *self.hide_source.borrow_mut() = Some(source_id);
+    }
+
+    fn show_window(self: &Rc<Self>) {
+        let generation = self.anim_generation.get().wrapping_add(1);
+        self.anim_generation.set(generation);
+
+        let was_visible = self.window.is_visible();
+        self.window.set_visible(true);
+        self.window.present();
+
+        if !ConfigManager::global().animations_enabled() {
+            self.anim_state.borrow_mut().active = false;
+            self.anim_shell.set_opacity(1.0);
+            self.anim_shell.set_scale(1.0);
+            return;
+        }
+
+        // Do not replay the entrance animation on repeated volume/brightness
+        // updates while the OSD is already fully visible.
+        let already_open = was_visible
+            && !self.anim_state.borrow().active
+            && self.anim_shell.opacity() >= 1.0 - f64::EPSILON;
+        if already_open {
+            self.anim_shell.set_opacity(1.0);
+            self.anim_shell.set_scale(1.0);
+            return;
+        }
+
+        self.start_animation(AnimDirection::Opening, generation);
+    }
+
+    fn hide_window(self: &Rc<Self>) {
+        let generation = self.anim_generation.get().wrapping_add(1);
+        self.anim_generation.set(generation);
+        if let Some(blur) = BackgroundEffectManager::global() {
+            blur.remove_blur_region(&self.window);
+        }
+
+        if !ConfigManager::global().animations_enabled() {
+            self.anim_state.borrow_mut().active = false;
+            self.anim_shell.set_opacity(0.0);
+            self.anim_shell.set_scale(ANIM_SCALE_FROM);
+            self.window.set_visible(false);
+            return;
+        }
+
+        self.start_animation(AnimDirection::Closing, generation);
+    }
+
+    fn start_animation(self: &Rc<Self>, direction: AnimDirection, generation: u32) {
+        let start_time_us = self
+            .anim_shell
+            .frame_clock()
+            .map(|fc| fc.frame_time())
+            .unwrap_or(0);
+
+        let need_tick = self.anim_state.borrow_mut().prepare(
+            direction,
+            generation,
+            start_time_us,
+            self.anim_shell.opacity(),
+        );
+
+        if !need_tick {
+            return;
+        }
+
+        let anim_state = Rc::clone(&self.anim_state);
+        let anim_generation = Rc::clone(&self.anim_generation);
+        let anim_shell = self.anim_shell.clone();
+        let window = self.window.clone();
+
+        self.anim_shell
+            .add_tick_callback(move |shell, frame_clock| {
+                if anim_generation.get() != generation {
+                    return glib::ControlFlow::Break;
+                }
+
+                let now_us = frame_clock.frame_time();
+                let (progress, complete, direction) = {
+                    let state = anim_state.borrow();
+                    if !state.active {
+                        return glib::ControlFlow::Break;
+                    }
+                    (
+                        state.current_progress(now_us),
+                        state.is_complete(now_us),
+                        state.direction,
+                    )
+                };
+
+                shell.set_opacity(progress);
+                let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
+                anim_shell.set_scale(scale);
+
+                if complete {
+                    anim_state.borrow_mut().active = false;
+                    match direction {
+                        AnimDirection::Opening => {
+                            shell.set_opacity(1.0);
+                            anim_shell.set_scale(1.0);
+                        }
+                        AnimDirection::Closing => {
+                            shell.set_opacity(0.0);
+                            anim_shell.set_scale(ANIM_SCALE_FROM);
+                            window.set_visible(false);
+                        }
+                    }
+                    return glib::ControlFlow::Break;
+                }
+
+                glib::ControlFlow::Continue
+            });
     }
 
     // Internal: brightness integration

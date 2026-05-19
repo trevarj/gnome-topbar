@@ -39,7 +39,7 @@ fn toast_stack_step(measured_height: i32) -> i32 {
     measured_height.max(0) + TOAST_GAP
 }
 
-use crate::services::background_effect::attach_blur_surface_lifecycle;
+use crate::services::background_effect::{BackgroundEffectManager, attach_blur_surface_lifecycle};
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{button, color, notification as notif};
@@ -519,6 +519,9 @@ impl NotificationToast {
             source_id.remove();
         }
         self.cancel_lifecycle_animation();
+        if let Some(blur) = BackgroundEffectManager::global() {
+            blur.remove_blur_region(&self.window);
+        }
 
         let after_close = Rc::new(RefCell::new(Some(after_close)));
         let target_margin = toast_visible_margin(self.current_bar_margin.get());
