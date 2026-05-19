@@ -54,6 +54,22 @@ pub fn format_timestamp(timestamp: f64) -> String {
     }
 }
 
+pub fn notification_primary_action(actions: &[(String, String)]) -> Option<String> {
+    let mut open_action: Option<String> = None;
+
+    for (id, label) in actions {
+        if id == "default" {
+            return Some(id.clone());
+        }
+
+        if label == "Open" && open_action.is_none() {
+            open_action = Some(id.clone());
+        }
+    }
+
+    open_action
+}
+
 #[derive(Debug, PartialEq)]
 enum TagBalance {
     Open(String),
@@ -415,6 +431,39 @@ mod tests {
         assert_eq!(sanitize_body_markup("Line 1<br>Line 2"), "Line 1 Line 2");
         assert_eq!(sanitize_body_markup("Line 1<br/>Line 2"), "Line 1 Line 2");
         assert_eq!(sanitize_body_markup("Line 1<br />Line 2"), "Line 1 Line 2");
+    }
+
+    #[test]
+    fn notification_primary_action_prefers_default() {
+        let actions = vec![
+            ("open".to_string(), "Open".to_string()),
+            ("default".to_string(), String::new()),
+        ];
+
+        assert_eq!(
+            notification_primary_action(&actions),
+            Some("default".to_string())
+        );
+    }
+
+    #[test]
+    fn notification_primary_action_falls_back_to_open_label() {
+        let actions = vec![
+            ("reply".to_string(), "Reply".to_string()),
+            ("open-chat".to_string(), "Open".to_string()),
+        ];
+
+        assert_eq!(
+            notification_primary_action(&actions),
+            Some("open-chat".to_string())
+        );
+    }
+
+    #[test]
+    fn notification_primary_action_ignores_other_actions() {
+        let actions = vec![("reply".to_string(), "Reply".to_string())];
+
+        assert_eq!(notification_primary_action(&actions), None);
     }
 
     #[test]

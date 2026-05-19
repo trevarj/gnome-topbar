@@ -29,7 +29,7 @@ use crate::styles::{button, color, notification as notif};
 use super::notifications_common::{
     POPOVER_WIDTH, SURFACE_SHADOW_MARGIN, TOAST_ESTIMATED_HEIGHT, TOAST_GAP,
     TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget,
-    sanitize_body_markup,
+    notification_primary_action, sanitize_body_markup,
 };
 
 /// Floating toast window for displaying a single notification.
@@ -247,7 +247,7 @@ impl NotificationToast {
             outer.add_css_class(notif::TOAST_LOW);
         }
 
-        let has_default_action = notification.actions.iter().any(|(id, _)| id == "default");
+        let primary_action = notification_primary_action(&notification.actions);
 
         let main_row = GtkBox::new(Orientation::Horizontal, 10);
 
@@ -323,8 +323,8 @@ impl NotificationToast {
 
         main_row.append(&dismiss_btn);
 
-        // Handle default action click
-        if has_default_action {
+        // Handle primary action click
+        if let Some(primary_id) = primary_action.clone() {
             // Make the content area clickable
             let click_gesture = gtk4::GestureClick::new();
             click_gesture.set_button(1); // Only respond to left mouse button
@@ -339,7 +339,7 @@ impl NotificationToast {
                 if n_press == 1 {
                     // Stop propagation to prevent accidental triggers
                     gesture.set_state(gtk4::EventSequenceState::Claimed);
-                    on_action_clone(notification_id, "default");
+                    on_action_clone(notification_id, &primary_id);
                     on_dismiss_clone(notification_id);
                     window_for_action.close();
                 }
@@ -354,7 +354,7 @@ impl NotificationToast {
         let non_default_actions: Vec<_> = notification
             .actions
             .iter()
-            .filter(|(id, _)| id != "default")
+            .filter(|(id, _)| id != "default" && Some(id.as_str()) != primary_action.as_deref())
             .collect();
 
         if !non_default_actions.is_empty() {

@@ -29,7 +29,7 @@ use super::layer_shell_popover::{
 };
 use super::notifications_common::{
     BODY_TRUNCATE_THRESHOLD, POPOVER_WIDTH, create_notification_image_widget, format_timestamp,
-    sanitize_body_markup,
+    notification_primary_action, sanitize_body_markup,
 };
 
 /// Dismiss animation as a Duration for timeout callbacks.
@@ -367,22 +367,6 @@ fn notification_count_text(count: usize) -> String {
         1 => "1 notification".to_string(),
         _ => format!("{count} notifications"),
     }
-}
-
-fn notification_primary_action(actions: &[(String, String)]) -> Option<String> {
-    let mut open_action: Option<String> = None;
-
-    for (id, label) in actions {
-        if id == "default" {
-            return Some(id.clone());
-        }
-
-        if label == "Open" && open_action.is_none() {
-            open_action = Some(id.clone());
-        }
-    }
-
-    open_action
 }
 
 fn add_empty_state(list: &GtkBox, message: &str) {
@@ -1074,38 +1058,5 @@ mod tests {
     fn notification_count_text_uses_singular_for_one() {
         assert_eq!(notification_count_text(1), "1 notification");
         assert_eq!(notification_count_text(2), "2 notifications");
-    }
-
-    #[test]
-    fn notification_primary_action_prefers_default() {
-        let actions = vec![
-            ("open".to_string(), "Open".to_string()),
-            ("default".to_string(), String::new()),
-        ];
-
-        assert_eq!(
-            notification_primary_action(&actions),
-            Some("default".to_string())
-        );
-    }
-
-    #[test]
-    fn notification_primary_action_falls_back_to_open_label() {
-        let actions = vec![
-            ("reply".to_string(), "Reply".to_string()),
-            ("open-chat".to_string(), "Open".to_string()),
-        ];
-
-        assert_eq!(
-            notification_primary_action(&actions),
-            Some("open-chat".to_string())
-        );
-    }
-
-    #[test]
-    fn notification_primary_action_ignores_other_actions() {
-        let actions = vec![("reply".to_string(), "Reply".to_string())];
-
-        assert_eq!(notification_primary_action(&actions), None);
     }
 }
