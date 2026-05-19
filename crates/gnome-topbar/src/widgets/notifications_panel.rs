@@ -35,6 +35,8 @@ use super::notifications_common::{
 /// Dismiss animation as a Duration for timeout callbacks.
 const DISMISS_ANIMATION_DURATION: Duration = Duration::from_millis(DISMISS_ANIMATION_MS);
 
+type HeaderClearButton = Rc<RefCell<Option<Button>>>;
+
 /// Estimated header height (title + padding + separator space).
 const HEADER_HEIGHT_ESTIMATE: i32 = 48;
 
@@ -109,10 +111,11 @@ pub(crate) fn build_control_panel_content(suppress_rebuild: Rc<Cell<bool>>) -> g
     notification_list.add_css_class(notif::LIST);
     notification_list.set_vexpand(true);
 
-    let header = build_header(&notification_list, &suppress_rebuild);
+    let header_clear_button = Rc::new(RefCell::new(None));
+    let header = build_header(&notification_list, &suppress_rebuild, &header_clear_button);
     root.append(&header);
 
-    populate_notification_list(&notification_list, &suppress_rebuild);
+    populate_notification_list(&notification_list, &suppress_rebuild, &header_clear_button);
 
     let max_height = compute_max_scroll_height();
 
@@ -130,7 +133,11 @@ pub(crate) fn build_control_panel_content(suppress_rebuild: Rc<Cell<bool>>) -> g
     root.upcast()
 }
 
-fn build_header(notification_list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) -> GtkBox {
+fn build_header(
+    notification_list: &GtkBox,
+    suppress_rebuild: &Rc<Cell<bool>>,
+    header_clear_button: &HeaderClearButton,
+) -> GtkBox {
     let header = GtkBox::new(Orientation::Horizontal, 8);
     header.add_css_class(notif::HEADER);
 
@@ -235,15 +242,21 @@ fn build_header(notification_list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) -
         let clear_btn_for_click = clear_btn.clone();
         let list_for_clear = notification_list.clone();
         let suppress_for_clear = Rc::clone(suppress_rebuild);
+        let header_clear_for_click = Rc::clone(header_clear_button);
 
         clear_btn.connect_clicked(move |_| {
             TooltipManager::global().cancel_and_hide();
             suppress_for_clear.set(true);
             NotificationService::global().close_all();
             clear_btn_for_click.set_visible(false);
-            clear_notification_list_to_empty(&list_for_clear, &suppress_for_clear);
+            clear_notification_list_to_empty(
+                &list_for_clear,
+                &suppress_for_clear,
+                &header_clear_for_click,
+            );
         });
 
+        *header_clear_button.borrow_mut() = Some(clear_btn.clone());
         header.append(&clear_btn);
     }
 
@@ -251,10 +264,15 @@ fn build_header(notification_list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) -
 }
 
 /// Populate the notification list with current notifications or empty state.
-fn populate_notification_list(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) {
+fn populate_notification_list(
+    list: &GtkBox,
+    suppress_rebuild: &Rc<Cell<bool>>,
+    header_clear_button: &HeaderClearButton,
+) {
     let service = NotificationService::global();
 
     if !service.backend_available() {
+        set_header_clear_visible(header_clear_button, false);
         add_empty_state(
             list,
             "Another notification daemon is running.\nDisable it to use this notification center.",
@@ -266,9 +284,12 @@ fn populate_notification_list(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) 
     let mut notifications: Vec<Notification> = service.history_notifications();
 
     if notifications.is_empty() {
+        set_header_clear_visible(header_clear_button, false);
         add_empty_state(list, "No notifications");
         return;
     }
+
+    set_header_clear_visible(header_clear_button, true);
 
     // Sort by timestamp (newest first)
     notifications.sort_by(|a, b| {
@@ -277,7 +298,7 @@ fn populate_notification_list(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) 
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    populate_grouped_notifications(list, notifications, suppress_rebuild);
+    populate_grouped_notifications(list, notifications, suppress_rebuild, header_clear_button);
 }
 
 #[derive(Debug)]
@@ -305,6 +326,7 @@ fn populate_grouped_notifications(
     list: &GtkBox,
     notifications: Vec<Notification>,
     suppress_rebuild: &Rc<Cell<bool>>,
+    header_clear_button: &HeaderClearButton,
 ) {
     for group in group_notifications_by_app(notifications) {
         if group.notifications.len() == 1 {
@@ -316,8 +338,15 @@ fn populate_grouped_notifications(
             );
             revealer.set_reveal_child(true);
 
-            let row =
-                build_notification_row(notification, list, &revealer, suppress_rebuild, None, None);
+            let row = build_notification_row(
+                notification,
+                list,
+                &revealer,
+                suppress_rebuild,
+                None,
+                None,
+                header_clear_button,
+            );
             revealer.set_child(Some(&row));
             list.append(&revealer);
             continue;
@@ -330,7 +359,13 @@ fn populate_grouped_notifications(
         );
         revealer.set_reveal_child(true);
 
-        let group_card = build_notification_group(&group, list, &revealer, suppress_rebuild);
+        let group_card = build_notification_group(
+            &group,
+            list,
+            &revealer,
+            suppress_rebuild,
+            header_clear_button,
+        );
         revealer.set_child(Some(&group_card));
         list.append(&revealer);
     }
@@ -398,8 +433,13 @@ fn add_empty_state(list: &GtkBox, message: &str) {
     list.append(&empty);
 }
 
-fn clear_notification_list_to_empty(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) {
+fn clear_notification_list_to_empty(
+    list: &GtkBox,
+    suppress_rebuild: &Rc<Cell<bool>>,
+    header_clear_button: &HeaderClearButton,
+) {
     suppress_rebuild.set(true);
+    set_header_clear_visible(header_clear_button, false);
 
     let mut child = list.first_child();
     let mut animated_any = false;
@@ -426,6 +466,12 @@ fn clear_notification_list_to_empty(list: &GtkBox, suppress_rebuild: &Rc<Cell<bo
         add_empty_state(&list_for_timeout, "No notifications");
         suppress_for_timeout.set(false);
     });
+}
+
+fn set_header_clear_visible(header_clear_button: &HeaderClearButton, visible: bool) {
+    if let Some(button) = header_clear_button.borrow().as_ref() {
+        button.set_visible(visible);
+    }
 }
 
 fn remove_all_children(list: &GtkBox) {
@@ -457,6 +503,7 @@ fn build_notification_group(
     outer_list: &GtkBox,
     group_revealer: &Revealer,
     suppress_rebuild: &Rc<Cell<bool>>,
+    header_clear_button: &HeaderClearButton,
 ) -> GtkBox {
     let latest = &group.notifications[0];
 
@@ -578,6 +625,7 @@ fn build_notification_group(
     let group_revealer_for_clear = group_revealer.clone();
     let card_for_clear = card.clone();
     let suppress_for_clear = Rc::clone(suppress_rebuild);
+    let header_clear_for_clear = Rc::clone(header_clear_button);
     clear_btn.connect_clicked(move |btn| {
         TooltipManager::global().cancel_and_hide();
         btn.set_sensitive(false);
@@ -593,9 +641,11 @@ fn build_notification_group(
         let outer_list = outer_list_for_clear.clone();
         let group_revealer = group_revealer_for_clear.clone();
         let suppress_for_timeout = Rc::clone(&suppress_for_clear);
+        let header_clear_for_timeout = Rc::clone(&header_clear_for_clear);
         glib::timeout_add_local_once(dismiss_duration(), move || {
             outer_list.remove(&group_revealer);
             if outer_list.first_child().is_none() {
+                set_header_clear_visible(&header_clear_for_timeout, false);
                 add_empty_state(&outer_list, "No notifications");
             }
             suppress_for_timeout.set(false);
@@ -612,9 +662,11 @@ fn build_notification_group(
 
         let outer_list_for_empty = outer_list.clone();
         let group_revealer_for_empty = group_revealer.clone();
+        let header_clear_for_empty = Rc::clone(header_clear_button);
         let after_empty = Rc::new(move || {
             outer_list_for_empty.remove(&group_revealer_for_empty);
             if outer_list_for_empty.first_child().is_none() {
+                set_header_clear_visible(&header_clear_for_empty, false);
                 add_empty_state(&outer_list_for_empty, "No notifications");
             }
         });
@@ -634,6 +686,7 @@ fn build_notification_group(
             suppress_rebuild,
             Some(after_empty),
             Some(after_group_child_dismiss),
+            header_clear_button,
         );
         row_revealer.set_child(Some(&row));
         child_list.append(&row_revealer);
@@ -659,6 +712,7 @@ fn build_notification_row(
     suppress_rebuild: &Rc<Cell<bool>>,
     on_list_empty: Option<Rc<dyn Fn()>>,
     on_after_dismiss: Option<Rc<dyn Fn()>>,
+    header_clear_button: &HeaderClearButton,
 ) -> GtkBox {
     let card = GtkBox::new(Orientation::Vertical, 0);
     card.add_css_class(notif::ROW);
@@ -789,10 +843,12 @@ fn build_notification_row(
     let suppress = Rc::clone(suppress_rebuild);
     let on_list_empty_for_dismiss = on_list_empty.clone();
     let on_after_dismiss_for_dismiss = on_after_dismiss.clone();
+    let header_clear_for_dismiss = Rc::clone(header_clear_button);
     dismiss_btn.connect_clicked(move |btn| {
         // Prevent double-clicks from leaving suppress_rebuild stuck.
         btn.set_sensitive(false);
 
+        suppress.set(true);
         NotificationService::global().close(notification_id);
         schedule_notification_row_removal(
             &card_for_dismiss,
@@ -801,6 +857,7 @@ fn build_notification_row(
             &suppress,
             &on_list_empty_for_dismiss,
             &on_after_dismiss_for_dismiss,
+            &header_clear_for_dismiss,
         );
     });
 
@@ -819,18 +876,20 @@ fn build_notification_row(
         let suppress_for_action = Rc::clone(suppress_rebuild);
         let on_list_empty_for_action = on_list_empty.clone();
         let on_after_dismiss_for_action = on_after_dismiss.clone();
+        let header_clear_for_action = Rc::clone(header_clear_button);
         click_gesture.connect_pressed(move |gesture, n_press, _, _| {
             if n_press == 1 {
                 gesture.set_state(gtk4::EventSequenceState::Claimed);
-                invoke_notification_action_and_remove(
-                    notification_id,
-                    &primary_id,
+                suppress_for_action.set(true);
+                NotificationService::global().invoke_action(notification_id, &primary_id);
+                schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
                     &list_for_action,
                     &suppress_for_action,
                     &on_list_empty_for_action,
                     &on_after_dismiss_for_action,
+                    &header_clear_for_action,
                 );
             }
         });
@@ -907,17 +966,19 @@ fn build_notification_row(
             let suppress_for_action = Rc::clone(suppress_rebuild);
             let on_list_empty_for_action = on_list_empty.clone();
             let on_after_dismiss_for_action = on_after_dismiss.clone();
+            let header_clear_for_action = Rc::clone(header_clear_button);
             open_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
-                invoke_notification_action_and_remove(
-                    notification_id,
-                    &primary_id,
+                suppress_for_action.set(true);
+                NotificationService::global().invoke_action(notification_id, &primary_id);
+                schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
                     &list_for_action,
                     &suppress_for_action,
                     &on_list_empty_for_action,
                     &on_after_dismiss_for_action,
+                    &header_clear_for_action,
                 );
             });
 
@@ -938,17 +999,19 @@ fn build_notification_row(
             let suppress_for_action = Rc::clone(suppress_rebuild);
             let on_list_empty_for_action = on_list_empty.clone();
             let on_after_dismiss_for_action = on_after_dismiss.clone();
+            let header_clear_for_action = Rc::clone(header_clear_button);
             action_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
-                invoke_notification_action_and_remove(
-                    notification_id,
-                    &action_id,
+                suppress_for_action.set(true);
+                NotificationService::global().invoke_action(notification_id, &action_id);
+                schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
                     &list_for_action,
                     &suppress_for_action,
                     &on_list_empty_for_action,
                     &on_after_dismiss_for_action,
+                    &header_clear_for_action,
                 );
             });
 
@@ -961,27 +1024,6 @@ fn build_notification_row(
     card
 }
 
-fn invoke_notification_action_and_remove(
-    notification_id: u32,
-    action_id: &str,
-    card: &GtkBox,
-    revealer: &Revealer,
-    list: &GtkBox,
-    suppress_rebuild: &Rc<Cell<bool>>,
-    on_list_empty: &Option<Rc<dyn Fn()>>,
-    on_after_dismiss: &Option<Rc<dyn Fn()>>,
-) {
-    NotificationService::global().invoke_action(notification_id, action_id);
-    schedule_notification_row_removal(
-        card,
-        revealer,
-        list,
-        suppress_rebuild,
-        on_list_empty,
-        on_after_dismiss,
-    );
-}
-
 fn schedule_notification_row_removal(
     card: &GtkBox,
     revealer: &Revealer,
@@ -989,6 +1031,7 @@ fn schedule_notification_row_removal(
     suppress_rebuild: &Rc<Cell<bool>>,
     on_list_empty: &Option<Rc<dyn Fn()>>,
     on_after_dismiss: &Option<Rc<dyn Fn()>>,
+    header_clear_button: &HeaderClearButton,
 ) {
     suppress_rebuild.set(true);
 
@@ -1000,10 +1043,12 @@ fn schedule_notification_row_removal(
     let list = list.clone();
     let on_list_empty = on_list_empty.clone();
     let on_after_dismiss = on_after_dismiss.clone();
+    let header_clear_button = Rc::clone(header_clear_button);
     let suppress_for_timeout = Rc::clone(suppress_rebuild);
     glib::timeout_add_local_once(dismiss_duration(), move || {
         list.remove(&revealer);
         if list.first_child().is_none() {
+            set_header_clear_visible(&header_clear_button, false);
             if let Some(ref on_list_empty) = on_list_empty {
                 on_list_empty();
             } else {
