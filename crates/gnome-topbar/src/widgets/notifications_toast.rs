@@ -808,7 +808,7 @@ mod tests {
 
     #[test]
     fn toast_stack_step_preserves_measured_height_and_gap() {
-        assert_eq!(toast_stack_step(85), 95);
+        assert_eq!(toast_stack_step(85), 85 + TOAST_GAP);
         assert_eq!(toast_stack_step(-4), TOAST_GAP);
     }
 }
