@@ -3,11 +3,11 @@
 //! This reuses the existing notification, media, and calendar popover
 //! components so the clock can open a GNOME-like overview panel.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 
-use chrono::Local;
+use chrono::{Local, Timelike};
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Label, Orientation, Widget};
 use gtk4::{gio, glib};
@@ -76,6 +76,13 @@ pub fn build_clock_control_panel(
     root.append(&left_col);
     root.append(&right_col);
 
+    let time_tick = schedule_time_tick(&time_card.time_label, &time_card.date_label);
+    root.connect_destroy(move |_| {
+        if let Some(source_id) = time_tick.borrow_mut().take() {
+            source_id.remove();
+        }
+    });
+
     let refresh = {
         let time_label = time_card.time_label.clone();
         let date_label = time_card.date_label.clone();
@@ -143,6 +150,38 @@ fn refresh_time_labels(time_label: &Label, date_label: &Label) {
     let now = Local::now();
     time_label.set_label(&now.format("%H:%M").to_string());
     date_label.set_label(&now.format("%A, %B %-d").to_string());
+}
+
+fn seconds_until_next_minute(second: u32) -> u32 {
+    if second == 0 { 60 } else { 60 - second }
+}
+
+fn schedule_time_tick(
+    time_label: &Label,
+    date_label: &Label,
+) -> Rc<RefCell<Option<glib::SourceId>>> {
+    let source_slot = Rc::new(RefCell::new(None));
+    let delay_seconds = seconds_until_next_minute(Local::now().second());
+
+    let time_label = time_label.clone();
+    let date_label = date_label.clone();
+    let source_slot_for_once = Rc::clone(&source_slot);
+
+    let source_id = glib::timeout_add_seconds_local_once(delay_seconds, move || {
+        refresh_time_labels(&time_label, &date_label);
+
+        let time_label = time_label.clone();
+        let date_label = date_label.clone();
+        let repeating_id = glib::timeout_add_seconds_local(60, move || {
+            refresh_time_labels(&time_label, &date_label);
+            glib::ControlFlow::Continue
+        });
+
+        *source_slot_for_once.borrow_mut() = Some(repeating_id);
+    });
+
+    *source_slot.borrow_mut() = Some(source_id);
+    source_slot
 }
 
 fn refresh_weather_label(label: &Option<(Label, String)>) {
@@ -225,5 +264,13 @@ mod tests {
     fn test_format_weather_exec_output_empty_hides() {
         assert_eq!(format_weather_exec_output(" \n"), None);
         assert_eq!(format_weather_exec_output(r#"{"text":""}"#), None);
+    }
+
+    #[test]
+    fn test_seconds_until_next_minute() {
+        assert_eq!(seconds_until_next_minute(0), 60);
+        assert_eq!(seconds_until_next_minute(1), 59);
+        assert_eq!(seconds_until_next_minute(30), 30);
+        assert_eq!(seconds_until_next_minute(59), 1);
     }
 }
