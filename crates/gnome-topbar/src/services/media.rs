@@ -36,6 +36,8 @@ use gtk4::glib::{self, ControlFlow, Variant, clone};
 use gtk4::prelude::*;
 use tracing::{debug, error, trace, warn};
 
+use super::callbacks::{CallbackId, Callbacks};
+
 // D-Bus constants
 const DBUS_NAME: &str = "org.freedesktop.DBus";
 const DBUS_PATH: &str = "/org/freedesktop/DBus";
@@ -227,6 +229,8 @@ pub struct MediaService {
     position_poll_source: RefCell<Option<glib::SourceId>>,
     /// Cancellable for position polling D-Bus calls.
     poll_cancellable: RefCell<gio::Cancellable>,
+    /// Live media snapshot listeners.
+    callbacks: Callbacks<MediaSnapshot>,
 }
 
 impl MediaService {
@@ -240,6 +244,7 @@ impl MediaService {
             _name_owner_subscription: RefCell::new(None),
             position_poll_source: RefCell::new(None),
             poll_cancellable: RefCell::new(gio::Cancellable::new()),
+            callbacks: Callbacks::new(),
         });
 
         Self::init_dbus(&service);
@@ -257,6 +262,21 @@ impl MediaService {
     /// Get a clone of the current snapshot.
     pub fn snapshot(&self) -> MediaSnapshot {
         self.build_snapshot()
+    }
+
+    /// Register for live media snapshot updates.
+    pub fn connect<F>(&self, callback: F) -> CallbackId
+    where
+        F: Fn(&MediaSnapshot) + 'static,
+    {
+        let id = self.callbacks.register(callback);
+        self.callbacks.notify_single(id, &self.build_snapshot());
+        id
+    }
+
+    /// Unregister a media snapshot callback.
+    pub fn disconnect(&self, id: CallbackId) -> bool {
+        self.callbacks.unregister(id)
     }
 
     /// Get info about all available players (for selector UI).
@@ -506,6 +526,9 @@ impl MediaService {
                             let track_changed = Self::update_player_from_proxy(&player);
                             let new_status = player.borrow().playback_status;
                             let status_changed = old_status != new_status;
+                            let bus_name = player.borrow().bus_name.clone();
+                            let was_active =
+                                this.active_player.borrow().as_ref() == Some(&bus_name);
 
                             // Track the most recently playing player
                             if new_status == PlaybackStatus::Playing
@@ -519,7 +542,6 @@ impl MediaService {
                             if this.is_auto_selection() && status_changed {
                                 if new_status == PlaybackStatus::Playing {
                                     // This player just started playing - make it the active player
-                                    let bus_name = player.borrow().bus_name.clone();
                                     let current_active = this.active_player.borrow().clone();
                                     if current_active.as_ref() != Some(&bus_name) {
                                         debug!("Switching to newly playing player: {}", bus_name);
@@ -535,7 +557,6 @@ impl MediaService {
                                 }
                             } else if status_changed {
                                 // Manual mode: if the active player changed status, handle polling
-                                let bus_name = player.borrow().bus_name.clone();
                                 let is_active =
                                     this.active_player.borrow().as_ref() == Some(&bus_name);
                                 if is_active {
@@ -545,6 +566,10 @@ impl MediaService {
                                         this.stop_position_polling();
                                     }
                                 }
+                            }
+
+                            if was_active || track_changed || status_changed {
+                                this.notify_listeners();
                             }
 
                             // Some players (notably YouTube Music) report stale
@@ -834,6 +859,12 @@ impl MediaService {
         if should_poll {
             self.start_position_polling();
         }
+
+        self.notify_listeners();
+    }
+
+    fn notify_listeners(&self) {
+        self.callbacks.notify(&self.build_snapshot());
     }
 
     /// Build the current snapshot from active player state.
@@ -1009,13 +1040,19 @@ impl MediaService {
 
                     match res {
                         Ok(reply) => {
+                            let mut changed = false;
                             if let Some(inner) = reply.child_value(0).get::<Variant>()
                                 && let Some(position) = inner.get::<i64>()
                             {
-                                let changed = player.borrow().position != position;
+                                changed = player.borrow().position != position;
                                 if changed {
                                     player.borrow_mut().position = position;
                                 }
+                            }
+                            drop(active);
+                            drop(players);
+                            if changed {
+                                this.notify_listeners();
                             }
                         }
                         Err(e) => {
@@ -1431,6 +1468,7 @@ impl std::fmt::Display for MediaCliStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn test_playback_status_from_str() {
@@ -1454,5 +1492,37 @@ mod tests {
         let snapshot = MediaSnapshot::default();
         assert!(!snapshot.available);
         assert_eq!(snapshot.playback_status, PlaybackStatus::Stopped);
+    }
+
+    #[test]
+    fn media_callbacks_receive_current_snapshot_and_disconnect() {
+        let service = MediaService {
+            connection: RefCell::new(None),
+            players: RefCell::new(HashMap::new()),
+            active_player: RefCell::new(None),
+            manual_selection: RefCell::new(None),
+            last_playing: RefCell::new(None),
+            _name_owner_subscription: RefCell::new(None),
+            position_poll_source: RefCell::new(None),
+            poll_cancellable: RefCell::new(gio::Cancellable::new()),
+            callbacks: Callbacks::new(),
+        };
+
+        let calls = Rc::new(Cell::new(0));
+        let available = Rc::new(Cell::new(true));
+
+        let calls_for_callback = Rc::clone(&calls);
+        let available_for_callback = Rc::clone(&available);
+        let id = service.connect(move |snapshot| {
+            calls_for_callback.set(calls_for_callback.get() + 1);
+            available_for_callback.set(snapshot.available);
+        });
+
+        assert_eq!(calls.get(), 1);
+        assert!(!available.get());
+        assert!(service.disconnect(id));
+
+        service.notify_listeners();
+        assert_eq!(calls.get(), 1);
     }
 }

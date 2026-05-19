@@ -58,6 +58,15 @@ pub fn build_clock_control_panel(
     media_widget.set_valign(Align::Start);
     right_col.append(&media_widget);
 
+    let media_controller_for_update = media_controller.clone();
+    let media_service = MediaService::global();
+    let media_callback_id = media_service.connect(move |snapshot| {
+        media_controller_for_update.update_from_snapshot(snapshot);
+    });
+    root.connect_destroy(move |_| {
+        MediaService::global().disconnect(media_callback_id);
+    });
+
     let (calendar_widget, calendar_refresh) = build_clock_calendar_popover(show_week_numbers);
     calendar_widget.add_css_class("control-panel-calendar");
     calendar_widget.set_vexpand(false);
