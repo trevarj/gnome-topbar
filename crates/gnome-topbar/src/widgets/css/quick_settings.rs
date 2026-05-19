@@ -34,7 +34,53 @@ window.quick-settings-window {{
     background: var(--color-card-overlay-hover);
 }}
 
-.vp-card.qs-card-disabled:hover {{
+.vp-card:active,
+.qs-row:active {{
+    background: var(--color-card-overlay-hover);
+}}
+
+.vp-card.qs-card-active {{
+    background: var(--color-accent-primary);
+    color: var(--color-accent-text, #fff);
+}}
+
+.vp-card.qs-card-active:hover,
+.vp-card.qs-card-active:active {{
+    background: var(--color-accent-hover-bg);
+}}
+
+.vp-card.qs-card-active label,
+.vp-card.qs-card-active .icon-root,
+.vp-card.qs-card-active .qs-icon-active,
+.vp-card.qs-card-active .qs-subtitle-active,
+.vp-card.qs-card-active .vp-primary,
+.vp-card.qs-card-active .vp-muted,
+.vp-card.qs-card-active .vp-accent,
+.vp-card.qs-card-active .service-unavailable {{
+    color: var(--color-accent-text, #fff);
+}}
+
+.vp-card.qs-card-disabled:not(.qs-card-active),
+.qs-card-disabled .vp-card:not(.qs-card-active) {{
+    color: var(--color-foreground-disabled);
+}}
+
+.vp-card.qs-card-active.qs-card-disabled,
+.qs-card-disabled .vp-card.qs-card-active {{
+    background: var(--color-accent-primary);
+}}
+
+.vp-card.qs-card-active.qs-card-disabled:hover,
+.vp-card.qs-card-active.qs-card-disabled:active,
+.qs-card-disabled .vp-card.qs-card-active:hover,
+.qs-card-disabled .vp-card.qs-card-active:active {{
+    background: var(--color-accent-primary);
+}}
+
+.vp-card.qs-card-disabled:not(.qs-card-active):hover,
+.vp-card.qs-card-disabled:not(.qs-card-active):active,
+.qs-card-disabled .vp-card:not(.qs-card-active):hover,
+.qs-card-disabled .vp-card:not(.qs-card-active):active {{
     background: var(--color-card-overlay);
 }}
 
@@ -171,6 +217,12 @@ window.quick-settings-window {{
     background: var(--color-card-overlay-hover);
 }}
 
+.qs-toggle-more:disabled,
+.qs-toggle-more:disabled:hover {{
+    background: transparent;
+    color: var(--color-foreground-disabled);
+}}
+
 /* List items */
 .qs-list {{
     background: transparent;
@@ -181,6 +233,15 @@ window.quick-settings-window {{
     border-radius: var(--radius-widget);
     padding: 6px 10px;
     margin: 3px 0;
+}}
+
+.qs-row:disabled {{
+    color: var(--color-foreground-disabled);
+}}
+
+.qs-row:disabled:hover,
+.qs-row:disabled:active {{
+    background: var(--color-card-overlay);
 }}
 
 /* Rows with ripple overlay: padding moves to content margins so the
@@ -211,6 +272,12 @@ window.quick-settings-window {{
 
 .qs-row-menu-button:hover {{
     background: var(--color-card-overlay-hover);
+}}
+
+.qs-row-menu-button:disabled,
+.qs-row-menu-button:disabled:hover {{
+    background: transparent;
+    color: var(--color-foreground-disabled);
 }}
 
 .qs-row-menu-icon {{
@@ -248,6 +315,12 @@ window.quick-settings-window {{
 
 .qs-row-action-label:hover {{
     background: var(--color-card-overlay-hover);
+}}
+
+.qs-row-action-label:disabled,
+.qs-row-action-label:disabled:hover {{
+    background: transparent;
+    color: var(--color-foreground-disabled);
 }}
 
 /* Subtitles - secondary info, color via vp-muted */
@@ -305,6 +378,12 @@ window.quick-settings-window {{
     background: var(--color-card-overlay-hover);
 }}
 
+.qs-scan-button:disabled,
+.qs-scan-button:disabled:hover {{
+    background: transparent;
+    color: var(--color-foreground-disabled);
+}}
+
 /* Scan spinner - small inline spinner */
 .qs-scan-spinner {{
     min-width: 12px;
@@ -344,6 +423,10 @@ window.quick-settings-window {{
 }}
 
 .qs-power-card:hover {{
+    background: var(--color-card-overlay-hover);
+}}
+
+.qs-power-card:active {{
     background: var(--color-card-overlay-hover);
 }}
 
@@ -450,4 +533,38 @@ window.quick-settings-window {{
    not CSS. Text wrapping is controlled via Label properties in Rust code. */
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quick_settings_css_covers_shared_interaction_states() {
+        let css = css(true);
+
+        assert!(css.contains(".vp-card.qs-card-disabled:not(.qs-card-active)"));
+        assert!(css.contains(".vp-card.qs-card-active"));
+        assert!(css.contains(".vp-card.qs-card-active.qs-card-disabled"));
+        assert!(css.contains("background: var(--color-accent-primary);"));
+        assert!(css.contains("color: var(--color-accent-text, #fff);"));
+        assert!(css.contains(".vp-card.qs-card-active .vp-primary"));
+        assert!(css.contains(".vp-card.qs-card-active .service-unavailable"));
+        assert!(css.contains(".qs-card-disabled .vp-card:not(.qs-card-active):hover"));
+        assert!(css.contains(".qs-card-disabled .vp-card.qs-card-active:hover"));
+        assert!(css.contains(".qs-row:disabled:hover"));
+        assert!(css.contains(".qs-row-menu-button:disabled:hover"));
+        assert!(css.contains(".qs-row-action-label:disabled:hover"));
+        assert!(css.contains(".qs-scan-button:disabled:hover"));
+        assert!(css.contains(".qs-power-card:active"));
+    }
+
+    #[test]
+    fn quick_settings_css_keeps_animation_toggle_for_expanders() {
+        let animated = css(true);
+        let still = css(false);
+
+        assert!(animated.contains("transition: transform 200ms ease;"));
+        assert!(still.contains("transition: none;"));
+    }
 }

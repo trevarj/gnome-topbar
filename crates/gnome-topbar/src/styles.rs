@@ -377,6 +377,9 @@ pub mod qs {
     /// Card disabled state - suppresses hover effect (`.qs-card-disabled`).
     pub const CARD_DISABLED: &str = "qs-card-disabled";
 
+    /// Card active state - accent-filled enabled toggle (`.qs-card-active`).
+    pub const CARD_ACTIVE: &str = "qs-card-active";
+
     /// Audio hint text (`.qs-audio-hint`).
     pub const AUDIO_HINT: &str = "qs-audio-hint";
 

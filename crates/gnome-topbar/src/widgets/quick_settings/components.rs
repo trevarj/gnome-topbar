@@ -42,7 +42,7 @@ use gtk4::{
 };
 
 use crate::services::icons::{IconHandle, IconsService};
-use crate::styles::color;
+use crate::styles::{color, qs};
 
 /// CSS class for slider row container.
 const CSS_SLIDER_ROW: &str = "slider-row";
@@ -135,6 +135,14 @@ impl IconButton {
             button,
             icon_handle,
         }
+    }
+}
+
+fn sync_toggle_card_active_class(card: &GtkBox, active: bool) {
+    if active {
+        card.add_css_class(qs::CARD_ACTIVE);
+    } else {
+        card.remove_css_class(qs::CARD_ACTIVE);
     }
 }
 
@@ -742,13 +750,17 @@ impl ToggleCard {
 
     /// Build the toggle card.
     pub fn build(self) -> ToggleCardResult {
-        use crate::styles::{button, card, color, icon, qs};
+        use crate::styles::{button, card, color, icon};
         use crate::widgets::base::trigger_ripple_from_gesture;
         use gtk4::{Align, ToggleButton};
 
         let card_box = GtkBox::new(Orientation::Horizontal, 4);
         card_box.add_css_class(card::QS);
         card_box.add_css_class(card::BASE);
+        if !self.sensitive {
+            card_box.add_css_class(qs::CARD_DISABLED);
+        }
+        sync_toggle_card_active_class(&card_box, self.active);
         card_box.set_hexpand(true);
 
         // Main toggle button (plain ToggleButton — ripple is on the card overlay)
@@ -797,6 +809,13 @@ impl ToggleCard {
 
         toggle.set_child(Some(&content));
         card_box.append(&toggle);
+
+        {
+            let cb = card_box.clone();
+            toggle.connect_toggled(move |toggle| {
+                sync_toggle_card_active_class(&cb, toggle.is_active());
+            });
+        }
 
         // Card-level focus ring: when the toggle button has keyboard focus
         // AND focus-visible is active, add .vp-toggle-focused on card_box so
@@ -853,6 +872,9 @@ impl ToggleCard {
         // Skipped for cards with their own press feedback (e.g. power card).
         let card_widget: gtk4::Widget = if self.with_ripple {
             let (card_overlay, ripple_handle) = crate::widgets::base::wrap_with_ripple(&card_box);
+            if !self.sensitive {
+                card_overlay.add_css_class(qs::CARD_DISABLED);
+            }
 
             // Trigger card-wide ripple from toggle press
             let gesture = gtk4::GestureClick::new();

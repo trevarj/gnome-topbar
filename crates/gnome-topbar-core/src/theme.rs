@@ -191,6 +191,14 @@ pub fn is_dark_color_with_threshold(color: &str, threshold: f64) -> bool {
     }
 }
 
+fn contrast_text_for_color(color: &str) -> String {
+    if is_dark_color(color) {
+        "#ffffff".to_string()
+    } else {
+        "#000000".to_string()
+    }
+}
+
 /// Blend two hex colors together.
 ///
 /// `weight1` is the weight for color1 (0.0 to 1.0), color2 gets (1 - weight1).
@@ -1158,10 +1166,9 @@ impl ThemePalette {
     }
 
     fn compute_accent_derived(&mut self) {
-        // Accent text matches system text direction:
-        // - GTK mode → use theme's foreground (adapts at runtime)
-        // - Light mode (dark system text) → dark accent text
-        // - Dark mode (light system text) → light accent text
+        // Accent text should contrast the accent fill, not the surrounding
+        // surface. Custom accents are known here, so derive directly from
+        // accent luminance.
         let accent_text_color = if self.is_gtk_mode {
             "@window_fg_color".to_string()
         } else if self.is_dark_mode {
@@ -1173,7 +1180,7 @@ impl ThemePalette {
         match &self.accent_source {
             AccentSource::Custom(color) => {
                 self.accent_subtle = format!("color-mix(in srgb, {} 20%, transparent)", color);
-                self.accent_text = accent_text_color;
+                self.accent_text = contrast_text_for_color(color);
                 // Bright accent → darken on hover (80/20); dark accent → lighten (90/10, subtler)
                 self.accent_hover_bg = if is_dark_color(color) {
                     format!("color-mix(in srgb, {} 90%, white)", color)
@@ -1839,6 +1846,21 @@ mod tests {
     }
 
     #[test]
+    fn test_custom_accent_text_contrasts_accent_luminance() {
+        let mut light_accent = Config::default();
+        light_accent.theme.mode = "dark".to_string();
+        light_accent.theme.accent = Some("#ffcc00".to_string());
+        let palette = ThemePalette::from_config(&light_accent, None, None);
+        assert_eq!(palette.accent_text, "#000000");
+
+        let mut dark_accent = Config::default();
+        dark_accent.theme.mode = "light".to_string();
+        dark_accent.theme.accent = Some("#1f3a93".to_string());
+        let palette = ThemePalette::from_config(&dark_accent, None, None);
+        assert_eq!(palette.accent_text, "#ffffff");
+    }
+
+    #[test]
     fn test_accent_none_monochrome() {
         // When accent = "none", use monochrome mode
         let mut config = Config::default();
@@ -1922,10 +1944,11 @@ mod tests {
             css.contains("--widget-hover-tint: @window_fg_color"),
             "CSS should contain @window_fg_color for widget-hover-tint"
         );
-        // Accent text should reference GTK theme color
+        // The default custom accent in GTK mode has a known luminance, so the
+        // filled active-card text color should be resolved for contrast.
         assert!(
-            css.contains("--color-accent-text: @window_fg_color"),
-            "CSS should contain @window_fg_color for accent-text"
+            css.contains("--color-accent-text: #000000"),
+            "CSS should contain contrast-resolved accent text"
         );
     }
 
@@ -2051,22 +2074,22 @@ mod tests {
 
     #[test]
     fn test_gtk_mode_custom_accent() {
-        // GTK mode + custom accent: accent uses hex color, but accent_text
-        // should still use @window_fg_color (adapts to theme)
+        // GTK mode + custom accent: accent uses hex color and accent_text
+        // follows the accent luminance so filled active cards keep contrast.
         let mut config = Config::default();
         config.theme.mode = "gtk".to_string();
-        config.theme.accent = Some("#ff0000".to_string());
+        config.theme.accent = Some("#ffcc00".to_string());
 
         let palette = ThemePalette::from_config(&config, None, None);
 
         assert_eq!(
             palette.accent_source,
-            AccentSource::Custom("#ff0000".to_string())
+            AccentSource::Custom("#ffcc00".to_string())
         );
-        assert_eq!(palette.accent_primary, "#ff0000");
+        assert_eq!(palette.accent_primary, "#ffcc00");
         assert_eq!(
-            palette.accent_text, "@window_fg_color",
-            "accent_text should use GTK theme color in GTK mode"
+            palette.accent_text, "#000000",
+            "accent_text should contrast the custom accent in GTK mode"
         );
         // Foreground should still be GTK-aware
         assert_eq!(palette.foreground_primary, "@window_fg_color");
