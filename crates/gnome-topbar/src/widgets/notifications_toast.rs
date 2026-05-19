@@ -35,6 +35,10 @@ fn ease_out_cubic(progress: f64) -> f64 {
     1.0 - (1.0 - progress).powi(3)
 }
 
+fn toast_stack_step(measured_height: i32) -> i32 {
+    measured_height.max(0) + TOAST_GAP
+}
+
 use crate::services::background_effect::attach_blur_surface_lifecycle;
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
@@ -707,19 +711,16 @@ impl NotificationToastManager {
             return;
         }
 
-        // Calculate initial margin from existing toasts.
-        // Each toast window includes shadow margins (sm on each side), making
-        // the window taller than the visible content.  Subtract the shadow
-        // margins from the height contribution so the visual gap between
-        // content boxes matches TOAST_GAP.
-        let sm = SurfaceStyleManager::global().shadow_margin(SURFACE_SHADOW_MARGIN);
+        // Calculate initial margin from existing toasts. Use the full measured
+        // window height so the configured gap is visible between toast surfaces,
+        // including their shadow padding.
         let initial_margin = {
             let order = self.toast_order.borrow();
             let toasts = self.toasts.borrow();
             let mut y_offset = 0;
             for &id in order.iter() {
                 if let Some(toast) = toasts.get(&id) {
-                    y_offset += (toast.height() - 2 * sm).max(0) + TOAST_GAP;
+                    y_offset += toast_stack_step(toast.height());
                 }
             }
             y_offset
@@ -763,12 +764,11 @@ impl NotificationToastManager {
     fn reposition_toasts(&self) {
         let order = self.toast_order.borrow();
         let toasts = self.toasts.borrow();
-        let sm = SurfaceStyleManager::global().shadow_margin(SURFACE_SHADOW_MARGIN);
         let mut y_offset = 0;
         for &id in order.iter() {
             if let Some(toast) = toasts.get(&id) {
                 toast.update_bar_margin(y_offset, ConfigManager::global().animations_enabled());
-                y_offset += (toast.height() - 2 * sm).max(0) + TOAST_GAP;
+                y_offset += toast_stack_step(toast.height());
             }
         }
     }
@@ -804,5 +804,11 @@ mod tests {
         assert_eq!(ease_out_cubic(0.0), 0.0);
         assert_eq!(ease_out_cubic(1.0), 1.0);
         assert!(ease_out_cubic(0.5) > 0.5);
+    }
+
+    #[test]
+    fn toast_stack_step_preserves_measured_height_and_gap() {
+        assert_eq!(toast_stack_step(85), 95);
+        assert_eq!(toast_stack_step(-4), TOAST_GAP);
     }
 }
