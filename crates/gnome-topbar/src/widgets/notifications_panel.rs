@@ -109,7 +109,7 @@ pub(crate) fn build_control_panel_content(suppress_rebuild: Rc<Cell<bool>>) -> g
     notification_list.add_css_class(notif::LIST);
     notification_list.set_vexpand(true);
 
-    let header = build_header(&notification_list);
+    let header = build_header(&notification_list, &suppress_rebuild);
     root.append(&header);
 
     populate_notification_list(&notification_list, &suppress_rebuild);
@@ -130,7 +130,7 @@ pub(crate) fn build_control_panel_content(suppress_rebuild: Rc<Cell<bool>>) -> g
     root.upcast()
 }
 
-fn build_header(notification_list: &GtkBox) -> GtkBox {
+fn build_header(notification_list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) -> GtkBox {
     let header = GtkBox::new(Orientation::Horizontal, 8);
     header.add_css_class(notif::HEADER);
 
@@ -234,12 +234,14 @@ fn build_header(notification_list: &GtkBox) -> GtkBox {
 
         let clear_btn_for_click = clear_btn.clone();
         let list_for_clear = notification_list.clone();
+        let suppress_for_clear = Rc::clone(suppress_rebuild);
 
         clear_btn.connect_clicked(move |_| {
             TooltipManager::global().cancel_and_hide();
+            suppress_for_clear.set(true);
             NotificationService::global().close_all();
             clear_btn_for_click.set_visible(false);
-            clear_notification_list_to_empty(&list_for_clear);
+            clear_notification_list_to_empty(&list_for_clear, &suppress_for_clear);
         });
 
         header.append(&clear_btn);
@@ -396,11 +398,58 @@ fn add_empty_state(list: &GtkBox, message: &str) {
     list.append(&empty);
 }
 
-fn clear_notification_list_to_empty(list: &GtkBox) {
+fn clear_notification_list_to_empty(list: &GtkBox, suppress_rebuild: &Rc<Cell<bool>>) {
+    suppress_rebuild.set(true);
+
+    let mut child = list.first_child();
+    let mut animated_any = false;
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        if let Ok(revealer) = widget.downcast::<Revealer>() {
+            mark_revealer_child_dismissing(&revealer);
+            revealer.set_reveal_child(false);
+            animated_any = true;
+        }
+    }
+
+    if !animated_any {
+        remove_all_children(list);
+        add_empty_state(list, "No notifications");
+        suppress_rebuild.set(false);
+        return;
+    }
+
+    let list_for_timeout = list.clone();
+    let suppress_for_timeout = Rc::clone(suppress_rebuild);
+    glib::timeout_add_local_once(dismiss_duration(), move || {
+        remove_all_children(&list_for_timeout);
+        add_empty_state(&list_for_timeout, "No notifications");
+        suppress_for_timeout.set(false);
+    });
+}
+
+fn remove_all_children(list: &GtkBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
-    add_empty_state(list, "No notifications");
+}
+
+fn mark_revealer_child_dismissing(revealer: &Revealer) {
+    if let Some(child) = revealer.child() {
+        child.add_css_class(notif::ROW_DISMISSING);
+    }
+}
+
+fn dismiss_duration() -> Duration {
+    dismiss_duration_for_animations(ConfigManager::global().animations_enabled())
+}
+
+fn dismiss_duration_for_animations(animations_enabled: bool) -> Duration {
+    if animations_enabled {
+        DISMISS_ANIMATION_DURATION
+    } else {
+        Duration::ZERO
+    }
 }
 
 fn build_notification_group(
@@ -541,16 +590,10 @@ fn build_notification_group(
         card_for_clear.add_css_class(notif::ROW_DISMISSING);
         group_revealer_for_clear.set_reveal_child(false);
 
-        let duration = if ConfigManager::global().animations_enabled() {
-            DISMISS_ANIMATION_DURATION
-        } else {
-            Duration::ZERO
-        };
-
         let outer_list = outer_list_for_clear.clone();
         let group_revealer = group_revealer_for_clear.clone();
         let suppress_for_timeout = Rc::clone(&suppress_for_clear);
-        glib::timeout_add_local_once(duration, move || {
+        glib::timeout_add_local_once(dismiss_duration(), move || {
             outer_list.remove(&group_revealer);
             if outer_list.first_child().is_none() {
                 add_empty_state(&outer_list, "No notifications");
@@ -953,18 +996,12 @@ fn schedule_notification_row_removal(
     card.add_css_class(notif::ROW_DISMISSING);
     revealer.set_reveal_child(false);
 
-    let duration = if ConfigManager::global().animations_enabled() {
-        DISMISS_ANIMATION_DURATION
-    } else {
-        Duration::ZERO
-    };
-
     let revealer = revealer.clone();
     let list = list.clone();
     let on_list_empty = on_list_empty.clone();
     let on_after_dismiss = on_after_dismiss.clone();
     let suppress_for_timeout = Rc::clone(suppress_rebuild);
-    glib::timeout_add_local_once(duration, move || {
+    glib::timeout_add_local_once(dismiss_duration(), move || {
         list.remove(&revealer);
         if list.first_child().is_none() {
             if let Some(ref on_list_empty) = on_list_empty {
@@ -1058,5 +1095,14 @@ mod tests {
     fn notification_count_text_uses_singular_for_one() {
         assert_eq!(notification_count_text(1), "1 notification");
         assert_eq!(notification_count_text(2), "2 notifications");
+    }
+
+    #[test]
+    fn dismiss_duration_respects_animation_flag() {
+        assert_eq!(
+            dismiss_duration_for_animations(true),
+            DISMISS_ANIMATION_DURATION
+        );
+        assert_eq!(dismiss_duration_for_animations(false), Duration::ZERO);
     }
 }

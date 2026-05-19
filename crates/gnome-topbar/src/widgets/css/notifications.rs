@@ -223,7 +223,8 @@ button.notification-group-clear:hover {{
 }}
 
 /* Dismiss animation: fade out (height collapse handled by Revealer) */
-.notification-row.notification-row-dismissing {{
+.notification-row.notification-row-dismissing,
+.notification-app-group.notification-row-dismissing {{
     opacity: 0;
 }}
 
