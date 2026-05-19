@@ -20,17 +20,27 @@ use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
 use crate::widgets::notifications_panel::build_control_panel_content as build_notifications_content;
 
+const CONTROL_PANEL_LEFT_WIDTH: i32 = 380;
+const CONTROL_PANEL_RIGHT_WIDTH: i32 = 360;
+const CONTROL_PANEL_COLUMN_SPACING: i32 = 12;
+
 /// Build the clock control panel content and return a refresh callback.
 pub fn build_clock_control_panel(
     show_week_numbers: bool,
     weather_widget_name: Option<String>,
 ) -> (Widget, Rc<dyn Fn()>) {
-    let root = GtkBox::new(Orientation::Horizontal, 12);
+    let root = GtkBox::new(Orientation::Horizontal, CONTROL_PANEL_COLUMN_SPACING);
     root.add_css_class("control-panel");
+    root.set_width_request(
+        CONTROL_PANEL_LEFT_WIDTH + CONTROL_PANEL_COLUMN_SPACING + CONTROL_PANEL_RIGHT_WIDTH,
+    );
 
     let left_col = GtkBox::new(Orientation::Vertical, 10);
     left_col.add_css_class("control-panel-left");
-    left_col.set_size_request(380, -1);
+    left_col.set_size_request(CONTROL_PANEL_LEFT_WIDTH, -1);
+    left_col.set_width_request(CONTROL_PANEL_LEFT_WIDTH);
+    left_col.set_hexpand(false);
+    left_col.set_halign(Align::Fill);
     left_col.set_vexpand(true);
     left_col.set_valign(Align::Fill);
 
@@ -43,17 +53,26 @@ pub fn build_clock_control_panel(
 
     let right_col = GtkBox::new(Orientation::Vertical, 10);
     right_col.add_css_class("control-panel-right");
-    right_col.set_size_request(360, -1);
+    right_col.set_size_request(CONTROL_PANEL_RIGHT_WIDTH, -1);
+    right_col.set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+    right_col.set_hexpand(false);
+    right_col.set_halign(Align::Fill);
     right_col.set_vexpand(false);
     right_col.set_valign(Align::Start);
 
     let time_card = build_time_weather_card(weather_widget_name);
+    time_card
+        .container
+        .set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+    time_card.container.set_halign(Align::Fill);
     time_card.container.set_vexpand(false);
     time_card.container.set_valign(Align::Start);
     right_col.append(&time_card.container);
 
     let (media_widget, media_controller) = build_media_popover_with_controller();
     media_widget.add_css_class("control-panel-media");
+    media_widget.set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+    media_widget.set_halign(Align::Fill);
     media_widget.set_vexpand(false);
     media_widget.set_valign(Align::Start);
     right_col.append(&media_widget);
@@ -69,6 +88,8 @@ pub fn build_clock_control_panel(
 
     let (calendar_widget, calendar_refresh) = build_clock_calendar_popover(show_week_numbers);
     calendar_widget.add_css_class("control-panel-calendar");
+    calendar_widget.set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+    calendar_widget.set_halign(Align::Fill);
     calendar_widget.set_vexpand(false);
     calendar_widget.set_valign(Align::Start);
     right_col.append(&calendar_widget);
