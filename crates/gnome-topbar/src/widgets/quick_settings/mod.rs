@@ -8,6 +8,7 @@
 //! - `network_card` - Network panel logic and icon helpers (Wi-Fi, Ethernet, Mobile)
 //! - `bluetooth_card` - Bluetooth panel logic and icon helpers
 //! - `vpn_card` - VPN panel logic and icon helpers
+//! - `battery_health_card` - Battery health and charge-limit state
 //! - `audio_card` - Audio panel logic (volume, sinks)
 //! - `mic_card` - Microphone panel logic (input volume, sources)
 //! - `brightness_card` - Brightness slider
@@ -17,6 +18,7 @@
 
 pub mod audio_card;
 pub mod bar_widget;
+pub mod battery_health_card;
 pub mod bluetooth_card;
 pub mod brightness_card;
 pub mod components;

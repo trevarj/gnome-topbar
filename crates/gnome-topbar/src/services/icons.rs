@@ -378,6 +378,17 @@ pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
             "battery-low-symbolic",
             "battery-symbolic",
         ],
+        "battery-full-charged" => &[
+            "battery-level-100-charged-symbolic",
+            "battery-full-charged-symbolic",
+            "battery-full-symbolic",
+            "battery-symbolic",
+        ],
+        "battery-plugged" => &[
+            "ac-adapter-symbolic",
+            "battery-ac-adapter-symbolic",
+            "battery-symbolic",
+        ],
         "battery-missing" => &[
             "battery-missing-symbolic",
             "battery-empty-symbolic",
@@ -2308,6 +2319,17 @@ mod tests {
         let candidates = gtk_icon_candidates("battery-missing");
         assert!(!candidates.is_empty());
         assert_eq!(candidates[0], "battery-missing-symbolic");
+
+        let candidates = gtk_icon_candidates("battery-full-charged");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "battery-level-100-charged-symbolic");
+
+        let candidates = gtk_icon_candidates("battery-plugged");
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0], "ac-adapter-symbolic");
+        assert!(candidates.contains(&"battery-ac-adapter-symbolic"));
+        assert!(!candidates.contains(&"battery-level-100-charged-symbolic"));
+        assert!(!candidates.contains(&"battery-full-charged-symbolic"));
     }
 
     #[test]

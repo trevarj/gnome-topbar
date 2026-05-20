@@ -284,6 +284,9 @@ pub mod qs {
     /// Idle inhibitor toggle card (`.qs-idle-inhibitor`).
     pub const IDLE_INHIBITOR: &str = "qs-idle-inhibitor";
 
+    /// Battery health card (`.qs-battery-health`).
+    pub const BATTERY_HEALTH: &str = "qs-battery-health";
+
     // Slider row identifiers (for per-row CSS targeting)
     /// Audio output slider row (`.qs-audio-output`).
     pub const AUDIO_OUTPUT: &str = "qs-audio-output";
@@ -407,6 +410,22 @@ pub mod qs {
 
     /// Updates error row (`.qs-updates-error`).
     pub const UPDATES_ERROR: &str = "qs-updates-error";
+
+    // Battery health card
+    /// Battery health details container (`.qs-battery-health-details`).
+    pub const BATTERY_HEALTH_DETAILS: &str = "qs-battery-health-details";
+
+    /// Battery health details list (`.qs-battery-health-list`).
+    pub const BATTERY_HEALTH_LIST: &str = "qs-battery-health-list";
+
+    /// Battery health preset controls container (`.qs-battery-health-controls`).
+    pub const BATTERY_HEALTH_CONTROLS: &str = "qs-battery-health-controls";
+
+    /// Battery health preset button (`.qs-battery-health-profile-button`).
+    pub const BATTERY_HEALTH_PROFILE_BUTTON: &str = "qs-battery-health-profile-button";
+
+    /// Battery health control note (`.qs-battery-health-control-note`).
+    pub const BATTERY_HEALTH_CONTROL_NOTE: &str = "qs-battery-health-control-note";
 
     // Network card
     /// Network row shared by Wi-Fi, Ethernet, and Mobile sections (`.qs-network-row`).
@@ -548,6 +567,12 @@ pub mod widget {
 
     /// Battery charging state (`.battery-charging`).
     pub const BATTERY_CHARGING: &str = "battery-charging";
+
+    /// Battery plugged in, not charging state (`.battery-plugged`).
+    pub const BATTERY_PLUGGED: &str = "battery-plugged";
+
+    /// Battery fully charged state (`.battery-full`).
+    pub const BATTERY_FULL: &str = "battery-full";
 
     /// Battery low state (`.battery-low`).
     pub const BATTERY_LOW: &str = "battery-low";

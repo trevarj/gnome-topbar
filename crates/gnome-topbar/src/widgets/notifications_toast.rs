@@ -447,9 +447,6 @@ impl NotificationToast {
         if let Some(source_id) = self.animation_source.borrow_mut().take() {
             source_id.remove();
         }
-        if let Some(source_id) = self.lifecycle_animation_source.borrow_mut().take() {
-            source_id.remove();
-        }
     }
 
     fn cancel_lifecycle_animation(&self) {
@@ -593,6 +590,10 @@ impl NotificationToast {
     }
 
     pub fn update_bar_margin(self: &Rc<Self>, target_margin: i32, animate: bool) {
+        if self.is_closing.get() {
+            return;
+        }
+
         let current = self.current_bar_margin.get();
 
         if !animate || current == target_margin {

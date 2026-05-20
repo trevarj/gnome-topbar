@@ -10,6 +10,11 @@ pub fn css() -> &'static str {
     color: var(--color-accent-primary);
 }
 
+.battery-icon.battery-plugged,
+.battery-icon.battery-full {
+    color: var(--color-foreground-secondary);
+}
+
 .battery-icon.battery-low {
     color: var(--color-state-urgent);
 }

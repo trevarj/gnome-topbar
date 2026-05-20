@@ -255,6 +255,23 @@ window.quick-settings-window {{
     border-radius: var(--radius-pill);
 }}
 
+/* Battery health details sit directly under a toggle card. */
+.qs-battery-health-details {{
+    margin-top: 6px;
+}}
+
+.qs-battery-health-controls {{
+    margin: 8px 0 6px 0;
+}}
+
+.qs-battery-health-profile-button {{
+    min-height: calc(var(--widget-height) * 0.9);
+}}
+
+.qs-battery-health-control-note {{
+    padding: 0 8px 6px 8px;
+}}
+
 /* Row menu content */
 .qs-row-menu-content {{
     font-family: var(--font-family);

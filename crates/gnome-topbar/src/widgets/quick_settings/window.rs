@@ -19,6 +19,7 @@ use std::rc::{Rc, Weak};
 
 use crate::popover_tracker::{PopoverId, PopoverTracker};
 use crate::services::audio::AudioService;
+use crate::services::battery::BatteryService;
 use crate::services::bluetooth::BluetoothService;
 use crate::services::brightness::BrightnessService;
 use crate::services::callbacks::CallbackId;
@@ -41,6 +42,7 @@ use super::audio_card::{
     self, AudioCardState, build_audio_details, build_audio_hint_label, build_audio_row,
 };
 use super::bar_widget::{QuickSettingsCardsConfig, QuickSettingsConfig};
+use super::battery_health_card::{self, BatteryHealthCardState, build_battery_health_card};
 use super::bluetooth_card::{self, BluetoothCardState, bt_icon_name, build_bluetooth_details};
 use super::brightness_card::{self, BrightnessCardState, build_brightness_row};
 use super::components::ToggleCard;
@@ -170,6 +172,7 @@ pub struct QuickSettingsWindow {
     audio_mic_callback_id: Cell<Option<CallbackId>>,
     brightness_callback_id: Cell<Option<CallbackId>>,
     updates_callback_id: Cell<Option<CallbackId>>,
+    battery_health_callback_id: Cell<Option<CallbackId>>,
     theme_callback_id: Cell<Option<CallbackId>>,
 
     // Card states
@@ -181,6 +184,7 @@ pub struct QuickSettingsWindow {
     pub mic: Rc<MicCardState>,
     pub brightness: Rc<BrightnessCardState>,
     pub updates: Rc<UpdatesCardState>,
+    pub battery_health: Rc<BatteryHealthCardState>,
     /// Power card state (expander variant only). Stored here so
     /// `reset_ui_state()` can collapse it without walking the widget tree.
     pub power: RefCell<Option<Rc<PowerCardExpanderState>>>,
@@ -265,6 +269,7 @@ impl QuickSettingsWindow {
             audio_mic_callback_id: Cell::new(None),
             brightness_callback_id: Cell::new(None),
             updates_callback_id: Cell::new(None),
+            battery_health_callback_id: Cell::new(None),
             theme_callback_id: Cell::new(None),
             network: Rc::new(NetworkCardState::new()),
             bluetooth: Rc::new(BluetoothCardState::new()),
@@ -274,6 +279,7 @@ impl QuickSettingsWindow {
             mic: Rc::new(MicCardState::new()),
             brightness: Rc::new(BrightnessCardState::new()),
             updates: Rc::new(UpdatesCardState::new()),
+            battery_health: Rc::new(BatteryHealthCardState::new()),
             power: RefCell::new(None),
             deferred_kbd_controller: RefCell::new(None),
         });
@@ -444,6 +450,16 @@ impl QuickSettingsWindow {
             });
             qs.updates_callback_id.set(Some(id));
         }
+
+        if cfg.battery_health {
+            let qs_weak = Rc::downgrade(qs);
+            let id = BatteryService::global().connect(move |snapshot| {
+                if let Some(qs) = qs_weak.upgrade() {
+                    battery_health_card::on_battery_health_changed(&qs.battery_health, snapshot);
+                }
+            });
+            qs.battery_health_callback_id.set(Some(id));
+        }
     }
 
     /// Build the control center content.
@@ -531,6 +547,16 @@ impl QuickSettingsWindow {
                 revealer: Some(revealer),
                 expander_button,
                 expandable: Some(Rc::clone(&qs.updates) as Rc<dyn ExpandableCard>),
+                on_toggle: None,
+            });
+        }
+        if cfg.battery_health && BatteryService::global().snapshot().available {
+            let (card, revealer, expander_button) = build_battery_health_card(&qs.battery_health);
+            toggle_cards.push(ToggleCardInfo {
+                card,
+                revealer: Some(revealer),
+                expander_button,
+                expandable: Some(Rc::clone(&qs.battery_health) as Rc<dyn ExpandableCard>),
                 on_toggle: None,
             });
         }
@@ -1217,6 +1243,7 @@ impl QuickSettingsWindow {
             qs.bluetooth.base.revealer.borrow(),
             qs.vpn.base.revealer.borrow(),
             qs.updates.base.revealer.borrow(),
+            qs.battery_health.base.revealer.borrow(),
         ] {
             if let Some(r) = revealer.as_ref() {
                 r.set_transition_duration(card_duration);
@@ -1246,7 +1273,7 @@ impl QuickSettingsWindow {
     /// collapses all revealers, removes expanded arrow indicators, hides
     /// auth dialogs, and scrolls back to the top.
     fn reset_ui_state(&self) {
-        // --- Collapse all toggle card revealers (network, bluetooth, vpn, updates, power) ---
+        // --- Collapse all toggle card revealers ---
 
         // Helper: collapse a revealer and remove the EXPANDED class from its arrow
         let collapse = |base: &super::ui_helpers::ExpandableCardBase| {
@@ -1262,6 +1289,7 @@ impl QuickSettingsWindow {
         collapse(&self.bluetooth.base);
         collapse(&self.vpn.base);
         collapse(&self.updates.base);
+        collapse(&self.battery_health.base);
 
         // Power card (expander variant)
         if let Some(ref power_state) = *self.power.borrow() {
@@ -1844,6 +1872,9 @@ impl Drop for QuickSettingsWindow {
         }
         if let Some(id) = self.updates_callback_id.take() {
             UpdatesService::global().disconnect(id);
+        }
+        if let Some(id) = self.battery_health_callback_id.take() {
+            BatteryService::global().disconnect(id);
         }
         if let Some(id) = self.theme_callback_id.take() {
             ConfigManager::global().disconnect_theme_callback(id);

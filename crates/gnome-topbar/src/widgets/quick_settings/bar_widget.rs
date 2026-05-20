@@ -9,16 +9,17 @@ use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, GestureClick};
 use tracing::{debug, warn};
 
-use super::super::battery::{battery_icon_name, readable_pct, rounded_pct_value};
+use super::super::battery::{
+    BatteryDisplayState, battery_display_state_from_snapshot, battery_icon_name,
+    battery_state_text, readable_pct, rounded_pct_value,
+};
 use super::QuickSettingsWindowHandle;
 use super::audio_card::volume_icon_name;
 use super::bluetooth_card::bt_icon_name;
 use super::network_card::{NetworkIconContext, mobile_state_icon_name, network_icon_name};
 use super::vpn_card::vpn_icon_name;
 use crate::services::audio::{AudioService, AudioSnapshot};
-use crate::services::battery::{
-    BatteryService, BatterySnapshot, STATE_CHARGING, STATE_FULLY_CHARGED,
-};
+use crate::services::battery::{BatteryService, BatterySnapshot};
 use crate::services::bluetooth::{BluetoothService, BluetoothSnapshot};
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
@@ -52,6 +53,7 @@ pub struct QuickSettingsCardsConfig {
     pub mic: bool,
     pub brightness: bool,
     pub power: bool,
+    pub battery_health: bool,
     /// Close the Quick Settings panel when a VPN connection succeeds.
     /// Defaults to `true`. Useful when VPN connections trigger password prompts.
     pub vpn_close_on_connect: bool,
@@ -69,6 +71,7 @@ impl Default for QuickSettingsCardsConfig {
             mic: true,
             brightness: true,
             power: true,
+            battery_health: true,
             vpn_close_on_connect: true,
         }
     }
@@ -83,6 +86,7 @@ impl Default for QuickSettingsCardsConfig {
 /// [widgets.quick_settings]
 /// vpn = false                          # hide the VPN card
 /// idle_inhibitor = false               # hide the idle inhibitor card
+/// battery_health = true                # show battery health / charge-limit status
 /// vpn_close_on_connect = true          # close panel when VPN connects successfully
 /// audio_scroll_percentage = 5          # volume change per scroll tick (% points, 1..=25)
 /// ```
@@ -108,6 +112,7 @@ impl WidgetConfig for QuickSettingsConfig {
             "mic",
             "brightness",
             "power",
+            "battery_health",
             "battery",
             "vpn_close_on_connect",
             "audio_scroll_percentage",
@@ -151,6 +156,7 @@ impl WidgetConfig for QuickSettingsConfig {
                 mic: get_bool("mic"),
                 brightness: get_bool("brightness"),
                 power: get_bool("power"),
+                battery_health: get_bool("battery_health"),
                 vpn_close_on_connect: get_bool("vpn_close_on_connect"),
             },
             battery: get_bool("battery"),
@@ -198,6 +204,9 @@ impl QuickSettingsConfig {
         }
         if cards.brightness {
             names.push("brightness");
+        }
+        if cards.battery_health {
+            names.push("battery_health");
         }
         if cards.power {
             names.push("power");
@@ -718,6 +727,8 @@ fn update_battery_indicator(icon_handle: &IconHandle, snapshot: &BatterySnapshot
         icon_widget.set_visible(false);
         icon_widget.remove_css_class(state::ICON_ACTIVE);
         icon_widget.remove_css_class(widget::BATTERY_CHARGING);
+        icon_widget.remove_css_class(widget::BATTERY_PLUGGED);
+        icon_widget.remove_css_class(widget::BATTERY_FULL);
         icon_widget.remove_css_class(widget::BATTERY_LOW);
         return;
     }
@@ -725,38 +736,36 @@ fn update_battery_indicator(icon_handle: &IconHandle, snapshot: &BatterySnapshot
     icon_widget.set_visible(true);
     icon_widget.remove_css_class(state::SERVICE_UNAVAILABLE);
     icon_widget.remove_css_class(widget::BATTERY_CHARGING);
+    icon_widget.remove_css_class(widget::BATTERY_PLUGGED);
+    icon_widget.remove_css_class(widget::BATTERY_FULL);
     icon_widget.remove_css_class(widget::BATTERY_LOW);
 
     let rounded = snapshot.percent.map(rounded_pct_value);
-    let charging = matches!(
-        snapshot.state,
-        Some(STATE_CHARGING) | Some(STATE_FULLY_CHARGED)
-    );
+    let display_state = battery_display_state_from_snapshot(snapshot);
     let low = matches!(rounded, Some(pct) if pct <= 20);
 
-    if charging {
+    if display_state == BatteryDisplayState::Charging {
         icon_widget.add_css_class(widget::BATTERY_CHARGING);
+    } else if display_state == BatteryDisplayState::FullyCharged {
+        icon_widget.add_css_class(widget::BATTERY_FULL);
+    } else if display_state == BatteryDisplayState::PluggedNotCharging {
+        icon_widget.add_css_class(widget::BATTERY_PLUGGED);
     } else if low {
         icon_widget.add_css_class(widget::BATTERY_LOW);
     }
 
     let icon_name = rounded
-        .map(|pct| battery_icon_name(pct, charging))
+        .map(|pct| battery_icon_name(pct, display_state))
         .unwrap_or_else(|| "battery-missing".to_string());
     icon_handle.set_icon(&icon_name);
 
     let tooltip = match rounded {
         Some(pct) => {
-            let state_text = if charging {
-                if snapshot.state == Some(STATE_FULLY_CHARGED) {
-                    "Full"
-                } else {
-                    "Charging"
-                }
-            } else {
-                "Discharging"
-            };
-            format!("Battery: {}\nState: {}", readable_pct(pct), state_text)
+            format!(
+                "Battery: {}\nState: {}",
+                readable_pct(pct),
+                battery_state_text(display_state)
+            )
         }
         None => "Battery: unknown".to_string(),
     };
@@ -793,6 +802,7 @@ mod tests {
                 "audio",
                 "mic",
                 "brightness",
+                "battery_health",
                 "power"
             ]
         );
@@ -809,6 +819,7 @@ mod tests {
         options.insert("vpn".to_string(), Value::Boolean(false));
         options.insert("audio".to_string(), Value::Boolean(false));
         options.insert("battery".to_string(), Value::Boolean(false));
+        options.insert("battery_health".to_string(), Value::Boolean(false));
         options.insert("power".to_string(), Value::Boolean(false));
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
@@ -858,12 +869,17 @@ mod tests {
         let mut options = HashMap::new();
         options.insert("network".to_string(), Value::String("false".to_string()));
         options.insert("battery".to_string(), Value::String("false".to_string()));
+        options.insert(
+            "battery_health".to_string(),
+            Value::String("false".to_string()),
+        );
         options.insert("vpn".to_string(), Value::Integer(0));
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
 
         assert!(config.cards.network);
         assert!(config.battery);
+        assert!(config.cards.battery_health);
         assert!(config.cards.vpn);
     }
 }
