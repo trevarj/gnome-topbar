@@ -407,12 +407,25 @@ fn notification_count_text(count: usize) -> String {
     }
 }
 
-fn invoke_notification_action_from_ui(source: &str, notification_id: u32, action_id: &str) {
+fn invoke_notification_action_from_ui(
+    source: &str,
+    notification_id: u32,
+    action_id: &str,
+    surface: Option<gdk::Surface>,
+) {
     debug!(
         "NotificationsPanel: invoking action from {}, id={}, action_key={}",
         source, notification_id, action_id
     );
-    NotificationService::global().invoke_action(notification_id, action_id);
+    NotificationService::global().invoke_action_with_surface(
+        notification_id,
+        action_id,
+        surface.as_ref(),
+    );
+}
+
+fn widget_surface(widget: &impl IsA<gtk4::Widget>) -> Option<gdk::Surface> {
+    widget.native().and_then(|native| native.surface())
 }
 
 fn add_empty_state(list: &GtkBox, message: &str) {
@@ -894,6 +907,7 @@ fn build_notification_row(
                     "row-primary-click",
                     notification_id,
                     &primary_id,
+                    gesture.current_event().and_then(|event| event.surface()),
                 );
                 schedule_notification_row_removal(
                     &card_for_action,
@@ -983,7 +997,12 @@ fn build_notification_row(
             open_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
                 suppress_for_action.set(true);
-                invoke_notification_action_from_ui("open-button", notification_id, &primary_id);
+                invoke_notification_action_from_ui(
+                    "open-button",
+                    notification_id,
+                    &primary_id,
+                    widget_surface(btn),
+                );
                 schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,
@@ -1016,7 +1035,12 @@ fn build_notification_row(
             action_btn.connect_clicked(move |btn| {
                 btn.set_sensitive(false);
                 suppress_for_action.set(true);
-                invoke_notification_action_from_ui("action-button", notification_id, &action_id);
+                invoke_notification_action_from_ui(
+                    "action-button",
+                    notification_id,
+                    &action_id,
+                    widget_surface(btn),
+                );
                 schedule_notification_row_removal(
                     &card_for_action,
                     &revealer_for_action,

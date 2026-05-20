@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::Timelike;
 use gnome_topbar_core::config::WidgetEntry;
+use gtk4::gdk;
 use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
 use gtk4::{Align, Application, Box as GtkBox, Label, Orientation, Overlay, Widget};
@@ -349,8 +350,8 @@ impl ClockNotificationCompanion {
 
         {
             let service_for_action = NotificationService::global();
-            let on_action = move |id: u32, action_id: &str| {
-                service_for_action.invoke_action(id, action_id);
+            let on_action = move |id: u32, action_id: &str, surface: Option<gdk::Surface>| {
+                service_for_action.invoke_action_with_surface(id, action_id, surface.as_ref());
             };
 
             let inner_weak_for_toast = Rc::downgrade(&inner);

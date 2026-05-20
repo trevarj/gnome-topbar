@@ -17,6 +17,7 @@ use super::state::{self, PersistedNotification};
 
 const NOTIFICATIONS_NAME: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
+const NOTIFICATIONS_SPEC_VERSION: &str = "1.3";
 
 /// D-Bus introspection XML for org.freedesktop.Notifications
 const NOTIFICATIONS_XML: &str = r#"
@@ -52,6 +53,10 @@ const NOTIFICATIONS_XML: &str = r#"
     <signal name="ActionInvoked">
       <arg name="id" type="u"/>
       <arg name="action_key" type="s"/>
+    </signal>
+    <signal name="ActivationToken">
+      <arg name="id" type="u"/>
+      <arg name="activation_token" type="s"/>
     </signal>
   </interface>
 </node>
@@ -323,8 +328,21 @@ impl NotificationService {
         self.notify_listeners();
     }
 
-    /// Invoke an action on a notification.
+    /// Invoke an action from explicit user activation and then close the
+    /// notification. Merely focusing the sending app must not call this; apps
+    /// should withdraw stale notifications themselves with CloseNotification.
+    #[cfg(test)]
     pub fn invoke_action(&self, id: u32, action_key: &str) {
+        self.invoke_action_with_surface(id, action_key, None);
+    }
+
+    /// Invoke an action with the GTK surface that received the user activation.
+    pub fn invoke_action_with_surface(
+        &self,
+        id: u32,
+        action_key: &str,
+        surface: Option<&gtk4::gdk::Surface>,
+    ) {
         let notification = {
             let notifications = self.notifications.borrow();
             let Some(notification) = notifications.get(&id) else {
@@ -376,9 +394,25 @@ impl NotificationService {
             return;
         }
 
-        self.emit_action_invoked(id, action_key);
+        if let Some(token) = super::activation_token::request_activation_token(
+            notification.desktop_entry.as_deref(),
+            surface,
+        ) {
+            self.emit_activation_token(id, &token);
+        } else {
+            debug!(
+                "NotificationService: no activation token available for id={}, action_key={}, app={}, desktop_entry={:?}",
+                id, action_key, notification.app_name, notification.desktop_entry
+            );
+        }
 
-        // Close the notification after action is invoked (common behavior)
+        self.emit_action_invoked(id, action_key);
+        focus_notification_source_window(&notification);
+
+        debug!(
+            "NotificationService: closing notification after explicit activation id={}, action_key={}",
+            id, action_key
+        );
         self.close_internal(id, CLOSE_REASON_CLOSED);
     }
 
@@ -738,7 +772,7 @@ impl NotificationService {
                 "gnome-topbar", // name
                 "gnome-topbar", // vendor
                 "1.0",          // version
-                "1.2",          // spec version
+                NOTIFICATIONS_SPEC_VERSION,
             )
                 .to_variant(),
         ));
@@ -824,6 +858,26 @@ impl NotificationService {
         }
     }
 
+    fn emit_activation_token(&self, id: u32, activation_token: &str) {
+        debug!(
+            "NotificationService: emitting ActivationToken signal for id={}",
+            id
+        );
+        let Some(ref bus) = *self.bus.borrow() else {
+            return;
+        };
+
+        if let Err(e) = bus.emit_signal(
+            None::<&str>,
+            NOTIFICATIONS_PATH,
+            NOTIFICATIONS_NAME,
+            "ActivationToken",
+            Some(&(id, activation_token).to_variant()),
+        ) {
+            error!("NotificationService: failed to emit ActivationToken: {}", e);
+        }
+    }
+
     fn set_ready(&self) {
         if !self.ready.get() {
             self.ready.set(true);
@@ -861,6 +915,63 @@ impl NotificationService {
 
         state::save(&persisted);
     }
+}
+
+#[cfg(not(test))]
+fn focus_notification_source_window(notification: &Notification) {
+    let Some(target) = notification_focus_target(notification) else {
+        debug!(
+            "NotificationService: no app identity available for compositor focus fallback id={}, app={}",
+            notification.id, notification.app_name
+        );
+        return;
+    };
+
+    let manager = crate::services::compositor::CompositorManager::global();
+    let mut matches = manager
+        .list_windows()
+        .into_iter()
+        .filter(|window| normalized_app_identity(&window.app_id) == target)
+        .collect::<Vec<_>>();
+
+    // Prefer the window that requested attention; otherwise use the newest
+    // matching focused state the compositor reports.
+    matches.sort_by_key(|window| (!window.is_urgent, !window.is_focused));
+
+    if let Some(window) = matches.first() {
+        debug!(
+            "NotificationService: focusing compositor window id={}, app_id={}, urgent={} for notification id={}",
+            window.id, window.app_id, window.is_urgent, notification.id
+        );
+        manager.focus_window(window.id);
+    } else {
+        debug!(
+            "NotificationService: no compositor window matched notification id={}, target={}, app={}",
+            notification.id, target, notification.app_name
+        );
+    }
+}
+
+#[cfg(test)]
+fn focus_notification_source_window(_notification: &Notification) {}
+
+fn notification_focus_target(notification: &Notification) -> Option<String> {
+    notification
+        .desktop_entry
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            if notification.app_name.trim().is_empty() {
+                None
+            } else {
+                Some(notification.app_name.as_str())
+            }
+        })
+        .map(normalized_app_identity)
+}
+
+fn normalized_app_identity(value: &str) -> String {
+    value.trim().trim_start_matches('@').to_ascii_lowercase()
 }
 
 impl Drop for NotificationService {
@@ -1062,5 +1173,41 @@ mod tests {
         svc.invoke_action(404, "default");
 
         assert!(svc.notifications.borrow().is_empty());
+    }
+
+    #[test]
+    fn introspection_advertises_activation_token_signal() {
+        assert!(NOTIFICATIONS_XML.contains(r#"<signal name="ActivationToken">"#));
+        assert!(NOTIFICATIONS_XML.contains(r#"<arg name="activation_token" type="s"/>"#));
+    }
+
+    #[test]
+    fn server_spec_version_advertises_activation_token_support() {
+        assert!(NOTIFICATIONS_XML.contains(r#"<signal name="ActivationToken">"#));
+        assert_eq!(NOTIFICATIONS_SPEC_VERSION, "1.3");
+    }
+
+    #[test]
+    fn notification_focus_target_prefers_desktop_entry() {
+        let mut notification = make_notification(1, false, 1.0);
+        notification.app_name = "Telegram Desktop".to_string();
+        notification.desktop_entry = Some("org.telegram.desktop".to_string());
+
+        assert_eq!(
+            notification_focus_target(&notification).as_deref(),
+            Some("org.telegram.desktop")
+        );
+    }
+
+    #[test]
+    fn normalized_app_identity_preserves_desktop_suffix() {
+        assert_eq!(
+            normalized_app_identity("org.telegram.desktop"),
+            "org.telegram.desktop"
+        );
+        assert_eq!(
+            normalized_app_identity("@Org.Telegram.Desktop"),
+            "org.telegram.desktop"
+        );
     }
 }

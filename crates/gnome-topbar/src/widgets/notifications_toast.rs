@@ -4,6 +4,7 @@
 //! arrive. Toasts appear at top-center and auto-dismiss after a
 //! timeout (except for critical notifications).
 
+use gtk4::gdk;
 use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
 use gtk4::{Align, Application, Box as GtkBox, Button, Image, Label, Orientation, Window};
@@ -21,7 +22,7 @@ use crate::services::notification::{
 /// Type alias for toast notification callbacks.
 type ToastCallback = Rc<dyn Fn(u32)>;
 /// Type alias for toast action callbacks.
-type ToastActionCallback = Rc<dyn Fn(u32, &str)>;
+type ToastActionCallback = Rc<dyn Fn(u32, &str, Option<gdk::Surface>)>;
 
 fn should_close_service_notification_on_toast_end(is_transient: bool, exists: bool) -> bool {
     is_transient && exists
@@ -369,7 +370,11 @@ impl NotificationToast {
                             "NotificationToast: invoking primary action from toast click id={}, action_key={}",
                             notification_id, primary_id
                         );
-                        on_action_clone(notification_id, &primary_id);
+                        on_action_clone(
+                            notification_id,
+                            &primary_id,
+                            gesture.current_event().and_then(|event| event.surface()),
+                        );
                         toast.close_with_animation(move || {
                             on_dismiss_clone(notification_id);
                         });
@@ -405,6 +410,7 @@ impl NotificationToast {
                 let notification_id = notification.id;
                 let action_id = action_id.clone();
                 let toast_weak = Rc::downgrade(self);
+                let action_btn_for_surface = action_btn.clone();
                 action_btn.connect_clicked(move |_| {
                     if let Some(toast) = toast_weak.upgrade() {
                         let on_dismiss_clone = on_dismiss_clone.clone();
@@ -412,7 +418,13 @@ impl NotificationToast {
                             "NotificationToast: invoking action button id={}, action_key={}",
                             notification_id, action_id
                         );
-                        on_action_clone(notification_id, &action_id);
+                        on_action_clone(
+                            notification_id,
+                            &action_id,
+                            action_btn_for_surface
+                                .native()
+                                .and_then(|native| native.surface()),
+                        );
                         toast.close_with_animation(move || {
                             on_dismiss_clone(notification_id);
                         });
@@ -675,7 +687,7 @@ pub(super) struct NotificationToastManager {
 
 impl NotificationToastManager {
     pub fn new(
-        on_action: impl Fn(u32, &str) + 'static,
+        on_action: impl Fn(u32, &str, Option<gdk::Surface>) + 'static,
         on_toast_removed: impl Fn() + 'static,
     ) -> Rc<Self> {
         Rc::new(Self {

@@ -18,6 +18,7 @@
 //! - **state**: Persistent state storage (DND, VPN last used, notification history)
 //! - **media**: MPRIS media player control and monitoring
 
+pub mod activation_token;
 pub mod audio;
 pub mod background_effect;
 pub mod bar_manager;
