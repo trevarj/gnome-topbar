@@ -6,11 +6,14 @@
 use std::cell::{Cell, RefCell};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
+use std::str::FromStr;
 
 use chrono::{Local, Timelike};
+use chrono_tz::Tz;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Label, Orientation, Widget};
 use gtk4::{gio, glib};
+use tracing::warn;
 
 use crate::services::config_manager::ConfigManager;
 use crate::services::media::MediaService;
@@ -24,15 +27,26 @@ const CONTROL_PANEL_LEFT_WIDTH: i32 = 380;
 const CONTROL_PANEL_RIGHT_WIDTH: i32 = 360;
 const CONTROL_PANEL_COLUMN_SPACING: i32 = 12;
 
+/// A configured secondary clock shown in the clock control panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldClockConfig {
+    pub label: String,
+    pub timezone: String,
+}
+
 /// Build the clock control panel content and return a refresh callback.
 pub fn build_clock_control_panel(
     show_week_numbers: bool,
     weather_widget_name: Option<String>,
+    world_clocks: Vec<WorldClockConfig>,
 ) -> (Widget, Rc<dyn Fn()>) {
     let root = GtkBox::new(Orientation::Horizontal, CONTROL_PANEL_COLUMN_SPACING);
     root.add_css_class("control-panel");
     root.set_width_request(
-        CONTROL_PANEL_LEFT_WIDTH + CONTROL_PANEL_COLUMN_SPACING + CONTROL_PANEL_RIGHT_WIDTH,
+        CONTROL_PANEL_LEFT_WIDTH
+            + (CONTROL_PANEL_COLUMN_SPACING * 2)
+            + 1
+            + CONTROL_PANEL_RIGHT_WIDTH,
     );
 
     let left_col = GtkBox::new(Orientation::Vertical, 10);
@@ -60,7 +74,7 @@ pub fn build_clock_control_panel(
     right_col.set_vexpand(false);
     right_col.set_valign(Align::Start);
 
-    let time_card = build_time_weather_card(weather_widget_name);
+    let time_card = build_time_weather_card(weather_widget_name, &world_clocks);
     time_card
         .container
         .set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
@@ -69,6 +83,13 @@ pub fn build_clock_control_panel(
     time_card.container.set_valign(Align::Start);
     right_col.append(&time_card.container);
 
+    let media_separator = GtkBox::new(Orientation::Vertical, 0);
+    media_separator.add_css_class("control-panel-module-separator");
+    media_separator.set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+    media_separator.set_height_request(1);
+    media_separator.set_halign(Align::Fill);
+    right_col.append(&media_separator);
+
     let (media_widget, media_controller) = build_media_popover_with_controller();
     media_widget.add_css_class("control-panel-media");
     media_widget.set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
@@ -76,6 +97,13 @@ pub fn build_clock_control_panel(
     media_widget.set_vexpand(false);
     media_widget.set_valign(Align::Start);
     right_col.append(&media_widget);
+
+    let calendar_separator = GtkBox::new(Orientation::Vertical, 0);
+    calendar_separator.add_css_class("control-panel-module-separator");
+    calendar_separator.set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+    calendar_separator.set_height_request(1);
+    calendar_separator.set_halign(Align::Fill);
+    right_col.append(&calendar_separator);
 
     let media_controller_for_update = media_controller.clone();
     let media_service = MediaService::global();
@@ -94,12 +122,23 @@ pub fn build_clock_control_panel(
     calendar_widget.set_valign(Align::Start);
     right_col.append(&calendar_widget);
 
+    let column_separator = GtkBox::new(Orientation::Vertical, 0);
+    column_separator.add_css_class("control-panel-column-separator");
+    column_separator.set_width_request(1);
+    column_separator.set_vexpand(true);
+    column_separator.set_valign(Align::Fill);
+
     root.append(&left_col);
+    root.append(&column_separator);
     root.append(&right_col);
 
     let time_tick = schedule_time_tick(&time_card.time_label, &time_card.date_label);
+    let world_clock_tick = schedule_world_clock_tick(&time_card.world_clock_rows);
     root.connect_destroy(move |_| {
         if let Some(source_id) = time_tick.borrow_mut().take() {
+            source_id.remove();
+        }
+        if let Some(source_id) = world_clock_tick.borrow_mut().take() {
             source_id.remove();
         }
     });
@@ -108,9 +147,11 @@ pub fn build_clock_control_panel(
         let time_label = time_card.time_label.clone();
         let date_label = time_card.date_label.clone();
         let weather_label = time_card.weather_label.clone();
+        let world_clock_rows = time_card.world_clock_rows.clone();
         Rc::new(move || {
             refresh_time_labels(&time_label, &date_label);
             refresh_weather_label(&weather_label);
+            refresh_world_clock_rows(&world_clock_rows);
             media_controller.update_from_snapshot(&MediaService::global().snapshot());
             calendar_refresh();
         }) as Rc<dyn Fn()>
@@ -125,9 +166,21 @@ struct TimeWeatherCard {
     time_label: Label,
     date_label: Label,
     weather_label: Option<(Label, String)>,
+    world_clock_rows: Vec<WorldClockRow>,
 }
 
-fn build_time_weather_card(weather_widget_name: Option<String>) -> TimeWeatherCard {
+#[derive(Clone)]
+struct WorldClockRow {
+    label: String,
+    timezone: Tz,
+    time_label: Label,
+    date_label: Label,
+}
+
+fn build_time_weather_card(
+    weather_widget_name: Option<String>,
+    world_clocks: &[WorldClockConfig],
+) -> TimeWeatherCard {
     let container = GtkBox::new(Orientation::Vertical, 2);
     container.add_css_class("control-panel-card");
     container.add_css_class("control-panel-time-weather");
@@ -159,11 +212,35 @@ fn build_time_weather_card(weather_widget_name: Option<String>) -> TimeWeatherCa
         container.append(label);
     }
 
+    let world_clock_rows = build_world_clock_rows(world_clocks);
+    if !world_clock_rows.is_empty() {
+        container.add_css_class("control-panel-time-weather-with-world-clocks");
+
+        let world_clock_box = GtkBox::new(Orientation::Vertical, 6);
+        world_clock_box.add_css_class("control-panel-world-clocks");
+
+        for row in &world_clock_rows {
+            let row_box = GtkBox::new(Orientation::Horizontal, 8);
+            row_box.add_css_class("control-panel-world-clock-row");
+            row_box.set_halign(Align::Fill);
+
+            let labels = GtkBox::new(Orientation::Vertical, 0);
+            labels.set_hexpand(true);
+            labels.append(&row.date_label);
+            row_box.append(&labels);
+            row_box.append(&row.time_label);
+            world_clock_box.append(&row_box);
+        }
+
+        container.append(&world_clock_box);
+    }
+
     TimeWeatherCard {
         container,
         time_label,
         date_label,
         weather_label,
+        world_clock_rows,
     }
 }
 
@@ -195,6 +272,76 @@ fn schedule_time_tick(
         let date_label = date_label.clone();
         let repeating_id = glib::timeout_add_seconds_local(60, move || {
             refresh_time_labels(&time_label, &date_label);
+            glib::ControlFlow::Continue
+        });
+
+        *source_slot_for_once.borrow_mut() = Some(repeating_id);
+    });
+
+    *source_slot.borrow_mut() = Some(source_id);
+    source_slot
+}
+
+fn build_world_clock_rows(configs: &[WorldClockConfig]) -> Vec<WorldClockRow> {
+    configs
+        .iter()
+        .filter_map(|config| {
+            let timezone = match Tz::from_str(&config.timezone) {
+                Ok(timezone) => timezone,
+                Err(_) => {
+                    warn!(
+                        "Clock control panel: ignoring invalid world clock timezone {:?}",
+                        config.timezone
+                    );
+                    return None;
+                }
+            };
+
+            let date_label = Label::new(Some(&config.label));
+            date_label.add_css_class("control-panel-world-clock-label");
+            date_label.set_xalign(0.0);
+            date_label.set_hexpand(true);
+
+            let time_label = Label::new(None);
+            time_label.add_css_class("control-panel-world-clock-time");
+            time_label.set_xalign(1.0);
+
+            Some(WorldClockRow {
+                label: config.label.clone(),
+                timezone,
+                time_label,
+                date_label,
+            })
+        })
+        .collect()
+}
+
+fn refresh_world_clock_rows(rows: &[WorldClockRow]) {
+    let now = chrono::Utc::now();
+    for row in rows {
+        let zoned = now.with_timezone(&row.timezone);
+        row.time_label.set_label(&zoned.format("%H:%M").to_string());
+        row.date_label
+            .set_label(&format!("{} · {}", row.label, zoned.format("%a, %b %-d")));
+    }
+}
+
+fn schedule_world_clock_tick(rows: &[WorldClockRow]) -> Rc<RefCell<Option<glib::SourceId>>> {
+    let source_slot = Rc::new(RefCell::new(None));
+    if rows.is_empty() {
+        return source_slot;
+    }
+
+    let delay_seconds = seconds_until_next_minute(Local::now().second());
+    let rows_once = rows.to_vec();
+    let source_slot_for_once = Rc::clone(&source_slot);
+
+    let source_id = glib::timeout_add_seconds_local_once(delay_seconds, move || {
+        refresh_world_clock_rows(&rows_once);
+
+        let rows_repeat = rows_once.clone();
+        let repeating_id = glib::timeout_add_seconds_local(60, move || {
+            refresh_world_clock_rows(&rows_repeat);
             glib::ControlFlow::Continue
         });
 

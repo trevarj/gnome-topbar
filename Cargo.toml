@@ -29,6 +29,7 @@ thiserror = "1.0"
 
 # Time handling
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
 
 # GTK4 and Wayland
 gtk4 = { version = "0.10", features = ["v4_12"] }

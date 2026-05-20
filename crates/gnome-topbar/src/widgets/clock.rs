@@ -22,7 +22,7 @@ use crate::styles::widget as wgt;
 use crate::widgets::WidgetConfig;
 use crate::widgets::base::BaseWidget;
 use crate::widgets::calendar_popover::build_clock_calendar_popover;
-use crate::widgets::control_panel::build_clock_control_panel;
+use crate::widgets::control_panel::{WorldClockConfig, build_clock_control_panel};
 use crate::widgets::notifications_toast::NotificationToastManager;
 use crate::widgets::warn_unknown_options;
 
@@ -45,6 +45,8 @@ pub struct ClockConfig {
     /// Optional custom widget name whose exec output is shown in the control
     /// panel weather card.
     pub control_panel_weather_widget: Option<String>,
+    /// Secondary clocks shown in the clock control panel.
+    pub world_clocks: Vec<WorldClockConfig>,
 }
 
 impl WidgetConfig for ClockConfig {
@@ -57,6 +59,7 @@ impl WidgetConfig for ClockConfig {
                 "show_week_numbers",
                 "control_panel",
                 "control_panel_weather_widget",
+                "world_clocks",
             ],
         );
 
@@ -85,12 +88,14 @@ impl WidgetConfig for ClockConfig {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        let world_clocks = parse_world_clock_config(entry.options.get("world_clocks"));
 
         Self {
             format,
             show_week_numbers,
             control_panel,
             control_panel_weather_widget,
+            world_clocks,
         }
     }
 }
@@ -102,8 +107,39 @@ impl Default for ClockConfig {
             show_week_numbers: true,
             control_panel: false,
             control_panel_weather_widget: None,
+            world_clocks: Vec::new(),
         }
     }
+}
+
+fn parse_world_clock_config(value: Option<&toml::Value>) -> Vec<WorldClockConfig> {
+    let Some(toml::Value::Array(items)) = value else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let toml::Value::Table(table) = item else {
+                return None;
+            };
+            let label = table
+                .get("label")
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+            let timezone = table
+                .get("timezone")
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+
+            Some(WorldClockConfig {
+                label: label.to_string(),
+                timezone: timezone.to_string(),
+            })
+        })
+        .collect()
 }
 
 /// Clock widget that displays and updates the current time.
@@ -133,6 +169,7 @@ impl ClockWidget {
         let show_week_numbers = config.show_week_numbers;
         let control_panel = config.control_panel;
         let control_panel_weather_widget = config.control_panel_weather_widget.clone();
+        let world_clocks = config.world_clocks.clone();
 
         let notification_companion =
             control_panel.then(|| ClockNotificationCompanion::new(base.widget(), base.content()));
@@ -145,7 +182,11 @@ impl ClockWidget {
         let refresh_for_builder = refresh_slot.clone();
         let menu_handle = base.create_menu(move || {
             let (widget, refresh) = if control_panel {
-                build_clock_control_panel(show_week_numbers, control_panel_weather_widget.clone())
+                build_clock_control_panel(
+                    show_week_numbers,
+                    control_panel_weather_widget.clone(),
+                    world_clocks.clone(),
+                )
             } else {
                 build_clock_calendar_popover(show_week_numbers)
             };
@@ -631,6 +672,56 @@ mod tests {
         let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
 
         assert!(config.control_panel_weather_widget.is_none());
+    }
+
+    #[test]
+    fn test_clock_config_parses_world_clocks() {
+        let mut clock = toml::map::Map::new();
+        clock.insert("label".to_string(), Value::String("New York".to_string()));
+        clock.insert(
+            "timezone".to_string(),
+            Value::String("America/New_York".to_string()),
+        );
+
+        let mut options = HashMap::new();
+        options.insert(
+            "world_clocks".to_string(),
+            Value::Array(vec![Value::Table(clock)]),
+        );
+
+        let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
+
+        assert_eq!(
+            config.world_clocks,
+            vec![WorldClockConfig {
+                label: "New York".to_string(),
+                timezone: "America/New_York".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_clock_config_ignores_incomplete_world_clocks() {
+        let mut missing_timezone = toml::map::Map::new();
+        missing_timezone.insert("label".to_string(), Value::String("New York".to_string()));
+
+        let mut empty_label = toml::map::Map::new();
+        empty_label.insert("label".to_string(), Value::String(String::new()));
+        empty_label.insert("timezone".to_string(), Value::String("UTC".to_string()));
+
+        let mut options = HashMap::new();
+        options.insert(
+            "world_clocks".to_string(),
+            Value::Array(vec![
+                Value::Table(missing_timezone),
+                Value::Table(empty_label),
+                Value::String("UTC".to_string()),
+            ]),
+        );
+
+        let config = ClockConfig::from_entry(&make_widget_entry("clock", options));
+
+        assert!(config.world_clocks.is_empty());
     }
 
     #[test]

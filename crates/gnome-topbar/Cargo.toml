@@ -15,6 +15,7 @@ gnome-topbar-core = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 gtk4 = { workspace = true }
 pango = { workspace = true }
 gtk4-layer-shell = { workspace = true }

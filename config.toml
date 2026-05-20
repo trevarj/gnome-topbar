@@ -105,6 +105,9 @@ font_family = "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
 [widgets.clock]
 format = "%a %b %-d  %H:%M"
 control_panel = true
+world_clocks = [
+  { label = "New York", timezone = "America/New_York" },
+]
 
 [osd]
 enabled = true
