@@ -3,7 +3,7 @@
 //! Updates on minute boundaries to minimize CPU usage.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,6 +28,8 @@ use crate::widgets::warn_unknown_options;
 
 /// Default format string for the clock display.
 const DEFAULT_FORMAT: &str = "%a %d %H:%M";
+const MAX_TOASTS_PER_BURST: u32 = 3;
+const TOAST_BURST_WINDOW_SECS: f64 = 2.0;
 
 /// Configuration for the clock widget.
 
@@ -251,6 +253,8 @@ struct ClockNotificationInner {
     known_ids: RefCell<HashMap<u32, f64>>,
     toast_manager: RefCell<Option<Rc<NotificationToastManager>>>,
     last_seen_timestamp: Cell<f64>,
+    toast_burst_started_at: Cell<f64>,
+    toast_burst_count: Cell<u32>,
     app: RefCell<Option<Application>>,
 }
 
@@ -290,6 +294,8 @@ impl ClockNotificationCompanion {
             known_ids: RefCell::new(HashMap::new()),
             toast_manager: RefCell::new(None),
             last_seen_timestamp: Cell::new(0.0),
+            toast_burst_started_at: Cell::new(0.0),
+            toast_burst_count: Cell::new(0),
             app: RefCell::new(None),
         });
 
@@ -439,6 +445,11 @@ impl ClockNotificationInner {
             .iter()
             .map(|n| (n.id, n.timestamp))
             .collect();
+        let current_ids: HashSet<u32> = current.keys().copied().collect();
+
+        if let Some(toast_manager) = self.toast_manager.borrow().as_ref() {
+            toast_manager.sync_with_service_ids(&current_ids);
+        }
 
         if service.is_muted() {
             *self.known_ids.borrow_mut() = current;
@@ -455,18 +466,41 @@ impl ClockNotificationInner {
             .map(|(id, _)| *id)
             .collect();
 
+        if !to_toast.is_empty() {
+            debug!(
+                "ClockNotificationCompanion: {} new toast candidate(s)",
+                to_toast.len()
+            );
+        }
+
+        let mut suppressed_transients = Vec::new();
         if !to_toast.is_empty()
             && let (Some(toast_manager), Some(app)) =
                 (&*self.toast_manager.borrow(), self.get_application())
         {
             for id in &to_toast {
                 if let Some(notification) = service.get(*id) {
-                    toast_manager.show(&app, &notification);
+                    let now = now_secs();
+                    if self.consume_toast_burst_slot(now) {
+                        toast_manager.show(&app, &notification);
+                    } else {
+                        debug!(
+                            "ClockNotificationCompanion: suppressing toast during burst id={}, app={}, transient={}",
+                            notification.id, notification.app_name, notification.transient
+                        );
+                        if notification.transient {
+                            suppressed_transients.push(notification.id);
+                        }
+                    }
                 }
             }
         }
 
         *self.known_ids.borrow_mut() = current;
+
+        for id in suppressed_transients {
+            NotificationService::global().close(id);
+        }
     }
 
     fn get_application(&self) -> Option<Application> {
@@ -482,12 +516,38 @@ impl ClockNotificationInner {
     }
 
     fn mark_as_seen(&self) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0);
-        self.last_seen_timestamp.set(now);
+        self.last_seen_timestamp.set(now_secs());
     }
+
+    fn consume_toast_burst_slot(&self, now: f64) -> bool {
+        let (started_at, count, allowed) = toast_burst_next_state(
+            self.toast_burst_started_at.get(),
+            self.toast_burst_count.get(),
+            now,
+        );
+        self.toast_burst_started_at.set(started_at);
+        self.toast_burst_count.set(count);
+        allowed
+    }
+}
+
+fn now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+fn toast_burst_next_state(started_at: f64, count: u32, now: f64) -> (f64, u32, bool) {
+    if started_at <= 0.0 || now - started_at > TOAST_BURST_WINDOW_SECS || now < started_at {
+        return (now, 1, true);
+    }
+
+    if count >= MAX_TOASTS_PER_BURST {
+        return (started_at, count, false);
+    }
+
+    (started_at, count + 1, true)
 }
 
 fn notification_indicator_visible(
@@ -587,5 +647,34 @@ mod tests {
     fn notification_indicator_visible_for_history_or_unavailable_backend() {
         assert!(notification_indicator_visible(true, 1, false));
         assert!(notification_indicator_visible(false, 0, false));
+    }
+
+    #[test]
+    fn toast_burst_allows_first_three_inside_window() {
+        let mut started_at = 0.0;
+        let mut count = 0;
+
+        for _ in 0..MAX_TOASTS_PER_BURST {
+            let next = toast_burst_next_state(started_at, count, 10.0);
+            started_at = next.0;
+            count = next.1;
+            assert!(next.2);
+        }
+
+        let next = toast_burst_next_state(started_at, count, 10.5);
+        assert!(!next.2);
+        assert_eq!(next.1, MAX_TOASTS_PER_BURST);
+    }
+
+    #[test]
+    fn toast_burst_resets_after_window_or_clock_jump() {
+        assert_eq!(
+            toast_burst_next_state(10.0, MAX_TOASTS_PER_BURST, 13.0),
+            (13.0, 1, true)
+        );
+        assert_eq!(
+            toast_burst_next_state(10.0, MAX_TOASTS_PER_BURST, 9.0),
+            (9.0, 1, true)
+        );
     }
 }

@@ -514,6 +514,10 @@ impl NotificationToast {
         F: FnOnce() + 'static,
     {
         if self.is_closing.replace(true) {
+            debug!(
+                "NotificationToast: close requested while already closing id={}",
+                self.notification_id
+            );
             return;
         }
 
@@ -570,6 +574,22 @@ impl NotificationToast {
                 }
             });
         *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
+    }
+
+    fn force_close(&self) {
+        debug!(
+            "NotificationToast: force closing stale toast id={}",
+            self.notification_id
+        );
+        self.cancel_animation();
+        if let Some(source_id) = self.timeout_source.borrow_mut().take() {
+            source_id.remove();
+        }
+        if let Some(blur) = BackgroundEffectManager::global() {
+            blur.remove_blur_region(&self.window);
+        }
+        self.window.set_opacity(0.0);
+        self.window.close();
     }
 
     pub fn update_bar_margin(self: &Rc<Self>, target_margin: i32, animate: bool) {
@@ -629,12 +649,18 @@ impl Drop for NotificationToast {
         if let Some(source_id) = self.animation_source.borrow_mut().take() {
             source_id.remove();
         }
+        if let Some(source_id) = self.lifecycle_animation_source.borrow_mut().take() {
+            source_id.remove();
+        }
         // Cancel any pending timeout (may already be cleared by glib)
         if let Some(source_id) = self.timeout_source.borrow_mut().take() {
             source_id.remove();
         }
         // ThemeCallbackGuard handles disconnect_theme_callback on drop.
         drop(self.theme_callback_guard.borrow_mut().take());
+        if let Some(blur) = BackgroundEffectManager::global() {
+            blur.remove_blur_region(&self.window);
+        }
     }
 }
 
@@ -760,6 +786,35 @@ impl NotificationToastManager {
         self.reposition_toasts();
 
         // Notify widget to recalculate badge
+        (self.on_toast_removed)();
+    }
+
+    pub fn sync_with_service_ids(&self, service_ids: &HashSet<u32>) {
+        let stale_ids: Vec<u32> = self
+            .toasts
+            .borrow()
+            .keys()
+            .filter(|id| !service_ids.contains(id))
+            .copied()
+            .collect();
+
+        if stale_ids.is_empty() {
+            return;
+        }
+
+        debug!(
+            "NotificationToastManager: force closing {} stale toast(s)",
+            stale_ids.len()
+        );
+        for id in stale_ids {
+            if let Some(toast) = self.toasts.borrow_mut().remove(&id) {
+                toast.force_close();
+            }
+            self.toast_order
+                .borrow_mut()
+                .retain(|&order_id| order_id != id);
+        }
+        self.reposition_toasts();
         (self.on_toast_removed)();
     }
 
