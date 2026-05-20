@@ -5,12 +5,13 @@
 //! - Listens for `PropertiesChanged` ("g-properties-changed") updates
 //! - Notifies listeners on the GLib main loop with a canonical snapshot.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk4::gio;
 use gtk4::glib;
@@ -43,6 +44,9 @@ pub const HEALTH_CHARGE_STOP_THRESHOLD: u8 = 80;
 /// Full-charge preset. A high start threshold avoids needless trickle cycling.
 pub const FULL_CHARGE_START_THRESHOLD: u8 = 96;
 pub const FULL_CHARGE_STOP_THRESHOLD: u8 = 100;
+
+const THRESHOLD_REFRESH_INTERVAL_MS: u64 = 250;
+const THRESHOLD_REFRESH_ATTEMPTS: u8 = 12;
 
 /// Kernel charge behavior state from `charge_behaviour`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +124,7 @@ impl BatterySnapshot {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 struct BatterySysfsSnapshot {
+    state: Option<u32>,
     charge_start_threshold: Option<u8>,
     charge_stop_threshold: Option<u8>,
     charge_behaviour: Option<ChargeBehaviourSnapshot>,
@@ -155,6 +160,7 @@ pub struct BatteryService {
     proxy: RefCell<Option<gio::DBusProxy>>,
     charge_proxy: RefCell<Option<gio::DBusProxy>>,
     snapshot: RefCell<BatterySnapshot>,
+    threshold_refresh_source: RefCell<Option<glib::SourceId>>,
     callbacks: Callbacks<BatterySnapshot>,
 }
 
@@ -180,6 +186,7 @@ impl BatteryService {
             proxy: RefCell::new(None),
             charge_proxy: RefCell::new(None),
             snapshot: RefCell::new(initial_snapshot),
+            threshold_refresh_source: RefCell::new(None),
             callbacks: Callbacks::new(),
         });
 
@@ -317,6 +324,21 @@ impl BatteryService {
             .map(|raw| Self::parse_charge_behaviour(&raw))
     }
 
+    fn sysfs_status_to_upower_state(status: &str, ac_online: Option<bool>) -> Option<u32> {
+        match status.trim().to_ascii_lowercase().as_str() {
+            "charging" => Some(STATE_CHARGING),
+            "discharging" => Some(STATE_DISCHARGING),
+            "full" => Some(STATE_FULLY_CHARGED),
+            "not charging" if ac_online == Some(true) => Some(STATE_PENDING_CHARGE),
+            _ => None,
+        }
+    }
+
+    fn read_sysfs_battery_state(battery_path: &Path, ac_online: Option<bool>) -> Option<u32> {
+        Self::read_trimmed(&battery_path.join("status"))
+            .and_then(|status| Self::sysfs_status_to_upower_state(&status, ac_online))
+    }
+
     fn charge_threshold_paths(battery_path: &Path) -> Option<ChargeThresholdPaths> {
         let control_start = battery_path.join("charge_control_start_threshold");
         let control_stop = battery_path.join("charge_control_end_threshold");
@@ -379,6 +401,7 @@ impl BatteryService {
             };
         };
 
+        let ac_online = Self::read_external_power_online();
         let charge_start_threshold =
             Self::read_u8(&battery_path.join("charge_control_start_threshold"))
                 .or_else(|| Self::read_u8(&battery_path.join("charge_start_threshold")));
@@ -392,19 +415,23 @@ impl BatteryService {
             .is_some_and(Self::threshold_paths_writable);
 
         BatterySysfsSnapshot {
+            state: Self::read_sysfs_battery_state(&battery_path, ac_online),
             charge_start_threshold,
             charge_stop_threshold,
             charge_behaviour: Self::read_charge_behaviour(&battery_path),
             cycle_count: Self::read_u32(&battery_path.join("cycle_count")),
             energy_full: Self::read_energy_wh(&battery_path.join("energy_full")),
             energy_full_design: Self::read_energy_wh(&battery_path.join("energy_full_design")),
-            ac_online: Self::read_external_power_online(),
+            ac_online,
             charge_control_available,
             charge_control_writable,
         }
     }
 
     fn apply_sysfs_snapshot(snapshot: &mut BatterySnapshot, sysfs: BatterySysfsSnapshot) {
+        if let Some(state) = sysfs.state {
+            snapshot.state = Some(state);
+        }
         snapshot.charge_start_threshold = sysfs.charge_start_threshold;
         snapshot.charge_stop_threshold = sysfs.charge_stop_threshold;
         snapshot.charge_behaviour = sysfs.charge_behaviour;
@@ -420,10 +447,17 @@ impl BatteryService {
         snapshot: &mut BatterySnapshot,
         upower: BatteryUpowerChargeSnapshot,
     ) {
-        if let Some(start) = upower.charge_start_threshold {
+        // Sysfs threshold files are the kernel source of truth and update
+        // immediately after direct writes. UPower can lag behind, so only use
+        // its threshold values when sysfs did not report them.
+        if snapshot.charge_start_threshold.is_none()
+            && let Some(start) = upower.charge_start_threshold
+        {
             snapshot.charge_start_threshold = Some(start);
         }
-        if let Some(stop) = upower.charge_stop_threshold {
+        if snapshot.charge_stop_threshold.is_none()
+            && let Some(stop) = upower.charge_stop_threshold
+        {
             snapshot.charge_stop_threshold = Some(stop);
         }
 
@@ -497,6 +531,89 @@ impl BatteryService {
         self.set_charge_thresholds(start, stop);
     }
 
+    fn schedule_threshold_refresh(&self, start: u8, stop: u8) {
+        if let Some(source_id) = self.threshold_refresh_source.borrow_mut().take() {
+            source_id.remove();
+        }
+
+        let attempts = Rc::new(Cell::new(0u8));
+        let attempts_for_timer = Rc::clone(&attempts);
+        let source_id = glib::timeout_add_local(
+            Duration::from_millis(THRESHOLD_REFRESH_INTERVAL_MS),
+            move || {
+                let service = BatteryService::global();
+                service.refresh();
+                service.apply_optimistic_threshold_snapshot(start, stop);
+
+                let next_attempt = attempts_for_timer.get().saturating_add(1);
+                attempts_for_timer.set(next_attempt);
+                if next_attempt >= THRESHOLD_REFRESH_ATTEMPTS {
+                    BatteryService::global()
+                        .threshold_refresh_source
+                        .borrow_mut()
+                        .take();
+                    glib::ControlFlow::Break
+                } else {
+                    glib::ControlFlow::Continue
+                }
+            },
+        );
+
+        *self.threshold_refresh_source.borrow_mut() = Some(source_id);
+    }
+
+    fn optimistic_state_for_thresholds(&self, start: u8, stop: u8) -> Option<u32> {
+        let snapshot = self.snapshot.borrow();
+        if snapshot.ac_online != Some(true) {
+            return None;
+        }
+
+        let percent = snapshot.percent?;
+        if stop < 100 && percent >= f64::from(stop) {
+            return Some(STATE_PENDING_CHARGE);
+        }
+        if stop == 100 && percent < 99.5 {
+            return Some(STATE_CHARGING);
+        }
+        if stop == 100 {
+            return Some(STATE_FULLY_CHARGED);
+        }
+        if start < stop {
+            return Some(STATE_CHARGING);
+        }
+
+        None
+    }
+
+    fn apply_optimistic_threshold_snapshot(&self, start: u8, stop: u8) {
+        let optimistic_state = self.optimistic_state_for_thresholds(start, stop);
+        let mut snapshot = self.snapshot.borrow_mut();
+        let mut changed = false;
+
+        if snapshot.charge_start_threshold != Some(start) {
+            snapshot.charge_start_threshold = Some(start);
+            changed = true;
+        }
+        if snapshot.charge_stop_threshold != Some(stop) {
+            snapshot.charge_stop_threshold = Some(stop);
+            changed = true;
+        }
+        if let Some(state) = optimistic_state
+            && snapshot.state != Some(state)
+        {
+            snapshot.state = Some(state);
+            changed = true;
+        }
+
+        if !changed {
+            return;
+        }
+
+        let snapshot_clone = snapshot.clone();
+        drop(snapshot);
+        self.callbacks.notify(&snapshot_clone);
+    }
+
     /// Set start/stop charge thresholds.
     ///
     /// UPower is preferred because it handles policy and vendor-specific
@@ -565,6 +682,8 @@ impl BatteryService {
                     start, stop
                 );
                 self.refresh();
+                self.apply_optimistic_threshold_snapshot(start, stop);
+                self.schedule_threshold_refresh(start, stop);
                 true
             }
             Err(err) => {
@@ -903,7 +1022,10 @@ impl BatteryService {
                     }
                 }
 
-                BatteryService::global().refresh();
+                let service = BatteryService::global();
+                service.refresh();
+                service.apply_optimistic_threshold_snapshot(start, stop);
+                service.schedule_threshold_refresh(start, stop);
             },
         );
 
@@ -953,6 +1075,94 @@ mod tests {
     }
 
     #[test]
+    fn sysfs_status_maps_to_display_state_codes() {
+        assert_eq!(
+            BatteryService::sysfs_status_to_upower_state("Charging", Some(true)),
+            Some(STATE_CHARGING)
+        );
+        assert_eq!(
+            BatteryService::sysfs_status_to_upower_state("Discharging", Some(false)),
+            Some(STATE_DISCHARGING)
+        );
+        assert_eq!(
+            BatteryService::sysfs_status_to_upower_state("Full", Some(true)),
+            Some(STATE_FULLY_CHARGED)
+        );
+        assert_eq!(
+            BatteryService::sysfs_status_to_upower_state("Not charging", Some(true)),
+            Some(STATE_PENDING_CHARGE)
+        );
+        assert_eq!(
+            BatteryService::sysfs_status_to_upower_state("Not charging", Some(false)),
+            None
+        );
+    }
+
+    #[test]
+    fn sysfs_state_overrides_lagging_upower_state() {
+        let mut snapshot = BatterySnapshot::unknown();
+        snapshot.state = Some(STATE_PENDING_CHARGE);
+
+        BatteryService::apply_sysfs_snapshot(
+            &mut snapshot,
+            BatterySysfsSnapshot {
+                state: Some(STATE_CHARGING),
+                ..BatterySysfsSnapshot::default()
+            },
+        );
+
+        assert_eq!(snapshot.state, Some(STATE_CHARGING));
+    }
+
+    #[test]
+    fn optimistic_full_charge_state_reports_charging_below_full() {
+        let service = BatteryService {
+            proxy: RefCell::new(None),
+            charge_proxy: RefCell::new(None),
+            snapshot: RefCell::new(BatterySnapshot {
+                available: true,
+                percent: Some(81.0),
+                ac_online: Some(true),
+                ..BatterySnapshot::unknown()
+            }),
+            threshold_refresh_source: RefCell::new(None),
+            callbacks: Callbacks::new(),
+        };
+
+        assert_eq!(
+            service.optimistic_state_for_thresholds(
+                FULL_CHARGE_START_THRESHOLD,
+                FULL_CHARGE_STOP_THRESHOLD
+            ),
+            Some(STATE_CHARGING)
+        );
+    }
+
+    #[test]
+    fn optimistic_health_limit_state_reports_pending_at_limit() {
+        let service = BatteryService {
+            proxy: RefCell::new(None),
+            charge_proxy: RefCell::new(None),
+            snapshot: RefCell::new(BatterySnapshot {
+                available: true,
+                percent: Some(81.0),
+                ac_online: Some(true),
+                ..BatterySnapshot::unknown()
+            }),
+            threshold_refresh_source: RefCell::new(None),
+            callbacks: Callbacks::new(),
+        };
+
+        assert_eq!(
+            service.optimistic_state_for_thresholds(
+                HEALTH_CHARGE_START_THRESHOLD,
+                HEALTH_CHARGE_STOP_THRESHOLD
+            ),
+            Some(STATE_PENDING_CHARGE)
+        );
+    }
+
+    #[test]
     fn ordered_threshold_writes_raises_stop_before_start_when_needed() {
         let paths = ChargeThresholdPaths {
             start: PathBuf::from("start"),
@@ -996,6 +1206,27 @@ mod tests {
             BatteryService::upower_charge_threshold_enabled_for_thresholds(70, 85),
             None
         );
+    }
+
+    #[test]
+    fn upower_thresholds_do_not_override_sysfs_thresholds() {
+        let mut snapshot = BatterySnapshot::unknown();
+        snapshot.charge_start_threshold = Some(96);
+        snapshot.charge_stop_threshold = Some(100);
+
+        BatteryService::apply_upower_charge_snapshot(
+            &mut snapshot,
+            BatteryUpowerChargeSnapshot {
+                charge_start_threshold: Some(75),
+                charge_stop_threshold: Some(80),
+                charge_control_supported: true,
+            },
+        );
+
+        assert_eq!(snapshot.charge_start_threshold, Some(96));
+        assert_eq!(snapshot.charge_stop_threshold, Some(100));
+        assert!(snapshot.charge_control_available);
+        assert!(snapshot.charge_control_upower_available);
     }
 
     #[test]

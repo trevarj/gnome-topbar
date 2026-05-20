@@ -68,6 +68,35 @@ update_count_command = "" # print a number, or one update per line
 check_interval = 3600
 ```
 
+## Battery Health
+
+The Quick Settings battery health controls need kernel charge threshold files
+and UPower threshold support. On systems where UPower does not auto-detect the
+vendor preset, add hwdb data for the battery so `upower -i` reports
+`charge-threshold-supported: yes` and the intended start/end limits.
+
+The topbar prefers direct sysfs writes when the threshold files are writable by
+the user running `gnome-topbar`, then refreshes its state from sysfs. UPower may
+lag after threshold changes, so sysfs remains the source of truth when both are
+available.
+
+On Guix System, configure this declaratively:
+
+- Add UPower/hwdb data that exposes the battery charge limit, for example
+  `CHARGE_LIMIT=75,80` for BAT0.
+- Add a udev rule that grants the topbar user write access to
+  `/sys/class/power_supply/BAT0/charge_control_start_threshold` and
+  `/sys/class/power_supply/BAT0/charge_control_end_threshold`.
+- Reconfigure the system, reload udev, and trigger the BAT0 power-supply
+  device or reboot.
+
+Useful checks:
+
+```sh
+upower -i /org/freedesktop/UPower/devices/battery_BAT0
+ls -l /sys/class/power_supply/BAT0/charge_control_*_threshold
+```
+
 ## Custom Scripts
 
 Custom widgets are intended for small one-off indicators. They use the

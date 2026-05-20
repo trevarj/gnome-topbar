@@ -398,8 +398,9 @@ pub fn gtk_icon_candidates(logical: &str) -> &'static [&'static str] {
 
         // Battery (charging) - Adwaita level icons, then GNOME/freedesktop fallbacks
         "battery-full-charging" => &[
-            "battery-level-100-charged-symbolic",
             "battery-full-charging-symbolic",
+            "battery-level-90-charging-symbolic",
+            "battery-level-100-charged-symbolic",
             "battery-good-charging-symbolic",
             "battery-full-symbolic",
             "battery-symbolic",
@@ -2337,8 +2338,8 @@ mod tests {
         // Adwaita charging level icons should be primary
         let candidates = gtk_icon_candidates("battery-full-charging");
         assert!(!candidates.is_empty());
-        assert_eq!(candidates[0], "battery-level-100-charged-symbolic");
-        assert!(candidates.contains(&"battery-full-charging-symbolic"));
+        assert_eq!(candidates[0], "battery-full-charging-symbolic");
+        assert!(candidates.contains(&"battery-level-100-charged-symbolic"));
 
         let candidates = gtk_icon_candidates("battery-high-charging");
         assert!(!candidates.is_empty());

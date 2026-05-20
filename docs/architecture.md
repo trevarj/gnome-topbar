@@ -76,6 +76,12 @@ Key services:
 | `ConfigManager` | Hot-reload with file watching |
 | `BarManager` | Multi-monitor bar lifecycle |
 
+`BatteryService` reads UPower for display-device state, health metadata, and
+threshold support, but charge threshold values are taken from sysfs whenever the
+kernel exposes them. Direct sysfs writes update immediately, while UPower can
+report stale threshold properties after a change. The service therefore uses
+UPower threshold values only as a fallback when sysfs does not report them.
+
 ## Compositor Backend Abstraction
 
 GNOME Topbar targets Niri. The compositor service keeps a small trait boundary
