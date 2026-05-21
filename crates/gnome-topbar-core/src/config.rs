@@ -57,6 +57,7 @@ const SUPPORTED_WIDGETS: &[&str] = &[
     "clock",
     "headset",
     "keyboard_layout",
+    "os_logo",
     "quick_settings",
     "tray",
     "weather",

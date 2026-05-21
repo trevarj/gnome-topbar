@@ -42,7 +42,7 @@ background_opacity = 0.0
 #   outline_color = "accent"  # Per-widget outline color: "subtle" | "accent" | "foreground" | "#rrggbb"
 #
 # Custom widgets use the "custom-" prefix for user-defined buttons:
-#   right = ["custom-power", "custom-os", "tray", "clock"]
+#   right = ["custom-power", "os_logo", "tray", "clock"]
 #
 #   [widgets.custom-power]
 #   icon = "system-shutdown-symbolic"
@@ -51,9 +51,8 @@ background_opacity = 0.0
 #   on_click = "wlogout"
 #   on_click_right = "loginctl suspend"
 #
-#   [widgets.custom-os]
-#   image = "/usr/share/pixmaps/distro-logo.svg"  # file path (PNG, SVG, etc.)
-#   tooltip = "My Distro"
+# Built-in OS logo reads /etc/os-release and shows the current distro:
+#   right = ["os_logo", "tray", "clock"]
 #
 # One-off script indicators should use custom-*; weather and headset have built-in widgets.
 #

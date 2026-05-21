@@ -502,6 +502,15 @@ pub mod widget {
     /// Headset widget (`.headset`).
     pub const HEADSET: &str = "headset";
 
+    /// Operating-system logo widget (`.os_logo`).
+    pub const OS_LOGO: &str = "os_logo";
+
+    /// Operating-system logo label (`.os-logo-label`).
+    pub const OS_LOGO_LABEL: &str = "os-logo-label";
+
+    /// Operating-system logo icon (`.os-logo-icon`).
+    pub const OS_LOGO_ICON: &str = "os-logo-icon";
+
     // Battery
     /// Battery widget (`.battery`).
     pub const BATTERY: &str = "battery";

@@ -30,6 +30,7 @@ mod media_visualizer;
 mod notifications_common;
 mod notifications_panel;
 mod notifications_toast;
+mod os_logo;
 mod osd;
 pub(crate) mod ripple;
 mod rounded_picture;
@@ -54,6 +55,7 @@ pub use workspaces::{WorkspacesConfig, WorkspacesWidget};
 pub use custom::{CustomConfig, CustomWidget};
 pub use headset::{HeadsetConfig, HeadsetWidget};
 pub use keyboard_layout::{KeyboardLayoutConfig, KeyboardLayoutWidget};
+pub use os_logo::{OsLogoConfig, OsLogoWidget};
 pub use weather::{WeatherConfig, WeatherWidget};
 
 use gnome_topbar_core::config::WidgetEntry;
@@ -241,6 +243,15 @@ impl WidgetFactory {
                 Some(BuiltWidget {
                     widget: root,
                     handle: Box::new(headset),
+                })
+            }
+            "os_logo" => {
+                let cfg = OsLogoConfig::from_entry(entry);
+                let os_logo = OsLogoWidget::new(cfg);
+                let root = os_logo.widget().clone().upcast::<Widget>();
+                Some(BuiltWidget {
+                    widget: root,
+                    handle: Box::new(os_logo),
                 })
             }
             name if name.starts_with("custom-") => {
