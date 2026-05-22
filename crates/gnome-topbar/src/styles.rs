@@ -511,6 +511,9 @@ pub mod widget {
     /// Operating-system logo icon (`.os-logo-icon`).
     pub const OS_LOGO_ICON: &str = "os-logo-icon";
 
+    /// System monitor alert widget (`.system_monitor`).
+    pub const SYSTEM_MONITOR: &str = "system_monitor";
+
     // Battery
     /// Battery widget (`.battery`).
     pub const BATTERY: &str = "battery";

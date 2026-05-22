@@ -56,7 +56,7 @@ The shipped default is a GNOME Shell-style top bar:
 
 Standalone Waybar-style status widgets have been removed from the supported
 surface. Unknown or removed widget names produce configuration warnings and are
-skipped.
+skipped. Use `system_monitor` for CPU and memory threshold alerts.
 
 ## Updates
 
@@ -128,6 +128,20 @@ interval = 1800
 
 [widgets.headset]
 interval = 5
+```
+
+CPU and memory threshold alerts are built in as an alert-only widget. It stays
+hidden while usage is below threshold:
+
+```toml
+[widgets]
+right = ["tray", "system_monitor", "quick_settings"]
+
+[widgets.system_monitor]
+cpu_threshold = 90
+memory_threshold = 85
+interval = 5
+tooltip = "System load"
 ```
 
 Waybar-style custom script output is supported. Scripts may emit

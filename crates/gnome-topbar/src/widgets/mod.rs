@@ -35,6 +35,7 @@ mod osd;
 pub(crate) mod ripple;
 mod rounded_picture;
 pub(crate) mod scale_box;
+mod system_monitor;
 mod tray;
 mod updates_common;
 mod weather;
@@ -56,6 +57,7 @@ pub use custom::{CustomConfig, CustomWidget};
 pub use headset::{HeadsetConfig, HeadsetWidget};
 pub use keyboard_layout::{KeyboardLayoutConfig, KeyboardLayoutWidget};
 pub use os_logo::{OsLogoConfig, OsLogoWidget};
+pub use system_monitor::{SystemMonitorConfig, SystemMonitorWidget};
 pub use weather::{WeatherConfig, WeatherWidget};
 
 use gnome_topbar_core::config::WidgetEntry;
@@ -252,6 +254,15 @@ impl WidgetFactory {
                 Some(BuiltWidget {
                     widget: root,
                     handle: Box::new(os_logo),
+                })
+            }
+            "system_monitor" => {
+                let cfg = SystemMonitorConfig::from_entry(entry);
+                let system_monitor = SystemMonitorWidget::new(cfg);
+                let root = system_monitor.widget().clone().upcast::<Widget>();
+                Some(BuiltWidget {
+                    widget: root,
+                    handle: Box::new(system_monitor),
                 })
             }
             name if name.starts_with("custom-") => {

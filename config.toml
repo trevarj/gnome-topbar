@@ -28,6 +28,7 @@ left = ["workspaces"]
 center = ["clock"]
 right = [
   "tray",
+  "system_monitor",
   "quick_settings",
 ]
 border_radius = 50
@@ -76,6 +77,15 @@ background_opacity = 0.0
 #   max_chars = 12
 #   command = "headsetcontrol"
 #
+# Built-in CPU/memory threshold alert. Hidden while usage is below threshold:
+#   right = ["tray", "system_monitor", "quick_settings"]
+#
+#   [widgets.system_monitor]
+#   cpu_threshold = 90
+#   memory_threshold = 85
+#   interval = 5
+#   tooltip = "System load"
+#
 # See documentation for all widget options.
 
 [theme]
@@ -107,6 +117,12 @@ control_panel = true
 world_clocks = [
   { label = "New York", timezone = "America/New_York" },
 ]
+
+[widgets.system_monitor]
+cpu_threshold = 90
+memory_threshold = 85
+interval = 5
+tooltip = "System load"
 
 [osd]
 enabled = true
