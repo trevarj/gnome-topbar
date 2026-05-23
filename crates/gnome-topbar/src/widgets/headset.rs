@@ -216,10 +216,10 @@ fn parse_headsetcontrol_output(bytes: &[u8]) -> Option<HeadsetDisplay> {
 
 fn headset_battery_icon(percentage: u8) -> &'static str {
     match percentage {
-        0..=25 => "",
-        26..=50 => "",
-        51..=75 => "",
-        76..=99 => "",
+        0 => "",
+        1..=25 => "",
+        26..=50 => "",
+        51..=75 => "",
         _ => "",
     }
 }
@@ -251,7 +251,7 @@ mod tests {
           ]
         }"#;
         let display = parse_headsetcontrol_output(raw).unwrap();
-        assert_eq!(display.text, "󰋎 ");
+        assert_eq!(display.text, "󰋎 ");
         assert_eq!(display.tooltip, "Arctis Nova: 72%");
         assert_eq!(display.percentage, 72);
     }
@@ -279,10 +279,12 @@ mod tests {
 
     #[test]
     fn battery_icons_match_existing_script_thresholds() {
-        assert_eq!(headset_battery_icon(1), "");
-        assert_eq!(headset_battery_icon(26), "");
-        assert_eq!(headset_battery_icon(51), "");
-        assert_eq!(headset_battery_icon(76), "");
+        assert_eq!(headset_battery_icon(0), "");
+        assert_eq!(headset_battery_icon(1), "");
+        assert_eq!(headset_battery_icon(25), "");
+        assert_eq!(headset_battery_icon(26), "");
+        assert_eq!(headset_battery_icon(51), "");
+        assert_eq!(headset_battery_icon(76), "");
         assert_eq!(headset_battery_icon(100), "");
     }
 }
