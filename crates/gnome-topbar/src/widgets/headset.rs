@@ -160,7 +160,8 @@ impl Drop for HeadsetWidget {
 
 fn fetch_headset_display(config: &HeadsetConfig) -> Option<HeadsetDisplay> {
     let output = Command::new(&config.command)
-        .args(["-o", "json"])
+        // Request a live battery read; plain JSON output only reports capabilities.
+        .args(["-b", "-o", "json"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -258,6 +259,21 @@ mod tests {
     #[test]
     fn hides_when_no_battery_available() {
         let raw = br#"{"devices":[{"status":"success","battery":{"status":"BATTERY_UNAVAILABLE","level":0}}]}"#;
+        assert_eq!(parse_headsetcontrol_output(raw), None);
+    }
+
+    #[test]
+    fn hides_when_json_has_capabilities_but_no_battery_reading() {
+        let raw = br#"{
+          "devices": [
+            {
+              "status": "success",
+              "device": "Arctis Nova",
+              "capabilities": ["CAP_BATTERY_STATUS"],
+              "capabilities_str": ["battery"]
+            }
+          ]
+        }"#;
         assert_eq!(parse_headsetcontrol_output(raw), None);
     }
 
