@@ -12,7 +12,6 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::time::Duration;
 use tracing::debug;
 
 use crate::services::notification::{
@@ -41,7 +40,7 @@ use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{button, color, notification as notif};
 
-use super::animation::{FRAME_INTERVAL_MS, animation_steps, ease_out_cubic};
+use super::animation::ease_out_cubic;
 use super::notifications_common::{
     POPOVER_WIDTH, SURFACE_SHADOW_MARGIN, TOAST_ESTIMATED_HEIGHT, TOAST_GAP,
     TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget,
@@ -54,8 +53,8 @@ pub(super) struct NotificationToast {
     notification_id: u32,
     timeout_source: RefCell<Option<SourceId>>,
     current_bar_margin: Cell<i32>,
-    animation_source: RefCell<Option<SourceId>>,
-    lifecycle_animation_source: RefCell<Option<SourceId>>,
+    animation_source: RefCell<Option<gtk4::TickCallbackId>>,
+    lifecycle_animation_source: RefCell<Option<gtk4::TickCallbackId>>,
     is_closing: Cell<bool>,
     bar_edge: Edge,
     /// Actual rendered height, measured after window is mapped
@@ -482,39 +481,40 @@ impl NotificationToast {
         self.window.set_opacity(0.0);
         self.window.set_margin(self.bar_edge, start_margin);
 
-        let current_step = Rc::new(Cell::new(0));
+        let start_time_us = Rc::new(Cell::new(None::<i64>));
         let toast_weak = Rc::downgrade(self);
-        let total_steps = animation_steps(Self::ANIMATION_DURATION_MS, FRAME_INTERVAL_MS);
-        let source_id =
-            glib::timeout_add_local(Duration::from_millis(FRAME_INTERVAL_MS as u64), move || {
-                let Some(toast) = toast_weak.upgrade() else {
-                    return glib::ControlFlow::Break;
-                };
+        let source_id = self.window.add_tick_callback(move |_, frame_clock| {
+            let Some(toast) = toast_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
 
-                if toast.is_closing.get() {
-                    return glib::ControlFlow::Break;
-                }
+            if toast.is_closing.get() {
+                return glib::ControlFlow::Break;
+            }
 
-                let step = current_step.get() + 1;
-                current_step.set(step);
-
-                let progress = (step as f64 / total_steps as f64).min(1.0);
-                let eased = ease_out_cubic(progress);
-                let margin =
-                    start_margin + ((target_margin - start_margin) as f64 * eased).round() as i32;
-
-                toast.window.set_opacity(eased);
-                toast.window.set_margin(toast.bar_edge, margin);
-
-                if progress >= 1.0 {
-                    *toast.lifecycle_animation_source.borrow_mut() = None;
-                    toast.window.set_opacity(1.0);
-                    toast.window.set_margin(toast.bar_edge, target_margin);
-                    glib::ControlFlow::Break
-                } else {
-                    glib::ControlFlow::Continue
-                }
+            let start = start_time_us.get().unwrap_or_else(|| {
+                let now = frame_clock.frame_time();
+                start_time_us.set(Some(now));
+                now
             });
+            let elapsed_ms = (frame_clock.frame_time() - start) as f64 / 1000.0;
+            let progress = (elapsed_ms / Self::ANIMATION_DURATION_MS as f64).clamp(0.0, 1.0);
+            let eased = ease_out_cubic(progress);
+            let margin =
+                start_margin + ((target_margin - start_margin) as f64 * eased).round() as i32;
+
+            toast.window.set_opacity(eased);
+            toast.window.set_margin(toast.bar_edge, margin);
+
+            if progress >= 1.0 {
+                *toast.lifecycle_animation_source.borrow_mut() = None;
+                toast.window.set_opacity(1.0);
+                toast.window.set_margin(toast.bar_edge, target_margin);
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
         *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
     }
 
@@ -551,37 +551,38 @@ impl NotificationToast {
 
         let start_opacity = self.window.opacity();
         let end_margin = target_margin.saturating_sub(8);
-        let current_step = Rc::new(Cell::new(0));
+        let start_time_us = Rc::new(Cell::new(None::<i64>));
         let toast_weak = Rc::downgrade(self);
-        let total_steps = animation_steps(Self::ANIMATION_DURATION_MS, FRAME_INTERVAL_MS);
-        let source_id =
-            glib::timeout_add_local(Duration::from_millis(FRAME_INTERVAL_MS as u64), move || {
-                let Some(toast) = toast_weak.upgrade() else {
-                    return glib::ControlFlow::Break;
-                };
+        let source_id = self.window.add_tick_callback(move |_, frame_clock| {
+            let Some(toast) = toast_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
 
-                let step = current_step.get() + 1;
-                current_step.set(step);
-
-                let progress = (step as f64 / total_steps as f64).min(1.0);
-                let eased = ease_out_cubic(progress);
-                let margin =
-                    target_margin + ((end_margin - target_margin) as f64 * eased).round() as i32;
-
-                toast.window.set_opacity(start_opacity * (1.0 - eased));
-                toast.window.set_margin(toast.bar_edge, margin);
-
-                if progress >= 1.0 {
-                    *toast.lifecycle_animation_source.borrow_mut() = None;
-                    if let Some(after_close) = after_close.borrow_mut().take() {
-                        after_close();
-                    }
-                    toast.window.close();
-                    glib::ControlFlow::Break
-                } else {
-                    glib::ControlFlow::Continue
-                }
+            let start = start_time_us.get().unwrap_or_else(|| {
+                let now = frame_clock.frame_time();
+                start_time_us.set(Some(now));
+                now
             });
+            let elapsed_ms = (frame_clock.frame_time() - start) as f64 / 1000.0;
+            let progress = (elapsed_ms / Self::ANIMATION_DURATION_MS as f64).clamp(0.0, 1.0);
+            let eased = ease_out_cubic(progress);
+            let margin =
+                target_margin + ((end_margin - target_margin) as f64 * eased).round() as i32;
+
+            toast.window.set_opacity(start_opacity * (1.0 - eased));
+            toast.window.set_margin(toast.bar_edge, margin);
+
+            if progress >= 1.0 {
+                *toast.lifecycle_animation_source.borrow_mut() = None;
+                if let Some(after_close) = after_close.borrow_mut().take() {
+                    after_close();
+                }
+                toast.window.close();
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
         *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
     }
 
@@ -620,38 +621,36 @@ impl NotificationToast {
 
         // Animate position change
         let start_margin = current;
-        let total_steps = animation_steps(Self::ANIMATION_DURATION_MS, FRAME_INTERVAL_MS);
-        let current_step = Rc::new(Cell::new(0));
+        let start_time_us = Rc::new(Cell::new(None::<i64>));
         let toast_weak = Rc::downgrade(self);
 
-        let source_id = glib::timeout_add_local(
-            std::time::Duration::from_millis(FRAME_INTERVAL_MS as u64),
-            move || {
-                let Some(toast) = toast_weak.upgrade() else {
-                    return glib::ControlFlow::Break;
-                };
+        let source_id = self.window.add_tick_callback(move |_, frame_clock| {
+            let Some(toast) = toast_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
 
-                let step = current_step.get() + 1;
-                current_step.set(step);
+            let start = start_time_us.get().unwrap_or_else(|| {
+                let now = frame_clock.frame_time();
+                start_time_us.set(Some(now));
+                now
+            });
+            let elapsed_ms = (frame_clock.frame_time() - start) as f64 / 1000.0;
+            let progress = (elapsed_ms / Self::ANIMATION_DURATION_MS as f64).clamp(0.0, 1.0);
+            let eased = ease_out_cubic(progress);
 
-                let progress = (step as f64 / total_steps as f64).min(1.0);
-                let eased = ease_out_cubic(progress);
+            let new_margin = start_margin + ((target_margin - start_margin) as f64 * eased) as i32;
+            toast.current_bar_margin.set(new_margin);
+            toast
+                .window
+                .set_margin(toast.bar_edge, toast_visible_margin(new_margin));
 
-                let new_margin =
-                    start_margin + ((target_margin - start_margin) as f64 * eased) as i32;
-                toast.current_bar_margin.set(new_margin);
-                toast
-                    .window
-                    .set_margin(toast.bar_edge, toast_visible_margin(new_margin));
-
-                if progress >= 1.0 {
-                    *toast.animation_source.borrow_mut() = None;
-                    glib::ControlFlow::Break
-                } else {
-                    glib::ControlFlow::Continue
-                }
-            },
-        );
+            if progress >= 1.0 {
+                *toast.animation_source.borrow_mut() = None;
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
         *self.animation_source.borrow_mut() = Some(source_id);
     }
 }

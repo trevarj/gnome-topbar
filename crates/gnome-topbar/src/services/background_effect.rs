@@ -180,9 +180,25 @@ struct BlurState {
     compositor: Option<WlCompositor>,
     /// Cached per-surface effect objects, keyed by `wl_surface` ObjectId.
     effects: HashMap<wayland_client::backend::ObjectId, ExtBackgroundEffectSurfaceV1>,
+    /// Last applied single rounded region per surface.
+    ///
+    /// Animated popover/quick-settings blur eases into many duplicate integer
+    /// rectangles near the end of the motion. Remembering the last committed
+    /// region lets those frames skip Wayland region creation and flushes.
+    single_regions: HashMap<wayland_client::backend::ObjectId, BlurRegionKey>,
     /// Whether the compositor advertises blur. Mutable at runtime per spec —
     /// compositor stops applying blur on revocation regardless of client state.
     blur_capable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BlurRegionKey {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    radius: i32,
+    outline_visible: bool,
 }
 
 impl BlurState {
@@ -191,6 +207,7 @@ impl BlurState {
             manager: None,
             compositor: None,
             effects: HashMap::new(),
+            single_regions: HashMap::new(),
             blur_capable: false,
         }
     }
@@ -698,6 +715,21 @@ impl BackgroundEffectManager {
         Some((effect, compositor))
     }
 
+    /// Return true when a single rounded blur region differs from the last
+    /// region sent for this surface.
+    fn mark_single_region_changed(
+        &self,
+        surface_id: &wayland_client::backend::ObjectId,
+        key: BlurRegionKey,
+    ) -> bool {
+        let mut state = self.state.borrow_mut();
+        if state.single_regions.get(surface_id) == Some(&key) {
+            return false;
+        }
+        state.single_regions.insert(surface_id.clone(), key);
+        true
+    }
+
     /// Flush the event queue so requests reach the compositor promptly.
     fn flush(&self) {
         if let Ok(eq) = self.event_queue.try_borrow() {
@@ -840,28 +872,49 @@ impl BackgroundEffectManager {
             return;
         }
 
-        let Some((effect, compositor)) = self.get_or_create_effect(&info) else {
-            return;
-        };
-
         let (margin_top, margin_bottom, margin_start, margin_end, radius) =
             compute_shadow_layout(shadow_margin);
 
-        let region = compositor.create_region(&self.qh, ());
         let x = margin_start;
         let y = margin_top;
         let w = width - margin_start - margin_end;
         let h = height - margin_top - margin_bottom;
+        let outline_visible =
+            crate::services::config_manager::ConfigManager::global().surface_outline_visible();
 
-        add_rounded_rect_to_region_with_outline(
-            &region,
+        // Install the resize watcher even when the region is unchanged; the
+        // first apply after map may already match a cached value from an
+        // animation handoff.
+        let win_weak = window.downgrade();
+        Self::install_resize_watcher(window, move || {
+            if let Some(win) = win_weak.upgrade()
+                && crate::services::config_manager::ConfigManager::global().blur_enabled()
+                && let Some(blur) = BackgroundEffectManager::global()
+            {
+                blur.apply_blur_region(&win, shadow_margin);
+            }
+        });
+
+        let Some((effect, compositor)) = self.get_or_create_effect(&info) else {
+            return;
+        };
+
+        let key = BlurRegionKey {
             x,
             y,
-            w,
-            h,
+            width: w,
+            height: h,
             radius,
-            crate::services::config_manager::ConfigManager::global().surface_outline_visible(),
-        );
+            outline_visible,
+        };
+        if !self.mark_single_region_changed(&info.surface_id, key) {
+            trace!("Skipping unchanged blur region");
+            return;
+        }
+
+        let region = compositor.create_region(&self.qh, ());
+
+        add_rounded_rect_to_region_with_outline(&region, x, y, w, h, radius, outline_visible);
 
         effect.set_blur_region(Some(&region));
         region.destroy();
@@ -873,20 +926,7 @@ impl BackgroundEffectManager {
             w, h, x, y, radius, margin_top, margin_bottom, margin_start, margin_end, width, height
         );
 
-        // Install a resize watcher (once per window) so the blur region
-        // is re-applied whenever the surface dimensions change — e.g. when
-        // a Revealer expands and the layer-shell surface reconfigures.
-        // Use a weak ref to avoid a GObject ref cycle
-        // (GdkSurface → closure → Window → GdkSurface).
-        let win_weak = window.downgrade();
-        Self::install_resize_watcher(window, move || {
-            if let Some(win) = win_weak.upgrade()
-                && crate::services::config_manager::ConfigManager::global().blur_enabled()
-                && let Some(blur) = BackgroundEffectManager::global()
-            {
-                blur.apply_blur_region(&win, shadow_margin);
-            }
-        });
+        // Resize watcher installed before the unchanged-region fast path.
     }
 
     /// Apply a blur region for the bar surface.
@@ -949,6 +989,10 @@ impl BackgroundEffectManager {
         let Some((effect, compositor)) = self.get_or_create_effect(&info) else {
             return;
         };
+        self.state
+            .borrow_mut()
+            .single_regions
+            .remove(&info.surface_id);
 
         let radius =
             crate::services::config_manager::ConfigManager::global().widget_border_radius() as i32;
@@ -995,6 +1039,7 @@ impl BackgroundEffectManager {
         };
 
         let mut state = self.state.borrow_mut();
+        state.single_regions.remove(&info.surface_id);
         if let Some(effect) = state.effects.remove(&info.surface_id) {
             effect.destroy();
             debug!("Removed blur region for surface");
@@ -1028,10 +1073,6 @@ impl BackgroundEffectManager {
             return;
         };
 
-        let Some((effect, compositor)) = self.get_or_create_effect(&info) else {
-            return;
-        };
-
         let width = info.width();
         let height = info.height();
 
@@ -1056,16 +1097,32 @@ impl BackgroundEffectManager {
         let x = margin_start as f64 + dx;
         let y = margin_top as f64 + dy;
 
-        let region = compositor.create_region(&self.qh, ());
-        add_rounded_rect_to_region_with_outline(
-            &region,
-            x.round() as i32,
-            y.round() as i32,
-            scaled_w.round() as i32,
-            scaled_h.round() as i32,
+        let x = x.round() as i32;
+        let y = y.round() as i32;
+        let w = scaled_w.round() as i32;
+        let h = scaled_h.round() as i32;
+        let outline_visible =
+            crate::services::config_manager::ConfigManager::global().surface_outline_visible();
+
+        let Some((effect, compositor)) = self.get_or_create_effect(&info) else {
+            return;
+        };
+
+        let key = BlurRegionKey {
+            x,
+            y,
+            width: w,
+            height: h,
             radius,
-            crate::services::config_manager::ConfigManager::global().surface_outline_visible(),
-        );
+            outline_visible,
+        };
+        if !self.mark_single_region_changed(&info.surface_id, key) {
+            trace!("Skipping unchanged animated blur region");
+            return;
+        }
+
+        let region = compositor.create_region(&self.qh, ());
+        add_rounded_rect_to_region_with_outline(&region, x, y, w, h, radius, outline_visible);
 
         effect.set_blur_region(Some(&region));
         region.destroy();
@@ -1175,21 +1232,39 @@ impl BackgroundEffectManager {
         let bw = bounds.width().round() as i32;
         let bh = bounds.height().round() as i32;
 
+        let radius = radius_fn();
+        let outline_visible = outline_visible_fn();
+
+        // Install a resize watcher so the blur region is updated if the
+        // surface dimensions change after initial layout. The idempotency
+        // guard inside ensures this is a no-op when the deferred path already
+        // installed one. Do this before the unchanged-region fast path.
+        Self::install_surface_resize_watcher(
+            surface_root_widget,
+            content_widget,
+            radius_fn,
+            outline_visible_fn,
+        );
+
         let Some((effect, compositor)) = self.get_or_create_effect(&info) else {
             return;
         };
 
-        let region = compositor.create_region(&self.qh, ());
-        let radius = radius_fn();
-        add_rounded_rect_to_region_with_outline(
-            &region,
-            bx,
-            by,
-            bw,
-            bh,
+        let key = BlurRegionKey {
+            x: bx,
+            y: by,
+            width: bw,
+            height: bh,
             radius,
-            outline_visible_fn(),
-        );
+            outline_visible,
+        };
+        if !self.mark_single_region_changed(&info.surface_id, key) {
+            trace!("Skipping unchanged blur surface");
+            return;
+        }
+
+        let region = compositor.create_region(&self.qh, ());
+        add_rounded_rect_to_region_with_outline(&region, bx, by, bw, bh, radius, outline_visible);
 
         effect.set_blur_region(Some(&region));
         region.destroy();
@@ -1201,17 +1276,6 @@ impl BackgroundEffectManager {
         // remove_blur_region: we only touch blur state GDK doesn't manage.
         info.wl_surface.commit();
         self.flush();
-
-        // Install a resize watcher so the blur region is updated if the
-        // surface dimensions change after initial layout.  The idempotency
-        // guard inside ensures this is a no-op when the deferred path
-        // already installed one.
-        Self::install_surface_resize_watcher(
-            surface_root_widget,
-            content_widget,
-            radius_fn,
-            outline_visible_fn,
-        );
 
         debug!(
             "Applied blur surface: {}x{} at ({},{}) r={} (surface {}x{})",

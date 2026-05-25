@@ -108,8 +108,8 @@ impl KeyboardLayoutWidget {
         let icon_handle = base.add_icon("input-keyboard", &[widget::KEYBOARD_LAYOUT_ICON]);
         let label = base.add_label(None, &[widget::KEYBOARD_LAYOUT_LABEL, class::VCENTER_CAPS]);
 
-        icon_handle.widget().set_visible(config.show_icon);
-        label.set_visible(config.show_label);
+        set_visible_if_changed(&icon_handle.widget(), config.show_icon);
+        set_visible_if_changed(&label, config.show_label);
 
         // Click to cycle layouts
         {
@@ -235,7 +235,7 @@ fn update_keyboard_layout_widget(
         }
     };
 
-    label.set_label(&display_text);
+    set_label_if_changed(label, &display_text);
 
     // Set tooltip to full layout name
     let tooltip = if info.layout_name.is_empty() {
@@ -245,6 +245,18 @@ fn update_keyboard_layout_widget(
     };
     let tooltip_manager = TooltipManager::global();
     tooltip_manager.set_styled_tooltip(container, &tooltip);
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
 }
 
 #[cfg(test)]

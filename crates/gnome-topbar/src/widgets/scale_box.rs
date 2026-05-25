@@ -232,14 +232,18 @@ impl ScaleBox {
         self.set_radius(radius);
 
         if !active || width <= 0.0 {
-            if let Some(child) = imp.child.upgrade() {
+            if let Some(child) = imp.child.upgrade()
+                && child.has_css_class(suppress_child_class)
+            {
                 child.remove_css_class(suppress_child_class);
             }
             self.set_outline(0.0, gtk4::gdk::RGBA::TRANSPARENT);
             return;
         }
 
-        if let Some(child) = imp.child.upgrade() {
+        if let Some(child) = imp.child.upgrade()
+            && !child.has_css_class(suppress_child_class)
+        {
             child.add_css_class(suppress_child_class);
         }
         self.set_outline(width, color);

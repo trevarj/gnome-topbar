@@ -119,12 +119,12 @@ fn execute_power_action(action: &PowerAction) {
 struct HoldToConfirmState {
     /// Timer ID for the animation completion callback.
     timeout_id: RefCell<Option<SourceId>>,
-    /// Timer ID for the animation tick.
-    anim_id: RefCell<Option<SourceId>>,
+    /// Frame-clock callback for the progress fill animation.
+    anim_id: RefCell<Option<gtk4::TickCallbackId>>,
     /// Whether we're currently in the confirming state.
     is_confirming: Cell<bool>,
-    /// Animation start time (ms since epoch, approximate).
-    start_time: Cell<u64>,
+    /// Animation start time from the GTK frame clock.
+    start_time_us: Cell<Option<i64>>,
     /// Weak ref to progress overlay for CSS/size resets.
     progress: glib::WeakRef<GtkBox>,
 }
@@ -137,7 +137,7 @@ impl HoldToConfirmState {
             timeout_id: RefCell::new(None),
             anim_id: RefCell::new(None),
             is_confirming: Cell::new(false),
-            start_time: Cell::new(0),
+            start_time_us: Cell::new(None),
             progress: weak,
         }
     }
@@ -186,33 +186,26 @@ impl HoldToConfirmState {
         }
         self.is_confirming.set(true);
 
-        let start = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        self.start_time.set(start);
+        self.start_time_us.set(None);
         progress.set_size_request(0, -1);
 
-        // Animation loop
+        // Drive the fill from GTK's frame clock so it follows rendered frames.
         let state_anim = Rc::clone(self);
         let width_weak = width_widget_weak.clone();
-        let anim_id = glib::timeout_add_local(Duration::from_millis(ANIM_FRAME_MS), move || {
+        let anim_id = progress.add_tick_callback(move |progress, frame_clock| {
             if !state_anim.is_confirming.get() {
                 return glib::ControlFlow::Break;
             }
-            let Some(progress) = state_anim.progress.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
             let Some(width_widget) = width_weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
 
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let elapsed = now.saturating_sub(state_anim.start_time.get());
-            let ratio = (elapsed as f64 / HOLD_DURATION_MS as f64).min(1.0);
+            let frame_time_us = frame_clock.frame_time();
+            let start_time_us = state_anim.start_time_us.get().unwrap_or(frame_time_us);
+            state_anim.start_time_us.set(Some(start_time_us));
+
+            let elapsed_ms = frame_time_us.saturating_sub(start_time_us) as f64 / 1000.0;
+            let ratio = (elapsed_ms / HOLD_DURATION_MS as f64).min(1.0);
             let target_width = width_widget.width();
             let current_width = (target_width as f64 * ratio) as i32;
             progress.set_size_request(current_width, -1);
@@ -241,9 +234,6 @@ impl HoldToConfirmState {
         *self.timeout_id.borrow_mut() = Some(timeout_id);
     }
 }
-
-/// Animation frame interval in milliseconds (~60fps).
-const ANIM_FRAME_MS: u64 = 16;
 
 /// Set up hold-to-confirm gesture on a widget (mouse/touch + keyboard).
 ///

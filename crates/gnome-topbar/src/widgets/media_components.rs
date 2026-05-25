@@ -20,6 +20,45 @@ use crate::widgets::marquee_label::MarqueeLabel;
 use crate::widgets::media_visualizer::MediaVisualizer;
 use crate::widgets::rounded_picture::RoundedPicture;
 
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_tooltip_if_changed(widget: &impl IsA<gtk4::Widget>, text: Option<&str>) {
+    if widget.as_ref().tooltip_text().as_deref() != text {
+        widget.as_ref().set_tooltip_text(text);
+    }
+}
+
+fn set_sensitive_if_changed(widget: &impl IsA<gtk4::Widget>, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_scale_range_if_changed(scale: &Scale, lower: f64, upper: f64) {
+    let adjustment = scale.adjustment();
+    if (adjustment.lower() - lower).abs() >= f64::EPSILON
+        || (adjustment.upper() - upper).abs() >= f64::EPSILON
+    {
+        scale.set_range(lower, upper);
+    }
+}
+
+fn set_scale_value_if_changed(scale: &Scale, value: f64) {
+    if (scale.value() - value).abs() >= f64::EPSILON {
+        scale.set_value(value);
+    }
+}
+
 // ============================================================================
 // Shared Controller
 // ============================================================================
@@ -610,12 +649,15 @@ pub fn update_track_info(
         .artist
         .as_deref()
         .unwrap_or("Unknown artist");
-    artist_label.set_label(artist);
-    artist_label.set_tooltip_text(Some(artist));
+    set_label_if_changed(artist_label, artist);
+    set_tooltip_if_changed(artist_label, Some(artist));
 
     let album = snapshot.metadata.album.as_deref().unwrap_or("");
-    album_label.set_label(album);
-    album_label.set_tooltip_text(if album.is_empty() { None } else { Some(album) });
+    set_label_if_changed(album_label, album);
+    set_tooltip_if_changed(
+        album_label,
+        if album.is_empty() { None } else { Some(album) },
+    );
 }
 
 /// Update playback control states from a media snapshot.
@@ -628,10 +670,10 @@ pub fn update_playback_controls(
     snapshot: &MediaSnapshot,
 ) {
     play_pause_icon.set_icon(playback_icon(snapshot.playback_status));
-    play_pause_btn.set_sensitive(snapshot.can_play || snapshot.can_pause);
-    prev_btn.set_sensitive(snapshot.can_go_previous);
-    next_btn.set_sensitive(snapshot.can_go_next);
-    seek_scale.set_sensitive(snapshot.can_seek);
+    set_sensitive_if_changed(play_pause_btn, snapshot.can_play || snapshot.can_pause);
+    set_sensitive_if_changed(prev_btn, snapshot.can_go_previous);
+    set_sensitive_if_changed(next_btn, snapshot.can_go_next);
+    set_sensitive_if_changed(seek_scale, snapshot.can_seek);
 }
 
 fn playback_icon(status: PlaybackStatus) -> &'static str {
@@ -664,15 +706,15 @@ pub fn update_seek_position(
     let position = snapshot.position;
 
     if length > 0 {
-        seek_scale.set_range(0.0, length as f64);
-        seek_scale.set_value(position as f64);
+        set_scale_range_if_changed(seek_scale, 0.0, length as f64);
+        set_scale_value_if_changed(seek_scale, position as f64);
     } else {
-        seek_scale.set_range(0.0, 1.0);
-        seek_scale.set_value(0.0);
+        set_scale_range_if_changed(seek_scale, 0.0, 1.0);
+        set_scale_value_if_changed(seek_scale, 0.0);
     }
 
-    position_label.set_label(&format_duration(position));
-    duration_label.set_label(&format_duration(length));
+    set_label_if_changed(position_label, &format_duration(position));
+    set_label_if_changed(duration_label, &format_duration(length));
 }
 
 // ============================================================================
@@ -693,14 +735,14 @@ pub fn load_album_art(
 ) {
     let placeholder_for_success = placeholder_box.clone();
     let on_success = move || {
-        placeholder_for_success.set_visible(false);
+        set_visible_if_changed(&placeholder_for_success, false);
     };
 
     let picture_for_failure = picture.clone();
     let placeholder_for_failure = placeholder_box.clone();
     let on_failure = move || {
-        picture_for_failure.set_visible(false);
-        placeholder_for_failure.set_visible(true);
+        set_visible_if_changed(&picture_for_failure, false);
+        set_visible_if_changed(&placeholder_for_failure, true);
     };
 
     ArtState::debounced_load(
@@ -839,7 +881,7 @@ fn load_texture_from_stream<S, F>(
         match result {
             Ok(pixbuf) => {
                 picture.set_paintable(Some(&gtk4::gdk::Texture::for_pixbuf(&pixbuf)));
-                picture.set_visible(true);
+                set_visible_if_changed(&picture, true);
                 on_success();
             }
             Err(e) => {
@@ -872,7 +914,7 @@ fn load_texture_from_bytes<S, F>(
     ) {
         Ok(pixbuf) => {
             picture.set_paintable(Some(&gtk4::gdk::Texture::for_pixbuf(&pixbuf)));
-            picture.set_visible(true);
+            set_visible_if_changed(picture, true);
             on_success();
         }
         Err(e) => {

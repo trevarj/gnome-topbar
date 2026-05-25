@@ -22,7 +22,7 @@ use super::ui_helpers::{
 use super::window::QuickSettingsWindow;
 use crate::services::icons::IconsService;
 use crate::services::surfaces::SurfaceStyleManager;
-use crate::services::vpn::{VpnConnection, VpnService, VpnSnapshot};
+use crate::services::vpn::{VpnConnection, VpnService, VpnSnapshot, VpnState};
 use crate::services::vpn_secret_agent::VpnAuthRequest;
 use crate::styles::{button, color, icon, qs, row, state};
 
@@ -242,6 +242,8 @@ pub struct VpnCardState {
     pub auth_status_label: RefCell<Option<Label>>,
     /// UUID of the connection we're showing auth for.
     pub auth_target_uuid: RefCell<Option<String>>,
+    /// Signature of rendered connection rows to skip unchanged list rebuilds.
+    pub list_signature: RefCell<Option<String>>,
 }
 
 impl VpnCardState {
@@ -254,6 +256,7 @@ impl VpnCardState {
             auth_label: RefCell::new(None),
             auth_status_label: RefCell::new(None),
             auth_target_uuid: RefCell::new(None),
+            list_signature: RefCell::new(None),
         }
     }
 }
@@ -504,7 +507,10 @@ pub fn on_vpn_changed(state: &Rc<VpnCardState>, snapshot: &VpnSnapshot) -> bool 
         // expandable, but disable the power toggle unless a managed NM profile
         // can be controlled.
         let has_managed_connections = snapshot.connections.iter().any(|c| !c.is_external());
-        toggle.set_sensitive(snapshot.available && has_connections && has_managed_connections);
+        set_sensitive_if_changed(
+            toggle,
+            snapshot.available && has_connections && has_managed_connections,
+        );
     }
 
     // Update VPN card icon and its active state class
@@ -537,18 +543,78 @@ pub fn on_vpn_changed(state: &Rc<VpnCardState>, snapshot: &VpnSnapshot) -> bool 
         } else {
             "No connections".to_string()
         };
-        label.set_label(&subtitle);
+        set_label_if_changed(label, &subtitle);
         set_subtitle_active(label, snapshot.available && snapshot.any_active);
     }
 
     // Update connection list
     if let Some(list_box) = state.base.list_box.borrow().as_ref() {
-        populate_vpn_list(state, list_box, snapshot);
-        // Apply Pango font attrs to dynamically created list rows
-        SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        let signature = vpn_list_signature(state, snapshot);
+        if state.list_signature.borrow().as_deref() != Some(signature.as_str()) {
+            *state.list_signature.borrow_mut() = Some(signature);
+            populate_vpn_list(state, list_box, snapshot);
+            // Apply Pango font attrs to dynamically created list rows
+            SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        }
     }
 
     pending_connect_completed
+}
+
+fn vpn_list_signature(state: &VpnCardState, snapshot: &VpnSnapshot) -> String {
+    let mut signature = format!(
+        "ready={};target={:?};connections={}",
+        snapshot.is_ready,
+        state.auth_target_uuid.borrow().as_deref(),
+        snapshot.connections.len()
+    );
+
+    for connection in &snapshot.connections {
+        signature.push('|');
+        signature.push_str(&connection.uuid);
+        signature.push('\t');
+        signature.push_str(&connection.name);
+        signature.push('\t');
+        signature.push_str(if connection.active {
+            "active"
+        } else {
+            "inactive"
+        });
+        signature.push('\t');
+        signature.push_str(vpn_state_signature(connection.state));
+        signature.push('\t');
+        signature.push_str(if connection.autoconnect {
+            "autoconnect"
+        } else {
+            "manual"
+        });
+        signature.push('\t');
+        signature.push_str(&connection.vpn_type);
+    }
+
+    signature
+}
+
+fn vpn_state_signature(state: VpnState) -> &'static str {
+    match state {
+        VpnState::Unknown => "unknown",
+        VpnState::Activating => "activating",
+        VpnState::Activated => "activated",
+        VpnState::Deactivating => "deactivating",
+        VpnState::Deactivated => "deactivated",
+    }
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_sensitive_if_changed(widget: &impl IsA<gtk4::Widget>, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
 }
 
 // --- VPN Auth UI ---

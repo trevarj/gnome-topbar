@@ -69,6 +69,8 @@ pub struct BluetoothCardState {
     /// Identity of the current auth request (device_path, request_kind).
     /// Used to detect when we need to clear cached input.
     auth_request_id: RefCell<Option<AuthRequestId>>,
+    /// Signature of rendered device rows to skip unchanged list rebuilds.
+    list_signature: RefCell<Option<String>>,
 }
 
 impl BluetoothCardState {
@@ -79,6 +81,7 @@ impl BluetoothCardState {
             updating_toggle: Cell::new(false),
             auth_input: Rc::new(RefCell::new(String::new())),
             auth_request_id: RefCell::new(None),
+            list_signature: RefCell::new(None),
         }
     }
 
@@ -766,7 +769,7 @@ pub fn on_bluetooth_changed(state: &BluetoothCardState, snapshot: &BluetoothSnap
             toggle.set_active(should_be_active);
             state.updating_toggle.set(false);
         }
-        toggle.set_sensitive(snapshot.has_adapter);
+        set_sensitive_if_changed(toggle, snapshot.has_adapter);
     }
 
     // Update Bluetooth card icon and its active state class
@@ -804,21 +807,80 @@ pub fn on_bluetooth_changed(state: &BluetoothCardState, snapshot: &BluetoothSnap
         } else {
             "Disabled".to_string()
         };
-        label.set_label(&subtitle);
+        set_label_if_changed(label, &subtitle);
         set_subtitle_active(label, snapshot.connected_devices > 0);
     }
 
     // Update scan button: hide when powered off, show otherwise
     if let Some(scan_btn) = state.scan_button.borrow().as_ref() {
-        scan_btn.set_visible(snapshot.powered);
+        if scan_btn.widget().is_visible() != snapshot.powered {
+            scan_btn.set_visible(snapshot.powered);
+        }
         scan_btn.set_sensitive(snapshot.has_adapter && !snapshot.scanning);
         scan_btn.set_scanning(snapshot.scanning);
     }
 
     // Update device list
     if let Some(list_box) = state.base.list_box.borrow().as_ref() {
-        populate_bluetooth_list(list_box, snapshot, state);
-        // Apply Pango font attrs to dynamically created list rows
-        SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        let signature = bluetooth_list_signature(snapshot);
+        if state.list_signature.borrow().as_deref() != Some(signature.as_str()) {
+            *state.list_signature.borrow_mut() = Some(signature);
+            populate_bluetooth_list(list_box, snapshot, state);
+            // Apply Pango font attrs to dynamically created list rows
+            SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        }
+    }
+}
+
+fn bluetooth_list_signature(snapshot: &BluetoothSnapshot) -> String {
+    let auth_request = snapshot.auth_request.as_ref();
+    let mut signature = format!(
+        "adapter={};powered={};ready={};pairing={:?};auth={:?}:{:?};devices={}",
+        snapshot.has_adapter,
+        snapshot.powered,
+        snapshot.is_ready,
+        snapshot.pairing_device_path,
+        auth_request.map(|request| request.device_path()),
+        auth_request.map(std::mem::discriminant),
+        snapshot.devices.len()
+    );
+
+    for device in &snapshot.devices {
+        signature.push('|');
+        signature.push_str(&device.path);
+        signature.push('\t');
+        signature.push_str(&device.name);
+        signature.push('\t');
+        signature.push_str(&device.address);
+        signature.push('\t');
+        signature.push_str(if device.connected {
+            "connected"
+        } else {
+            "disconnected"
+        });
+        signature.push('\t');
+        signature.push_str(if device.paired { "paired" } else { "unpaired" });
+        signature.push('\t');
+        signature.push_str(if device.trusted {
+            "trusted"
+        } else {
+            "untrusted"
+        });
+        signature.push('\t');
+        signature.push_str(device.icon.as_deref().unwrap_or(""));
+    }
+
+    signature
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_sensitive_if_changed<W: IsA<gtk4::Widget>>(widget: &W, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
     }
 }

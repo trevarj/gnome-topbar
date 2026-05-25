@@ -77,14 +77,14 @@ impl AnimatedBars {
 
         let cava = CavaService::global();
         if !cava.available() {
-            da.set_visible(false);
+            set_visible_if_changed(da, false);
             return;
         }
 
         // Cancel any running pause-decay tick callback.
         self.generation.set(self.generation.get().wrapping_add(1));
 
-        da.set_visible(true);
+        set_visible_if_changed(da, true);
         self.state.set(State::Playing);
         self.frame_counter.set(0);
 
@@ -123,7 +123,7 @@ impl AnimatedBars {
         // show a static shape without starting cava.
         if self.state.get() == State::Inactive {
             self.state.set(State::Paused);
-            da.set_visible(true);
+            set_visible_if_changed(da, true);
             da.queue_draw();
             return;
         }
@@ -178,7 +178,6 @@ impl AnimatedBars {
                 for (cur, &tgt) in current.iter_mut().zip(targets.iter()) {
                     *cur = tgt;
                 }
-                da.queue_draw();
                 return glib::ControlFlow::Break;
             }
 
@@ -203,6 +202,12 @@ impl Drop for AnimatedBars {
     }
 }
 
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
 // ============================================================================
 // Blob visualizer (popover / window)
 // ============================================================================
@@ -216,6 +221,10 @@ const BLOB_CLIP_INSET: f64 = 2.0;
 
 /// Outer glow opacity.
 const BLOB_GLOW_OPACITY: f64 = 0.15;
+
+/// Fewer, broader samples than cava's raw bars keep the blob soft while
+/// allowing draw-time geometry to stay stack allocated.
+const BLOB_SAMPLE_COUNT: usize = 20;
 
 /// Blob visualizer that morphs around album art.
 #[derive(Clone)]
@@ -280,17 +289,14 @@ impl MediaVisualizer {
             cr.set_fill_rule(cairo::FillRule::EvenOdd);
             cr.clip();
 
-            // Resample 24 bars to 20 for the blob — fewer, broader undulations.
-            let blob_n = 20;
-            let blob_bars: Vec<f64> = (0..blob_n)
-                .map(|i| {
-                    let src = i as f64 * (bars.len() - 1) as f64 / (blob_n - 1) as f64;
-                    let lo = src as usize;
-                    let hi = (lo + 1).min(bars.len() - 1);
-                    let frac = src - lo as f64;
-                    bars[lo] * (1.0 - frac) + bars[hi] * frac
-                })
-                .collect();
+            let mut blob_bars = [0.0; BLOB_SAMPLE_COUNT];
+            for (i, bar) in blob_bars.iter_mut().enumerate() {
+                let src = i as f64 * (bars.len() - 1) as f64 / (BLOB_SAMPLE_COUNT - 1) as f64;
+                let lo = src as usize;
+                let hi = (lo + 1).min(bars.len() - 1);
+                let frac = src - lo as f64;
+                *bar = bars[lo] * (1.0 - frac) + bars[hi] * frac;
+            }
 
             let color = (ar, ag, ab);
             draw_rect_blob(
@@ -486,36 +492,30 @@ impl RoundedRect {
 fn draw_rect_blob(
     cr: &cairo::Context,
     rect: &RoundedRect,
-    bars: &[f64],
+    bars: &[f64; BLOB_SAMPLE_COUNT],
     max_displacement: f64,
     base_extra: f64,
     (r, g, b): (f64, f64, f64),
     opacity: f64,
 ) {
-    let n = bars.len();
-    if n < 3 {
-        return;
-    }
-
     // Offset so point 0 is at TL corner arc midpoint.
     let offset = rect.perimeter - FRAC_PI_4 * rect.r;
 
-    let points: Vec<(f64, f64)> = (0..n)
-        .map(|i| {
-            let t = (i as f64 / n as f64) * rect.perimeter + offset;
-            let (px, py, nx, ny) = rect.perimeter_point(t);
-            let disp = BLOB_CLIP_INSET + base_extra + bars[i] * max_displacement;
-            (px + nx * disp, py + ny * disp)
-        })
-        .collect();
+    let mut points = [(0.0, 0.0); BLOB_SAMPLE_COUNT];
+    for (i, point) in points.iter_mut().enumerate() {
+        let t = (i as f64 / BLOB_SAMPLE_COUNT as f64) * rect.perimeter + offset;
+        let (px, py, nx, ny) = rect.perimeter_point(t);
+        let disp = BLOB_CLIP_INSET + base_extra + bars[i] * max_displacement;
+        *point = (px + nx * disp, py + ny * disp);
+    }
 
     cr.new_path();
 
-    for i in 0..n {
+    for i in 0..BLOB_SAMPLE_COUNT {
         let (x1, y1) = points[i];
-        let (x2, y2) = points[(i + 1) % n];
-        let (x0, y0) = points[(i + n - 1) % n];
-        let (x3, y3) = points[(i + 2) % n];
+        let (x2, y2) = points[(i + 1) % BLOB_SAMPLE_COUNT];
+        let (x0, y0) = points[(i + BLOB_SAMPLE_COUNT - 1) % BLOB_SAMPLE_COUNT];
+        let (x3, y3) = points[(i + 2) % BLOB_SAMPLE_COUNT];
 
         if i == 0 {
             cr.move_to(x1, y1);

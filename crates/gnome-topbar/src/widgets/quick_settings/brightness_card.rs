@@ -14,6 +14,18 @@ use crate::services::brightness::BrightnessSnapshot;
 use crate::services::icons::IconHandle;
 use crate::styles::qs;
 
+fn set_sensitive_if_changed(widget: &impl IsA<gtk4::Widget>, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
+}
+
+fn set_scale_value_if_changed(slider: &Scale, value: f64) {
+    if (slider.value() - value).abs() >= f64::EPSILON {
+        slider.set_value(value);
+    }
+}
+
 pub fn brightness_icon_name(percent: u32) -> &'static str {
     if percent == 0 {
         "display-brightness-off-symbolic"
@@ -87,9 +99,9 @@ pub fn on_brightness_changed(state: &BrightnessCardState, snapshot: &BrightnessS
     // Update brightness slider (with flag to prevent feedback loop)
     if let Some(slider) = state.slider.borrow().as_ref() {
         state.updating.set(true);
-        slider.set_value(snapshot.percent as f64);
+        set_scale_value_if_changed(slider, snapshot.percent as f64);
         state.updating.set(false);
-        slider.set_sensitive(snapshot.available);
+        set_sensitive_if_changed(slider, snapshot.available);
     }
     // Update brightness icon based on current level
     if let Some(icon_handle) = state.icon_handle.borrow().as_ref() {

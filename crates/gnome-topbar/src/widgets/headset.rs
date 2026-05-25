@@ -134,20 +134,32 @@ fn refresh_headset_label(root: &GtkBox, label: &Label, config: &HeadsetConfig) {
         let result = gio::spawn_blocking(move || fetch_headset_display(&config)).await;
         match result {
             Ok(Some(display)) => {
-                label.set_label(&truncate_label(&display.text, max_chars));
+                set_label_if_changed(&label, &truncate_label(&display.text, max_chars));
                 TooltipManager::global().set_styled_tooltip(&root, &display.tooltip);
-                root.set_visible(true);
+                set_visible_if_changed(&root, true);
             }
             Ok(None) => {
-                label.set_label("");
-                root.set_visible(false);
+                set_label_if_changed(&label, "");
+                set_visible_if_changed(&root, false);
             }
             Err(err) => {
                 warn!("headset update failed: {:?}", err);
-                root.set_visible(false);
+                set_visible_if_changed(&root, false);
             }
         }
     });
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
 }
 
 impl Drop for HeadsetWidget {

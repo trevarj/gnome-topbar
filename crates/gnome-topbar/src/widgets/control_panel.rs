@@ -246,8 +246,8 @@ fn build_time_weather_card(
 
 fn refresh_time_labels(time_label: &Label, date_label: &Label) {
     let now = Local::now();
-    time_label.set_label(&now.format("%H:%M").to_string());
-    date_label.set_label(&now.format("%A, %B %-d").to_string());
+    set_label_if_changed(time_label, &now.format("%H:%M").to_string());
+    set_label_if_changed(date_label, &now.format("%A, %B %-d").to_string());
 }
 
 fn seconds_until_next_minute(second: u32) -> u32 {
@@ -320,9 +320,11 @@ fn refresh_world_clock_rows(rows: &[WorldClockRow]) {
     let now = chrono::Utc::now();
     for row in rows {
         let zoned = now.with_timezone(&row.timezone);
-        row.time_label.set_label(&zoned.format("%H:%M").to_string());
-        row.date_label
-            .set_label(&format!("{} · {}", row.label, zoned.format("%a, %b %-d")));
+        set_label_if_changed(&row.time_label, &zoned.format("%H:%M").to_string());
+        set_label_if_changed(
+            &row.date_label,
+            &format!("{} · {}", row.label, zoned.format("%a, %b %-d")),
+        );
     }
 }
 
@@ -386,13 +388,25 @@ fn refresh_weather_label(label: &Option<(Label, String)>) {
         .await;
 
         if let Ok(Some(text)) = result {
-            label.set_label(&text);
-            label.set_visible(true);
+            set_label_if_changed(&label, &text);
+            set_visible_if_changed(&label, true);
         } else if result.is_ok() {
-            label.set_label("");
-            label.set_visible(false);
+            set_label_if_changed(&label, "");
+            set_visible_if_changed(&label, false);
         }
     });
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
 }
 
 fn format_weather_exec_output(raw_output: &str) -> Option<String> {

@@ -622,7 +622,7 @@ fn run_exec(
                 }
             };
 
-            widget.set_visible(visible);
+            set_visible_if_changed(&widget, visible);
             if !stderr.is_empty() {
                 debug!(
                     widget = %custom_id,
@@ -709,11 +709,11 @@ fn run_exec(
             Ok(Ok(output)) => {
                 let display =
                     build_exec_display(output.trim(), &fallback_text, template.as_deref());
-                label.set_label(&display.label_text);
+                set_label_if_changed(&label, &display.label_text);
                 if let Some(tooltip) = display.tooltip {
                     TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
                 }
-                widget.set_visible(display.visible);
+                set_visible_if_changed(&widget, display.visible);
             }
             Ok(Err(err)) => {
                 warn!("'custom-{}' exec failed: {}", custom_id, err);
@@ -725,6 +725,18 @@ fn run_exec(
             }
         }
     });
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
 }
 
 pub(crate) fn build_exec_display(

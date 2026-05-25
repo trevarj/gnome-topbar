@@ -36,6 +36,9 @@ pub struct UpdatesCardState {
     pub refresh_button: RefCell<Option<Rc<ScanButton>>>,
     /// Last check label in the details.
     pub last_check_label: RefCell<Option<Label>>,
+    /// Signature of the rendered package rows, used to avoid rebuilding
+    /// unchanged update lists while status text is polling.
+    pub list_signature: RefCell<Option<String>>,
 }
 
 impl UpdatesCardState {
@@ -45,6 +48,7 @@ impl UpdatesCardState {
             card_box: RefCell::new(None),
             refresh_button: RefCell::new(None),
             last_check_label: RefCell::new(None),
+            list_signature: RefCell::new(None),
         }
     }
 }
@@ -193,24 +197,22 @@ pub fn on_updates_changed(state: &UpdatesCardState, snapshot: &UpdatesSnapshot) 
     // Update subtitle
     if let Some(subtitle) = state.base.subtitle.borrow().as_ref() {
         let text = format_repo_summary(snapshot);
-        subtitle.set_label(&text);
-        subtitle.set_visible(!text.is_empty());
+        set_label_if_changed(subtitle, &text);
+        set_visible_if_changed(subtitle, !text.is_empty());
         set_subtitle_active(subtitle, snapshot.update_count > 0);
     }
 
     // Update toggle sensitivity
     let is_actionable = snapshot.available && snapshot.update_count > 0;
     if let Some(toggle) = state.base.toggle.borrow().as_ref() {
-        toggle.set_sensitive(is_actionable);
-        toggle.set_active(false);
+        set_sensitive_if_changed(toggle, is_actionable);
+        if toggle.is_active() {
+            toggle.set_active(false);
+        }
     }
 
     if let Some(card_box) = state.card_box.borrow().as_ref() {
-        if is_actionable {
-            card_box.remove_css_class(qs::CARD_DISABLED);
-        } else {
-            card_box.add_css_class(qs::CARD_DISABLED);
-        }
+        set_css_class(card_box, qs::CARD_DISABLED, !is_actionable);
     }
 
     // Update refresh button label and animation
@@ -223,7 +225,7 @@ pub fn on_updates_changed(state: &UpdatesCardState, snapshot: &UpdatesSnapshot) 
         } else {
             format!("Last check: {}", format_last_check(snapshot.last_check))
         };
-        label.set_label(&text);
+        set_label_if_changed(label, &text);
     }
 
     // Update list
@@ -247,6 +249,12 @@ fn populate_updates_list(state: &UpdatesCardState, snapshot: &UpdatesSnapshot) {
     let Some(list_box) = state.base.list_box.borrow().as_ref().cloned() else {
         return;
     };
+
+    let signature = updates_list_signature(snapshot);
+    if state.list_signature.borrow().as_deref() == Some(signature.as_str()) {
+        return;
+    }
+    *state.list_signature.borrow_mut() = Some(signature);
 
     clear_list_box(&list_box);
 
@@ -288,6 +296,56 @@ fn populate_updates_list(state: &UpdatesCardState, snapshot: &UpdatesSnapshot) {
         let row = create_updates_row(&title, &pkg_list);
         list_box.append(&row);
     }
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_sensitive_if_changed<W: IsA<gtk4::Widget>>(widget: &W, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
+}
+
+fn set_css_class(widget: &gtk4::Widget, class_name: &str, enabled: bool) {
+    if enabled {
+        if !widget.has_css_class(class_name) {
+            widget.add_css_class(class_name);
+        }
+    } else if widget.has_css_class(class_name) {
+        widget.remove_css_class(class_name);
+    }
+}
+
+fn updates_list_signature(snapshot: &UpdatesSnapshot) -> String {
+    let mut signature = format!(
+        "checking={};count={};error={:?}",
+        snapshot.checking, snapshot.update_count, snapshot.error
+    );
+    let mut repos: Vec<_> = snapshot.updates_by_repo.iter().collect();
+    repos.sort_by_key(|(name, _)| *name);
+
+    for (repo, updates) in repos {
+        signature.push_str("|repo=");
+        signature.push_str(repo);
+        signature.push(':');
+        signature.push_str(&updates.len().to_string());
+        for update in updates {
+            signature.push(',');
+            signature.push_str(&update.name);
+        }
+    }
+
+    signature
 }
 
 /// Create a simple message row.

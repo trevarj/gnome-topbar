@@ -32,6 +32,12 @@ pub(crate) use crate::widgets::ripple::{
 /// Timeout for `show_if` commands in seconds.
 const SHOW_IF_TIMEOUT_SECS: u64 = 5;
 
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
 /// Configure a GTK popover with standard settings.
 ///
 /// This is used for internal popovers within Quick Settings cards and tray menus,
@@ -634,7 +640,7 @@ impl BaseWidget {
         let cmd = show_if?;
 
         // Start hidden; async evaluation will show the widget if appropriate.
-        container.set_visible(false);
+        set_visible_if_changed(container, false);
 
         let has_interval = interval.filter(|&i| i > 0).is_some();
         let prev_visible = Rc::new(Cell::new(false));
@@ -661,7 +667,7 @@ impl BaseWidget {
                     }
                 };
 
-                container.set_visible(visible);
+                set_visible_if_changed(&container, visible);
                 debug!(
                     widget = %name,
                     visible,
@@ -698,7 +704,7 @@ impl BaseWidget {
                             };
 
                             if visible {
-                                container.set_visible(true);
+                                set_visible_if_changed(&container, true);
                                 debug!(widget = %name, "show_if retry: now visible");
                             }
                         });
@@ -731,7 +737,7 @@ impl BaseWidget {
                     };
 
                     if visible != prev_visible.get() {
-                        container.set_visible(visible);
+                        set_visible_if_changed(&container, visible);
                         info!(
                             widget = %name,
                             visible,

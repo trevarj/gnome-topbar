@@ -126,12 +126,13 @@ impl SurfaceStyleManager {
     /// `apply_surface_styles` again. For most use cases, newly created
     /// surfaces will pick up the new styles automatically.
     pub fn reconfigure(&self, styles: SurfaceStyles, pango_font_rendering: bool) {
-        debug!(
-            "SurfaceStyleManager reconfiguring: bg={} -> {}, pango_font_rendering={}",
-            self.styles.borrow().background_color,
-            styles.background_color,
-            pango_font_rendering,
-        );
+        if self.pango_font_rendering.get() == pango_font_rendering
+            && surface_styles_equal(&self.styles.borrow(), &styles)
+        {
+            return;
+        }
+
+        debug!("SurfaceStyleManager reconfiguring surface styles");
         *self.styles.borrow_mut() = styles;
         self.pango_font_rendering.set(pango_font_rendering);
     }
@@ -205,14 +206,14 @@ impl SurfaceStyleManager {
         let m = self.shadow_margin(base_margin);
         let is_bottom = crate::services::config_manager::ConfigManager::global().bar_is_bottom();
         if is_bottom {
-            widget.set_margin_top(m);
-            widget.set_margin_bottom(0);
+            set_margin_top_if_changed(widget, m);
+            set_margin_bottom_if_changed(widget, 0);
         } else {
-            widget.set_margin_top(0);
-            widget.set_margin_bottom(m);
+            set_margin_top_if_changed(widget, 0);
+            set_margin_bottom_if_changed(widget, m);
         }
-        widget.set_margin_start(m);
-        widget.set_margin_end(m);
+        set_margin_start_if_changed(widget, m);
+        set_margin_end_if_changed(widget, m);
     }
 
     /// Get the current font size for bar widgets.
@@ -547,5 +548,42 @@ popover.widget-menu.background * {{
         widget
             .style_context()
             .add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_USER);
+    }
+}
+
+fn surface_styles_equal(a: &SurfaceStyles, b: &SurfaceStyles) -> bool {
+    a.background_color == b.background_color
+        && a.text_color == b.text_color
+        && a.font_family == b.font_family
+        && a.font_size == b.font_size
+        && a.border_radius == b.border_radius
+        && a.border_color == b.border_color
+        && (a.opacity - b.opacity).abs() < f64::EPSILON
+        && a.shadow == b.shadow
+        && a.is_dark_mode == b.is_dark_mode
+        && a.shadows_enabled == b.shadows_enabled
+}
+
+fn set_margin_top_if_changed(widget: &impl gtk4::prelude::WidgetExt, value: i32) {
+    if widget.margin_top() != value {
+        widget.set_margin_top(value);
+    }
+}
+
+fn set_margin_bottom_if_changed(widget: &impl gtk4::prelude::WidgetExt, value: i32) {
+    if widget.margin_bottom() != value {
+        widget.set_margin_bottom(value);
+    }
+}
+
+fn set_margin_start_if_changed(widget: &impl gtk4::prelude::WidgetExt, value: i32) {
+    if widget.margin_start() != value {
+        widget.set_margin_start(value);
+    }
+}
+
+fn set_margin_end_if_changed(widget: &impl gtk4::prelude::WidgetExt, value: i32) {
+    if widget.margin_end() != value {
+        widget.set_margin_end(value);
     }
 }

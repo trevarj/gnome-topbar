@@ -151,14 +151,19 @@ impl RoundedPicture {
 
     /// Set the paintable to display.
     pub fn set_paintable(&self, paintable: Option<&impl IsA<Paintable>>) {
-        self.imp()
-            .paintable
-            .replace(paintable.map(|p| p.as_ref().clone()));
+        let paintable = paintable.map(|p| p.as_ref().clone());
+        if self.imp().paintable.borrow().as_ref() == paintable.as_ref() {
+            return;
+        }
+        self.imp().paintable.replace(paintable);
         self.queue_draw();
     }
 
     /// Set the corner radius for rounding.
     pub fn set_corner_radius(&self, radius: f32) {
+        if (self.imp().corner_radius.get() - radius).abs() < f32::EPSILON {
+            return;
+        }
         self.imp().corner_radius.set(radius);
         self.queue_draw();
     }
@@ -172,6 +177,9 @@ impl RoundedPicture {
     ///
     /// If set to 0, the widget will use the paintable's intrinsic size.
     pub fn set_pixel_size(&self, size: i32) {
+        if self.imp().pixel_size.get() == size {
+            return;
+        }
         self.imp().pixel_size.set(size);
         self.queue_resize();
     }

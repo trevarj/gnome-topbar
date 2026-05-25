@@ -17,6 +17,18 @@ use crate::styles::{color, icon, widget as wgt};
 use crate::widgets::base::BaseWidget;
 use crate::widgets::{WidgetConfig, warn_unknown_options};
 
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
 const DEFAULT_INTERVAL_SECS: u64 = 5;
 const DEFAULT_CPU_THRESHOLD: u8 = 90;
 const DEFAULT_MEMORY_THRESHOLD: u8 = 90;
@@ -258,22 +270,22 @@ fn refresh_system_monitor(
                         max_chars,
                     );
                     TooltipManager::global().set_styled_tooltip(&root, &display.tooltip);
-                    root.set_visible(true);
+                    set_visible_if_changed(&root, true);
                 } else {
-                    cpu_label.set_label("");
-                    memory_label.set_label("");
-                    cpu_row.set_visible(false);
-                    memory_row.set_visible(false);
-                    root.set_visible(false);
+                    set_label_if_changed(&cpu_label, "");
+                    set_label_if_changed(&memory_label, "");
+                    set_visible_if_changed(&cpu_row, false);
+                    set_visible_if_changed(&memory_row, false);
+                    set_visible_if_changed(&root, false);
                 }
             }
             Ok(Err(err)) => {
                 warn!("system monitor update failed: {}", err);
-                root.set_visible(false);
+                set_visible_if_changed(&root, false);
             }
             Err(err) => {
                 warn!("system monitor task failed: {:?}", err);
-                root.set_visible(false);
+                set_visible_if_changed(&root, false);
             }
         }
     });
@@ -281,11 +293,11 @@ fn refresh_system_monitor(
 
 fn update_alert_pair(row: &GtkBox, label: &Label, text: Option<&str>, max_chars: Option<usize>) {
     if let Some(text) = text {
-        label.set_label(&truncate_label(text, max_chars));
-        row.set_visible(true);
+        set_label_if_changed(label, &truncate_label(text, max_chars));
+        set_visible_if_changed(row, true);
     } else {
-        label.set_label("");
-        row.set_visible(false);
+        set_label_if_changed(label, "");
+        set_visible_if_changed(row, false);
     }
 }
 

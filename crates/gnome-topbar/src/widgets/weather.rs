@@ -177,16 +177,28 @@ fn refresh_weather_label(label: &Label, config: &WeatherConfig) {
         let result = gio::spawn_blocking(move || fetch_weather_display(&config)).await;
         match result {
             Ok(display) => {
-                label.set_label(&truncate_label(&display.text, max_chars));
-                label.set_visible(true);
+                set_label_if_changed(&label, &truncate_label(&display.text, max_chars));
+                set_visible_if_changed(&label, true);
             }
             Err(err) => {
                 warn!("weather update failed: {:?}", err);
-                label.set_label(FALLBACK_ICON);
-                label.set_visible(true);
+                set_label_if_changed(&label, FALLBACK_ICON);
+                set_visible_if_changed(&label, true);
             }
         }
     });
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
 }
 
 impl Drop for WeatherWidget {

@@ -34,6 +34,18 @@ use crate::bar;
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::widgets::BarState;
 
+fn set_opacity_if_changed(window: &ApplicationWindow, opacity: f64) {
+    if (window.opacity() - opacity).abs() >= f64::EPSILON {
+        window.set_opacity(opacity);
+    }
+}
+
+fn set_visible_if_changed(window: &ApplicationWindow, visible: bool) {
+    if window.is_visible() != visible {
+        window.set_visible(visible);
+    }
+}
+
 /// State for a single bar instance on a specific monitor.
 struct BarInstance {
     /// The monitor this bar is displayed on.
@@ -170,7 +182,7 @@ impl BarManager {
 
         // If bars are IPC-hidden, unmap the newly created bar immediately
         if self.hidden.get() {
-            window.set_visible(false);
+            set_visible_if_changed(&window, false);
         }
 
         info!(
@@ -312,7 +324,7 @@ impl BarManager {
             {
                 blur.remove_blur_region(&instance.window);
             }
-            instance.window.set_opacity(0.0);
+            set_opacity_if_changed(&instance.window, 0.0);
         }
         debug!("All bars hidden for monitor change");
     }
@@ -330,7 +342,7 @@ impl BarManager {
             return;
         }
         for instance in self.bars.borrow().values() {
-            instance.window.set_opacity(1.0);
+            set_opacity_if_changed(&instance.window, 1.0);
         }
         debug!("All bars shown after monitor sync");
     }
@@ -355,7 +367,7 @@ impl BarManager {
         }
         self.hidden.set(true);
         for instance in self.bars.borrow().values() {
-            instance.window.set_visible(false);
+            set_visible_if_changed(&instance.window, false);
         }
         info!("Bars hidden via IPC");
     }
@@ -371,7 +383,7 @@ impl BarManager {
         }
         self.hidden.set(false);
         for instance in self.bars.borrow().values() {
-            instance.window.set_visible(true);
+            set_visible_if_changed(&instance.window, true);
         }
         info!("Bars shown via IPC");
     }

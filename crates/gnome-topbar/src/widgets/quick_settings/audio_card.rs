@@ -21,11 +21,54 @@ use super::ui_helpers::{
     AUDIO_REVEALER_DURATION_MS, add_placeholder_row, build_slide_down_revealer, clear_list_box,
     create_qs_list_box,
 };
-use crate::services::audio::{AudioService, AudioSnapshot};
+use crate::services::audio::{AudioService, AudioSnapshot, SinkInfoSnapshot};
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{color, qs, row, state};
 use crate::widgets::base::add_ripple_to_row;
+
+fn set_sensitive_if_changed(widget: &impl IsA<gtk4::Widget>, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_tooltip_if_changed(widget: &impl IsA<gtk4::Widget>, text: Option<&str>) {
+    if widget.as_ref().tooltip_text().as_deref() != text {
+        widget.as_ref().set_tooltip_text(text);
+    }
+}
+
+fn set_scale_range_if_changed(slider: &Scale, lower: f64, upper: f64) {
+    let adjustment = slider.adjustment();
+    if (adjustment.lower() - lower).abs() >= f64::EPSILON
+        || (adjustment.upper() - upper).abs() >= f64::EPSILON
+    {
+        slider.set_range(lower, upper);
+    }
+}
+
+fn set_scale_value_if_changed(slider: &Scale, value: f64) {
+    if (slider.value() - value).abs() >= f64::EPSILON {
+        slider.set_value(value);
+    }
+}
+
+fn set_disabled_class(row: &GtkBox, disabled: bool) {
+    if disabled {
+        if !row.has_css_class(qs::AUDIO_ROW_DISABLED) {
+            row.add_css_class(qs::AUDIO_ROW_DISABLED);
+        }
+    } else if row.has_css_class(qs::AUDIO_ROW_DISABLED) {
+        row.remove_css_class(qs::AUDIO_ROW_DISABLED);
+    }
+}
 
 /// Get the appropriate volume icon name based on volume level and mute state.
 ///
@@ -66,6 +109,8 @@ pub struct AudioCardState {
     pub row: RefCell<Option<GtkBox>>,
     /// Hint label shown when audio control is unavailable.
     pub hint_label: RefCell<Option<Label>>,
+    /// Signature of rendered sink rows to skip unchanged list rebuilds.
+    pub list_signature: RefCell<Option<String>>,
 }
 
 impl AudioCardState {
@@ -80,6 +125,7 @@ impl AudioCardState {
             updating: Cell::new(false),
             row: RefCell::new(None),
             hint_label: RefCell::new(None),
+            list_signature: RefCell::new(None),
         }
     }
 }
@@ -139,9 +185,9 @@ pub fn build_audio_row() -> AudioRowWidgets {
 /// the tooltip preserves the true backend volume.
 pub fn set_volume_slider_display(slider: &Scale, volume: u32) {
     let max_percent = AudioService::global().user_max_percent().max(1);
-    slider.set_range(0.0, max_percent as f64);
-    slider.set_value(volume as f64);
-    slider.set_tooltip_text(Some(&format!("{volume}%")));
+    set_scale_range_if_changed(slider, 0.0, max_percent as f64);
+    set_scale_value_if_changed(slider, volume as f64);
+    set_tooltip_if_changed(slider, Some(&format!("{volume}%")));
 }
 
 /// Container for audio details (sink list) widgets.
@@ -333,28 +379,24 @@ pub fn on_audio_changed(state: &AudioCardState, snapshot: &AudioSnapshot) {
     if let Some(slider) = state.slider.borrow().as_ref() {
         state.updating.set(true);
         set_volume_slider_display(slider, snapshot.volume);
-        slider.set_sensitive(control_ok);
+        set_sensitive_if_changed(slider, control_ok);
         state.updating.set(false);
     }
 
     // Update mute button sensitivity
     if let Some(mute_btn) = state.mute_button.borrow().as_ref() {
-        mute_btn.set_sensitive(control_ok);
+        set_sensitive_if_changed(mute_btn, control_ok);
     }
 
     // Update audio row disabled styling
     if let Some(audio_row) = state.row.borrow().as_ref() {
-        if control_ok {
-            audio_row.remove_css_class(qs::AUDIO_ROW_DISABLED);
-        } else {
-            audio_row.add_css_class(qs::AUDIO_ROW_DISABLED);
-        }
+        set_disabled_class(audio_row, !control_ok);
     }
 
     // Update hint label visibility (show when backend available but control is not)
     if let Some(hint_label) = state.hint_label.borrow().as_ref() {
         let should_show = snapshot.available && !snapshot.control_available;
-        hint_label.set_visible(should_show);
+        set_visible_if_changed(hint_label, should_show);
     }
 
     // Update volume icon based on volume and mute state
@@ -364,18 +406,48 @@ pub fn on_audio_changed(state: &AudioCardState, snapshot: &AudioSnapshot) {
 
         // Toggle muted class for styling
         let widget = icon_handle.widget();
-        if snapshot.muted {
-            widget.add_css_class(state::MUTED);
-        } else {
-            widget.remove_css_class(state::MUTED);
-        }
+        set_css_class(&widget, state::MUTED, snapshot.muted);
     }
 
     // Update sink list
     if let Some(list_box) = state.list_box.borrow().as_ref() {
-        populate_audio_sink_list(list_box, snapshot);
-        // Apply Pango font attrs to dynamically created list rows
-        SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        let signature = audio_sink_list_signature(snapshot.available, &snapshot.sinks);
+        if state.list_signature.borrow().as_deref() != Some(signature.as_str()) {
+            *state.list_signature.borrow_mut() = Some(signature);
+            populate_audio_sink_list(list_box, snapshot);
+            // Apply Pango font attrs to dynamically created list rows
+            SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        }
+    }
+}
+
+fn audio_sink_list_signature(available: bool, sinks: &[SinkInfoSnapshot]) -> String {
+    let mut signature = format!("available={available};len={}", sinks.len());
+    for sink in sinks {
+        signature.push('|');
+        signature.push_str(&sink.name);
+        signature.push('\t');
+        signature.push_str(&sink.description);
+        signature.push('\t');
+        signature.push_str(if sink.is_default { "default" } else { "normal" });
+        signature.push('\t');
+        signature.push_str(match sink.port_available {
+            Some(true) => "available",
+            Some(false) => "unavailable",
+            None => "unknown",
+        });
+    }
+    signature
+}
+
+fn set_css_class(widget: &impl IsA<gtk4::Widget>, class: &str, enabled: bool) {
+    let widget = widget.as_ref();
+    if enabled {
+        if !widget.has_css_class(class) {
+            widget.add_css_class(class);
+        }
+    } else if widget.has_css_class(class) {
+        widget.remove_css_class(class);
     }
 }
 

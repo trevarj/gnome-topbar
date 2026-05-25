@@ -25,6 +25,49 @@ use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{color, qs, row, state};
 use crate::widgets::base::add_ripple_to_row;
 
+fn set_sensitive_if_changed(widget: &impl IsA<gtk4::Widget>, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_tooltip_if_changed(widget: &impl IsA<gtk4::Widget>, text: Option<&str>) {
+    if widget.as_ref().tooltip_text().as_deref() != text {
+        widget.as_ref().set_tooltip_text(text);
+    }
+}
+
+fn set_scale_range_if_changed(slider: &Scale, lower: f64, upper: f64) {
+    let adjustment = slider.adjustment();
+    if (adjustment.lower() - lower).abs() >= f64::EPSILON
+        || (adjustment.upper() - upper).abs() >= f64::EPSILON
+    {
+        slider.set_range(lower, upper);
+    }
+}
+
+fn set_scale_value_if_changed(slider: &Scale, value: f64) {
+    if (slider.value() - value).abs() >= f64::EPSILON {
+        slider.set_value(value);
+    }
+}
+
+fn set_disabled_class(row: &GtkBox, disabled: bool) {
+    if disabled {
+        if !row.has_css_class(qs::AUDIO_ROW_DISABLED) {
+            row.add_css_class(qs::AUDIO_ROW_DISABLED);
+        }
+    } else if row.has_css_class(qs::AUDIO_ROW_DISABLED) {
+        row.remove_css_class(qs::AUDIO_ROW_DISABLED);
+    }
+}
+
 /// Get the appropriate mic icon name based on volume level and mute state.
 pub fn mic_icon_name(volume: u32, muted: bool) -> &'static str {
     if muted {
@@ -62,6 +105,8 @@ pub struct MicCardState {
     pub row: RefCell<Option<GtkBox>>,
     /// Hint label shown when mic control is unavailable.
     pub hint_label: RefCell<Option<Label>>,
+    /// Signature of rendered source rows to skip unchanged list rebuilds.
+    pub list_signature: RefCell<Option<String>>,
 }
 
 impl MicCardState {
@@ -76,6 +121,7 @@ impl MicCardState {
             updating: Cell::new(false),
             row: RefCell::new(None),
             hint_label: RefCell::new(None),
+            list_signature: RefCell::new(None),
         }
     }
 }
@@ -135,9 +181,9 @@ pub fn build_mic_row() -> MicRowWidgets {
 /// the tooltip preserves the true backend volume.
 pub fn set_mic_slider_display(slider: &Scale, volume: u32) {
     let max_percent = AudioService::global().user_max_percent().max(1);
-    slider.set_range(0.0, max_percent as f64);
-    slider.set_value(volume as f64);
-    slider.set_tooltip_text(Some(&format!("{volume}%")));
+    set_scale_range_if_changed(slider, 0.0, max_percent as f64);
+    set_scale_value_if_changed(slider, volume as f64);
+    set_tooltip_if_changed(slider, Some(&format!("{volume}%")));
 }
 
 /// Container for mic details (source list) widgets.
@@ -325,28 +371,24 @@ pub fn on_mic_changed(state: &MicCardState, snapshot: &AudioSnapshot) {
     if let Some(slider) = state.slider.borrow().as_ref() {
         state.updating.set(true);
         set_mic_slider_display(slider, mic_volume);
-        slider.set_sensitive(control_ok);
+        set_sensitive_if_changed(slider, control_ok);
         state.updating.set(false);
     }
 
     // Update mute button sensitivity
     if let Some(mute_btn) = state.mute_button.borrow().as_ref() {
-        mute_btn.set_sensitive(control_ok);
+        set_sensitive_if_changed(mute_btn, control_ok);
     }
 
     // Update mic row disabled styling
     if let Some(mic_row) = state.row.borrow().as_ref() {
-        if control_ok {
-            mic_row.remove_css_class(qs::AUDIO_ROW_DISABLED);
-        } else {
-            mic_row.add_css_class(qs::AUDIO_ROW_DISABLED);
-        }
+        set_disabled_class(mic_row, !control_ok);
     }
 
     // Update hint label visibility (show when backend available but control is not)
     if let Some(hint_label) = state.hint_label.borrow().as_ref() {
         let should_show = snapshot.available && !snapshot.mic_control_available;
-        hint_label.set_visible(should_show);
+        set_visible_if_changed(hint_label, should_show);
     }
 
     // Update mic icon based on volume and mute state
@@ -356,18 +398,52 @@ pub fn on_mic_changed(state: &MicCardState, snapshot: &AudioSnapshot) {
 
         // Toggle muted class for styling
         let widget = icon_handle.widget();
-        if mic_muted {
-            widget.add_css_class(state::MUTED);
-        } else {
-            widget.remove_css_class(state::MUTED);
-        }
+        set_css_class(&widget, state::MUTED, mic_muted);
     }
 
     // Update source list
     if let Some(list_box) = state.list_box.borrow().as_ref() {
-        populate_mic_source_list(list_box, &snapshot.sources);
-        // Apply Pango font attrs to dynamically created list rows
-        SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        let signature = mic_source_list_signature(&snapshot.sources);
+        if state.list_signature.borrow().as_deref() != Some(signature.as_str()) {
+            *state.list_signature.borrow_mut() = Some(signature);
+            populate_mic_source_list(list_box, &snapshot.sources);
+            // Apply Pango font attrs to dynamically created list rows
+            SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        }
+    }
+}
+
+fn mic_source_list_signature(sources: &[SourceInfoSnapshot]) -> String {
+    let mut signature = format!("len={}", sources.len());
+    for source in sources {
+        signature.push('|');
+        signature.push_str(&source.name);
+        signature.push('\t');
+        signature.push_str(&source.description);
+        signature.push('\t');
+        signature.push_str(if source.is_default {
+            "default"
+        } else {
+            "normal"
+        });
+        signature.push('\t');
+        signature.push_str(match source.port_available {
+            Some(true) => "available",
+            Some(false) => "unavailable",
+            None => "unknown",
+        });
+    }
+    signature
+}
+
+fn set_css_class(widget: &impl IsA<gtk4::Widget>, class: &str, enabled: bool) {
+    let widget = widget.as_ref();
+    if enabled {
+        if !widget.has_css_class(class) {
+            widget.add_css_class(class);
+        }
+    } else if widget.has_css_class(class) {
+        widget.remove_css_class(class);
     }
 }
 

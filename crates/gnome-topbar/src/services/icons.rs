@@ -1236,8 +1236,8 @@ pub struct CairoSpinner {
     area: gtk4::DrawingArea,
     /// Current rotation angle (radians), shared with the draw function.
     angle: Rc<Cell<f64>>,
-    /// Active timer source, if the animation is running.
-    source: RefCell<Option<glib::SourceId>>,
+    /// Active frame-clock callback, if the animation is running.
+    source: RefCell<Option<gtk4::TickCallbackId>>,
 }
 
 impl CairoSpinner {
@@ -1324,30 +1324,46 @@ impl CairoSpinner {
 
     /// Set the spinner content size (width and height in pixels).
     pub fn set_size(&self, size: i32) {
-        self.area.set_content_width(size);
-        self.area.set_content_height(size);
+        if self.area.content_width() != size {
+            self.area.set_content_width(size);
+        }
+        if self.area.content_height() != size {
+            self.area.set_content_height(size);
+        }
     }
 
-    /// Start the spinning animation (~30fps).
+    /// Start the spinning animation.
     ///
     /// If already running this is a no-op.
     pub fn start(&self) {
-        self.area.set_visible(true);
+        set_visible_if_changed(&self.area, true);
         if self.source.borrow().is_some() {
             return;
         }
         let angle = self.angle.clone();
         let area_weak = self.area.downgrade();
-        let source = glib::timeout_add_local(std::time::Duration::from_millis(33), move || {
-            angle.set(angle.get() + 0.2);
-            if angle.get() > 2.0 * PI {
-                angle.set(angle.get() - 2.0 * PI);
-            }
-            if let Some(area) = area_weak.upgrade() {
-                area.queue_draw();
-                glib::ControlFlow::Continue
-            } else {
-                glib::ControlFlow::Break
+        let last_frame_time_us = Rc::new(Cell::new(None::<i64>));
+        let source = self.area.add_tick_callback({
+            let last_frame_time_us = last_frame_time_us.clone();
+            move |area, frame_clock| {
+                let now = frame_clock.frame_time();
+                let dt = last_frame_time_us
+                    .get()
+                    .map(|last| (now - last).max(0) as f64 / 1_000_000.0)
+                    .unwrap_or(0.0);
+                last_frame_time_us.set(Some(now));
+
+                // Match the previous 0.2 rad / 33 ms speed while letting GTK
+                // schedule frames at the compositor's actual refresh cadence.
+                let next = (angle.get() + dt * (0.2 / 0.033)).rem_euclid(2.0 * PI);
+                angle.set(next);
+
+                if area_weak.upgrade().is_some() {
+                    area.queue_draw();
+                    glib::ControlFlow::Continue
+                } else {
+                    glib::ControlFlow::Break
+                }
             }
         });
         *self.source.borrow_mut() = Some(source);
@@ -1358,7 +1374,7 @@ impl CairoSpinner {
         if let Some(source_id) = self.source.borrow_mut().take() {
             source_id.remove();
         }
-        self.area.set_visible(false);
+        set_visible_if_changed(&self.area, false);
     }
 
     /// Stop the animation and release the timer, without changing visibility.
@@ -1405,7 +1421,11 @@ struct IconHandleInner {
 
 impl IconHandleInner {
     /// Update the displayed icon using the current backend.
-    fn apply_icon(&self, name: &str) {
+    fn apply_icon(&self, name: &str, force: bool) {
+        if !force && self.logical_name.borrow().as_str() == name {
+            return;
+        }
+
         *self.logical_name.borrow_mut() = name.to_string();
 
         match &*self.backend.borrow() {
@@ -1427,7 +1447,7 @@ impl IconHandleInner {
     fn reapply(&self) {
         let name = self.logical_name.borrow().clone();
         if !name.is_empty() {
-            self.apply_icon(&name);
+            self.apply_icon(&name, true);
         }
     }
 
@@ -1506,8 +1526,8 @@ impl IconHandleInner {
                 rh = nat_h;
             }
 
-            self.root.set_size_request(rw, rh);
-            backend.widget().set_visible(false);
+            set_size_request_if_changed(&self.root, rw, rh);
+            set_visible_if_changed(&backend.widget(), false);
             drop(backend);
 
             let raw = (rw.min(rh) as f64 * 0.75).round() as i32;
@@ -1520,9 +1540,22 @@ impl IconHandleInner {
             if let Some(spinner) = self.spinner.borrow().as_ref() {
                 spinner.stop();
             }
-            self.root.set_size_request(-1, -1);
-            backend.widget().set_visible(true);
+            set_size_request_if_changed(&self.root, -1, -1);
+            set_visible_if_changed(&backend.widget(), true);
         }
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_size_request_if_changed(widget: &impl IsA<gtk4::Widget>, width: i32, height: i32) {
+    let widget = widget.as_ref();
+    if widget.width_request() != width || widget.height_request() != height {
+        widget.set_size_request(width, height);
     }
 }
 
@@ -1562,12 +1595,20 @@ impl IconHandle {
     /// tracks the class so it survives theme switches (when the backend widget
     /// is recreated).
     pub fn add_css_class(&self, class: &str) {
-        self.inner.backend.borrow().widget().add_css_class(class);
-        self.inner.root.add_css_class(class);
-        self.inner
+        let inserted = self
+            .inner
             .dynamic_classes
             .borrow_mut()
             .insert(class.to_string());
+        if !inserted
+            && self.inner.root.has_css_class(class)
+            && self.inner.backend.borrow().widget().has_css_class(class)
+        {
+            return;
+        }
+
+        self.inner.backend.borrow().widget().add_css_class(class);
+        self.inner.root.add_css_class(class);
     }
 
     /// Remove a CSS class from the backend widget.
@@ -1575,9 +1616,16 @@ impl IconHandle {
     /// This removes the class from both the current widget and the tracked
     /// set, so it won't be reapplied on theme switches.
     pub fn remove_css_class(&self, class: &str) {
+        let removed = self.inner.dynamic_classes.borrow_mut().remove(class);
+        if !removed
+            && !self.inner.root.has_css_class(class)
+            && !self.inner.backend.borrow().widget().has_css_class(class)
+        {
+            return;
+        }
+
         self.inner.backend.borrow().widget().remove_css_class(class);
         self.inner.root.remove_css_class(class);
-        self.inner.dynamic_classes.borrow_mut().remove(class);
     }
 
     /// Update the displayed icon by logical name.
@@ -1595,7 +1643,7 @@ impl IconHandle {
     /// icon_handle.set_icon("battery-missing");
     /// ```
     pub fn set_icon(&self, name: &str) {
-        self.inner.apply_icon(name);
+        self.inner.apply_icon(name, false);
     }
 
     /// Show a spinning/loading indicator in place of the icon.

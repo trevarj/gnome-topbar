@@ -34,6 +34,30 @@ use crate::widgets::base::trigger_ripple_from_gesture;
 use crate::widgets::warn_unknown_options;
 use gnome_topbar_core::config::WidgetEntry;
 
+macro_rules! set_visible_if_changed {
+    ($widget:expr, $visible:expr $(,)?) => {{
+        let widget = $widget.clone();
+        let widget_ref: &gtk4::Widget = widget.as_ref();
+        if widget_ref.is_visible() != $visible {
+            widget_ref.set_visible($visible);
+        }
+    }};
+}
+
+macro_rules! set_css_class {
+    ($widget:expr, $class_name:expr, $enabled:expr $(,)?) => {{
+        let widget = $widget.clone();
+        let widget: &gtk4::Widget = widget.as_ref();
+        if $enabled {
+            if !widget.has_css_class($class_name) {
+                widget.add_css_class($class_name);
+            }
+        } else if widget.has_css_class($class_name) {
+            widget.remove_css_class($class_name);
+        }
+    }};
+}
+
 /// Configuration for which cards are shown in Quick Settings.
 ///
 /// These options are set in the `[widgets.quick_settings]` TOML section
@@ -358,11 +382,9 @@ impl QuickSettingsWidget {
             let vpn_icon_name_initial = vpn_icon_name();
             let vpn_icon = base.add_icon(vpn_icon_name_initial, &[icon::ICON, icon::TEXT]);
 
-            vpn_icon
-                .widget()
-                .set_visible(vpn_snapshot.available && vpn_any_active);
+            set_visible_if_changed!(vpn_icon.widget(), vpn_snapshot.available && vpn_any_active);
             if vpn_snapshot.available && vpn_any_active {
-                vpn_icon.widget().add_css_class(state::ICON_ACTIVE);
+                set_css_class!(vpn_icon.widget(), state::ICON_ACTIVE, true);
             }
 
             // Subscribe to VpnService updates
@@ -371,19 +393,19 @@ impl QuickSettingsWidget {
                 let widget = vpn_icon_handle.widget();
 
                 if !snapshot.available || !snapshot.any_active {
-                    widget.set_visible(false);
-                    widget.remove_css_class(state::ICON_ACTIVE);
+                    set_visible_if_changed!(widget, false);
+                    set_css_class!(widget, state::ICON_ACTIVE, false);
                     return;
                 }
-                widget.set_visible(true);
+                set_visible_if_changed!(widget, true);
 
                 let icon_name = vpn_icon_name();
                 vpn_icon_handle.set_icon(icon_name);
 
                 if snapshot.any_active {
-                    widget.add_css_class(state::ICON_ACTIVE);
+                    set_css_class!(widget, state::ICON_ACTIVE, true);
                 } else {
-                    widget.remove_css_class(state::ICON_ACTIVE);
+                    set_css_class!(widget, state::ICON_ACTIVE, false);
                 }
 
                 let tooltip = if snapshot.any_active {
@@ -415,15 +437,13 @@ impl QuickSettingsWidget {
                 mobile_state_icon_name(mobile_enabled, snapshot.mobile_active(), quality);
             let mobile_icon = base.add_icon(initial_icon, &[icon::ICON, icon::TEXT]);
 
-            mobile_icon
-                .widget()
-                .set_visible(snapshot.mobile_supported());
+            set_visible_if_changed!(mobile_icon.widget(), snapshot.mobile_supported());
 
             if snapshot.mobile_active() || snapshot.mobile_connecting() {
-                mobile_icon.widget().add_css_class(state::ICON_ACTIVE);
+                set_css_class!(mobile_icon.widget(), state::ICON_ACTIVE, true);
             }
             if !mobile_enabled {
-                mobile_icon.widget().add_css_class(qs::MOBILE_DISABLED_ICON);
+                set_css_class!(mobile_icon.widget(), qs::MOBILE_DISABLED_ICON, true);
             }
             if snapshot.mobile_connecting() {
                 mobile_icon.set_spinning(true);
@@ -434,7 +454,7 @@ impl QuickSettingsWidget {
                 move |snapshot: &NetworkSnapshot| {
                     let widget = mobile_icon_handle.widget();
 
-                    widget.set_visible(snapshot.mobile_supported());
+                    set_visible_if_changed!(widget, snapshot.mobile_supported());
 
                     let quality = snapshot.mobile_signal_quality().unwrap_or(0);
                     let mobile_enabled = snapshot.mobile_enabled().unwrap_or(false);
@@ -446,16 +466,16 @@ impl QuickSettingsWidget {
                     mobile_icon_handle.set_spinning(snapshot.mobile_connecting());
 
                     if snapshot.mobile_active() || snapshot.mobile_connecting() {
-                        widget.add_css_class(state::ICON_ACTIVE);
+                        set_css_class!(widget, state::ICON_ACTIVE, true);
                     } else {
-                        widget.remove_css_class(state::ICON_ACTIVE);
+                        set_css_class!(widget, state::ICON_ACTIVE, false);
                     }
 
                     // Apply disabled styling when modem is off
                     if !mobile_enabled {
-                        widget.add_css_class(qs::MOBILE_DISABLED_ICON);
+                        set_css_class!(widget, qs::MOBILE_DISABLED_ICON, true);
                     } else {
-                        widget.remove_css_class(qs::MOBILE_DISABLED_ICON);
+                        set_css_class!(widget, qs::MOBILE_DISABLED_ICON, false);
                     }
 
                     let carrier = snapshot.mobile_display_name().to_string();
@@ -556,11 +576,11 @@ impl QuickSettingsWidget {
             let bt_icon = base.add_icon(bt_icon_name_initial, &[icon::ICON, icon::TEXT]);
 
             if bt_connected_devices > 0 {
-                bt_icon.widget().add_css_class(state::ICON_ACTIVE);
+                set_css_class!(bt_icon.widget(), state::ICON_ACTIVE, true);
             }
-            bt_icon.widget().set_visible(bt_powered);
+            set_visible_if_changed!(bt_icon.widget(), bt_powered);
             if !bt_powered {
-                bt_icon.widget().add_css_class(qs::BT_DISABLED_ICON);
+                set_css_class!(bt_icon.widget(), qs::BT_DISABLED_ICON, true);
             }
 
             // Subscribe to BluetoothService updates
@@ -570,35 +590,35 @@ impl QuickSettingsWidget {
                     let widget = bt_icon_handle.widget();
 
                     if !snapshot.has_adapter && snapshot.is_ready {
-                        widget.set_visible(false);
-                        widget.add_css_class(state::SERVICE_UNAVAILABLE);
-                        widget.remove_css_class(state::ICON_ACTIVE);
+                        set_visible_if_changed!(widget, false);
+                        set_css_class!(widget, state::SERVICE_UNAVAILABLE, true);
+                        set_css_class!(widget, state::ICON_ACTIVE, false);
                         bt_icon_handle.set_icon("bluetooth-disabled-symbolic");
                         TooltipManager::global()
                             .set_styled_tooltip(&widget, "Bluetooth: No adapter found");
                         return;
                     }
 
-                    widget.remove_css_class(state::SERVICE_UNAVAILABLE);
+                    set_css_class!(widget, state::SERVICE_UNAVAILABLE, false);
 
                     let powered = snapshot.powered;
                     let connected_devices = snapshot.connected_devices;
-                    widget.set_visible(powered);
+                    set_visible_if_changed!(widget, powered);
 
                     let icon_name = bt_icon_name(powered, connected_devices);
                     bt_icon_handle.set_icon(icon_name);
 
                     if connected_devices > 0 {
-                        widget.add_css_class(state::ICON_ACTIVE);
+                        set_css_class!(widget, state::ICON_ACTIVE, true);
                     } else {
-                        widget.remove_css_class(state::ICON_ACTIVE);
+                        set_css_class!(widget, state::ICON_ACTIVE, false);
                     }
 
                     // Apply disabled styling when Bluetooth is off
                     if !powered {
-                        widget.add_css_class(qs::BT_DISABLED_ICON);
+                        set_css_class!(widget, qs::BT_DISABLED_ICON, true);
                     } else {
-                        widget.remove_css_class(qs::BT_DISABLED_ICON);
+                        set_css_class!(widget, qs::BT_DISABLED_ICON, false);
                     }
 
                     let tooltip = if connected_devices > 0 {
@@ -724,35 +744,38 @@ fn update_battery_indicator(icon_handle: &IconHandle, snapshot: &BatterySnapshot
     let icon_widget = icon_handle.widget();
 
     if !snapshot.available {
-        icon_widget.set_visible(false);
-        icon_widget.remove_css_class(state::ICON_ACTIVE);
-        icon_widget.remove_css_class(widget::BATTERY_CHARGING);
-        icon_widget.remove_css_class(widget::BATTERY_PLUGGED);
-        icon_widget.remove_css_class(widget::BATTERY_FULL);
-        icon_widget.remove_css_class(widget::BATTERY_LOW);
+        set_visible_if_changed!(icon_widget, false);
+        set_css_class!(icon_widget, state::ICON_ACTIVE, false);
+        set_css_class!(icon_widget, widget::BATTERY_CHARGING, false);
+        set_css_class!(icon_widget, widget::BATTERY_PLUGGED, false);
+        set_css_class!(icon_widget, widget::BATTERY_FULL, false);
+        set_css_class!(icon_widget, widget::BATTERY_LOW, false);
         return;
     }
 
-    icon_widget.set_visible(true);
-    icon_widget.remove_css_class(state::SERVICE_UNAVAILABLE);
-    icon_widget.remove_css_class(widget::BATTERY_CHARGING);
-    icon_widget.remove_css_class(widget::BATTERY_PLUGGED);
-    icon_widget.remove_css_class(widget::BATTERY_FULL);
-    icon_widget.remove_css_class(widget::BATTERY_LOW);
+    set_visible_if_changed!(icon_widget, true);
+    set_css_class!(icon_widget, state::SERVICE_UNAVAILABLE, false);
 
     let rounded = snapshot.percent.map(rounded_pct_value);
     let display_state = battery_display_state_from_snapshot(snapshot);
     let low = matches!(rounded, Some(pct) if pct <= 20);
 
-    if display_state == BatteryDisplayState::Charging {
-        icon_widget.add_css_class(widget::BATTERY_CHARGING);
-    } else if display_state == BatteryDisplayState::FullyCharged {
-        icon_widget.add_css_class(widget::BATTERY_FULL);
-    } else if display_state == BatteryDisplayState::PluggedNotCharging {
-        icon_widget.add_css_class(widget::BATTERY_PLUGGED);
-    } else if low {
-        icon_widget.add_css_class(widget::BATTERY_LOW);
-    }
+    set_css_class!(
+        icon_widget,
+        widget::BATTERY_CHARGING,
+        display_state == BatteryDisplayState::Charging,
+    );
+    set_css_class!(
+        icon_widget,
+        widget::BATTERY_FULL,
+        display_state == BatteryDisplayState::FullyCharged,
+    );
+    set_css_class!(
+        icon_widget,
+        widget::BATTERY_PLUGGED,
+        display_state == BatteryDisplayState::PluggedNotCharging,
+    );
+    set_css_class!(icon_widget, widget::BATTERY_LOW, low);
 
     let icon_name = rounded
         .map(|pct| battery_icon_name(pct, display_state))

@@ -140,8 +140,10 @@ impl IconButton {
 
 fn sync_toggle_card_active_class(card: &GtkBox, active: bool) {
     if active {
-        card.add_css_class(qs::CARD_ACTIVE);
-    } else {
+        if !card.has_css_class(qs::CARD_ACTIVE) {
+            card.add_css_class(qs::CARD_ACTIVE);
+        }
+    } else if card.has_css_class(qs::CARD_ACTIVE) {
         card.remove_css_class(qs::CARD_ACTIVE);
     }
 }

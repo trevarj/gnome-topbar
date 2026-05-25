@@ -317,7 +317,13 @@ fn sync_items(state: &Rc<RefCell<WidgetState>>, container: &GtkBox, root: &GtkBo
 
     // Show/hide widget based on whether we have tray items
     let has_items = !state.borrow().buttons.is_empty();
-    root.set_visible(has_items);
+    set_visible_if_changed(root, has_items);
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
 }
 
 fn create_button(state: &Rc<RefCell<WidgetState>>, identifier: &str) -> Button {

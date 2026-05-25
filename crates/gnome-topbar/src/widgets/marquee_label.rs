@@ -12,7 +12,7 @@
 //! reporting, ensuring the widget respects max_width_chars for layout purposes
 //! while still allowing the full text to scroll.
 
-use gtk4::glib::{self, SourceId};
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
 use gtk4::{Label, Overflow, Widget};
@@ -20,11 +20,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tracing::debug;
 
-/// Default scroll speed in pixels per tick (60 FPS).
-/// 0.35 = ~21 pixels per second, smooth and readable.
-const DEFAULT_SCROLL_SPEED: f64 = 0.35;
-/// Animation tick interval in milliseconds (~60 FPS).
-const TICK_INTERVAL_MS: u32 = 16;
+/// Default scroll speed in pixels per second.
+/// Kept slow enough to remain readable in a compact top-bar surface.
+const DEFAULT_SCROLL_SPEED: f64 = 22.0;
 /// Gap between repeated text when scrolling (in pixels).
 const SCROLL_GAP: f64 = 50.0;
 
@@ -42,10 +40,10 @@ struct MarqueeState {
     text_width: f64,
     /// Width of the container.
     container_width: f64,
-    /// Scroll speed in pixels per tick.
+    /// Scroll speed in pixels per second.
     scroll_speed: f64,
-    /// Animation timer source ID.
-    timer_id: Option<SourceId>,
+    /// Animation frame-clock callback ID.
+    tick_id: Option<gtk4::TickCallbackId>,
     /// Current text to detect changes.
     current_text: String,
 }
@@ -60,7 +58,7 @@ impl Default for MarqueeState {
             text_width: 0.0,
             container_width: 0.0,
             scroll_speed: DEFAULT_SCROLL_SPEED,
-            timer_id: None,
+            tick_id: None,
             current_text: String::new(),
         }
     }
@@ -105,7 +103,7 @@ mod imp {
 
         fn dispose(&self) {
             // Stop any running animation
-            if let Some(id) = self.state.borrow_mut().timer_id.take() {
+            if let Some(id) = self.state.borrow_mut().tick_id.take() {
                 id.remove();
             }
             // Unparent the labels
@@ -355,7 +353,7 @@ impl MarqueeLabel {
     fn stop_animation(&self) {
         let state = self.container.state();
         let mut s = state.borrow_mut();
-        if let Some(id) = s.timer_id.take() {
+        if let Some(id) = s.tick_id.take() {
             id.remove();
         }
         s.scrolling = false;
@@ -368,8 +366,28 @@ impl MarqueeLabel {
     /// which resets to the beginning). Resuming continues from the same offset.
     pub fn set_paused(&self, paused: bool) {
         let state = self.container.state();
-        let mut s = state.borrow_mut();
-        s.paused = paused;
+        {
+            let mut s = state.borrow_mut();
+            if s.paused == paused {
+                return;
+            }
+            s.paused = paused;
+
+            if paused {
+                if let Some(id) = s.tick_id.take() {
+                    id.remove();
+                }
+                return;
+            }
+        }
+
+        let should_resume = {
+            let s = state.borrow();
+            s.scrolling && s.tick_id.is_none()
+        };
+        if should_resume {
+            start_animation(&state, &self.container);
+        }
     }
 }
 
@@ -414,7 +432,7 @@ fn check_and_start_scroll(
             text_width, container_width, s.scroll_distance
         );
 
-        if s.timer_id.is_none() {
+        if !s.paused && s.tick_id.is_none() {
             drop(s);
             start_animation(state, container);
         }
@@ -429,27 +447,30 @@ fn check_and_start_scroll(
     }
 }
 
-/// Start the animation timer.
+/// Start the frame-clock animation.
 fn start_animation(state: &Rc<RefCell<MarqueeState>>, container: &MarqueeContainer) {
     let state_for_closure = state.clone();
     let container = container.clone();
+    let last_frame_time_us = Rc::new(Cell::new(None::<i64>));
 
-    let id = glib::timeout_add_local(
-        std::time::Duration::from_millis(TICK_INTERVAL_MS as u64),
-        move || {
+    let id = container.add_tick_callback({
+        let last_frame_time_us = last_frame_time_us.clone();
+        move |container, frame_clock| {
             let mut s = state_for_closure.borrow_mut();
 
-            if !s.scrolling {
-                s.timer_id = None;
+            if !s.scrolling || s.paused {
+                s.tick_id = None;
                 return glib::ControlFlow::Break;
             }
 
-            // When paused, keep the timer alive but freeze the scroll position
-            if s.paused {
-                return glib::ControlFlow::Continue;
-            }
+            let now = frame_clock.frame_time();
+            let dt = last_frame_time_us
+                .get()
+                .map(|last| (now - last).max(0) as f64 / 1_000_000.0)
+                .unwrap_or(0.0);
+            last_frame_time_us.set(Some(now));
 
-            s.offset += s.scroll_speed;
+            s.offset += s.scroll_speed * dt;
 
             // Seamless loop - reset when we've scrolled the full distance
             if s.offset >= s.scroll_distance {
@@ -462,10 +483,10 @@ fn start_animation(state: &Rc<RefCell<MarqueeState>>, container: &MarqueeContain
             }
 
             glib::ControlFlow::Continue
-        },
-    );
+        }
+    });
 
-    state.borrow_mut().timer_id = Some(id);
+    state.borrow_mut().tick_id = Some(id);
 }
 
 #[cfg(test)]
@@ -475,7 +496,6 @@ mod tests {
     #[test]
     fn test_default_config() {
         const _: () = assert!(DEFAULT_SCROLL_SPEED > 0.0);
-        const _: () = assert!(TICK_INTERVAL_MS > 0);
         const _: () = assert!(SCROLL_GAP > 0.0);
     }
 

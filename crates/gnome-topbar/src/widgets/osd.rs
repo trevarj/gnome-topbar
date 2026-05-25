@@ -159,26 +159,59 @@ impl OsdWidget {
         let max_value = max_value.max(1);
         // `max_value` is the recommended UI scale maximum. The actual audio
         // value may exceed it; GTK saturates the bar while the label stays exact.
-        self.scale.set_range(0.0, max_value as f64);
-        self.scale.set_value(value as f64);
-        self.value_label.set_text(&value.to_string());
+        set_scale_range_if_changed(&self.scale, 0.0, max_value as f64);
+        set_scale_value_if_changed(&self.scale, value as f64);
+        set_label_text_if_changed(&self.value_label, &value.to_string());
         // Show normal content, hide unavailable
-        self.normal_content.set_visible(true);
-        self.unavailable_content.set_visible(false);
+        set_visible_if_changed(&self.normal_content, true);
+        set_visible_if_changed(&self.unavailable_content, false);
     }
 
     /// Set the widget to "unavailable" state with icon and message.
     pub fn set_unavailable(&self, icon_name: &str, message: &str) {
         // Update unavailable content
-        self.unavailable_icon.set_icon_name(Some(icon_name));
-        self.unavailable_label.set_text(message);
+        set_image_icon_if_changed(&self.unavailable_icon, icon_name);
+        set_label_text_if_changed(&self.unavailable_label, message);
         // Show unavailable content, hide normal
-        self.normal_content.set_visible(false);
-        self.unavailable_content.set_visible(true);
+        set_visible_if_changed(&self.normal_content, false);
+        set_visible_if_changed(&self.unavailable_content, true);
     }
 
     pub fn set_icon(&self, icon_name: &str) {
         self.icon_handle.set_icon(icon_name);
+    }
+}
+
+fn set_label_text_if_changed(label: &Label, text: &str) {
+    if label.text().as_str() != text {
+        label.set_text(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_scale_range_if_changed(scale: &Scale, lower: f64, upper: f64) {
+    let adjustment = scale.adjustment();
+    if (adjustment.lower() - lower).abs() >= f64::EPSILON
+        || (adjustment.upper() - upper).abs() >= f64::EPSILON
+    {
+        scale.set_range(lower, upper);
+    }
+}
+
+fn set_scale_value_if_changed(scale: &Scale, value: f64) {
+    if (scale.value() - value).abs() >= f64::EPSILON {
+        scale.set_value(value);
+    }
+}
+
+fn set_image_icon_if_changed(image: &Image, icon_name: &str) {
+    if image.icon_name().as_deref() != Some(icon_name) {
+        image.set_icon_name(Some(icon_name));
     }
 }
 

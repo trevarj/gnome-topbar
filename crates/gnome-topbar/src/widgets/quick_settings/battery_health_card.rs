@@ -174,7 +174,7 @@ pub fn on_battery_health_changed(state: &BatteryHealthCardState, snapshot: &Batt
             toggle.set_active(active);
         }
         state.updating_toggle.set(false);
-        toggle.set_sensitive(can_control);
+        set_sensitive_if_changed(toggle, can_control);
     }
 
     if let Some(icon) = state.base.card_icon.borrow().as_ref() {
@@ -183,8 +183,8 @@ pub fn on_battery_health_changed(state: &BatteryHealthCardState, snapshot: &Batt
     }
 
     if let Some(subtitle) = state.base.subtitle.borrow().as_ref() {
-        subtitle.set_label(&battery_health_subtitle(snapshot));
-        subtitle.set_visible(snapshot.available);
+        set_label_if_changed(subtitle, &battery_health_subtitle(snapshot));
+        set_visible_if_changed(subtitle, snapshot.available);
         set_subtitle_active(subtitle, active);
     }
 
@@ -200,15 +200,33 @@ fn update_battery_health_controls(state: &BatteryHealthCardState, snapshot: &Bat
     let can_control = battery_health_can_control(snapshot);
 
     if let Some(button) = state.health_button.borrow().as_ref() {
-        button.set_sensitive(can_control);
+        set_sensitive_if_changed(button, can_control);
         set_profile_button_active(button, snapshot.health_limit_active());
     }
     if let Some(button) = state.full_button.borrow().as_ref() {
-        button.set_sensitive(can_control);
+        set_sensitive_if_changed(button, can_control);
         set_profile_button_active(button, full_charge_active(snapshot));
     }
     if let Some(label) = state.control_note.borrow().as_ref() {
-        label.set_label(&control_note(snapshot));
+        set_label_if_changed(label, &control_note(snapshot));
+    }
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed<W: IsA<gtk4::Widget>>(widget: &W, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_sensitive_if_changed<W: IsA<gtk4::Widget>>(widget: &W, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
     }
 }
 

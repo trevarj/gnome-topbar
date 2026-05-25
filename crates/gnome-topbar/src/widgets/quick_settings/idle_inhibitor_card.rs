@@ -46,7 +46,7 @@ pub fn on_idle_inhibitor_changed(state: &IdleInhibitorCardState, snapshot: &Idle
         if toggle.is_active() != snapshot.active {
             toggle.set_active(snapshot.active);
         }
-        toggle.set_sensitive(snapshot.available);
+        set_sensitive_if_changed(toggle, snapshot.available);
     }
 
     // Update icon active state
@@ -61,7 +61,19 @@ pub fn on_idle_inhibitor_changed(state: &IdleInhibitorCardState, snapshot: &Idle
         } else {
             "Disabled"
         };
-        label.set_label(subtitle);
+        set_label_if_changed(label, subtitle);
         set_subtitle_active(label, snapshot.active);
+    }
+}
+
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_sensitive_if_changed<W: IsA<gtk4::Widget>>(widget: &W, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
     }
 }

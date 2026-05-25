@@ -491,7 +491,9 @@ fn clear_notification_list_to_empty(
 }
 
 fn set_header_clear_visible(header_clear_button: &HeaderClearButton, visible: bool) {
-    if let Some(button) = header_clear_button.borrow().as_ref() {
+    if let Some(button) = header_clear_button.borrow().as_ref()
+        && button.is_visible() != visible
+    {
         button.set_visible(visible);
     }
 }

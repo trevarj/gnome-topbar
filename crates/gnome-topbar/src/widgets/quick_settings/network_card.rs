@@ -33,6 +33,48 @@ use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{button, color, icon, qs, row, state, surface};
 use crate::widgets::base::configure_popover;
 
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_button_label_if_changed(button: &Button, text: &str) {
+    if button.label().as_deref() != Some(text) {
+        button.set_label(text);
+    }
+}
+
+fn set_text_if_changed(label: &Label, text: &str) {
+    if label.text().as_str() != text {
+        label.set_text(text);
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
+fn set_sensitive_if_changed(widget: &impl IsA<gtk4::Widget>, sensitive: bool) {
+    if widget.as_ref().is_sensitive() != sensitive {
+        widget.as_ref().set_sensitive(sensitive);
+    }
+}
+
+fn add_class_if_missing(widget: &impl IsA<gtk4::Widget>, class: &str) {
+    if !widget.as_ref().has_css_class(class) {
+        widget.as_ref().add_css_class(class);
+    }
+}
+
+fn remove_class_if_present(widget: &impl IsA<gtk4::Widget>, class: &str) {
+    if widget.as_ref().has_css_class(class) {
+        widget.as_ref().remove_css_class(class);
+    }
+}
+
 /// Snapshot of network state used to resolve bar and card icons.
 pub struct NetworkIconContext {
     pub available: bool,
@@ -300,14 +342,14 @@ pub fn is_network_subtitle_active(snapshot: &NetworkSnapshot) -> bool {
 
 /// Update the network subtitle label based on connection state.
 pub fn update_network_subtitle(label: &Label, snapshot: &NetworkSnapshot) {
-    label.set_label(&get_network_subtitle_text(snapshot));
+    set_label_if_changed(label, &get_network_subtitle_text(snapshot));
 
     if is_network_subtitle_active(snapshot) {
-        label.remove_css_class(color::MUTED);
-        label.add_css_class(state::SUBTITLE_ACTIVE);
+        remove_class_if_present(label, color::MUTED);
+        add_class_if_missing(label, state::SUBTITLE_ACTIVE);
     } else {
-        label.remove_css_class(state::SUBTITLE_ACTIVE);
-        label.add_css_class(color::MUTED);
+        remove_class_if_present(label, state::SUBTITLE_ACTIVE);
+        add_class_if_missing(label, color::MUTED);
     }
 }
 
@@ -386,6 +428,8 @@ pub struct NetworkCardState {
     /// which drops the `CairoSpinner`, which cancels the animation timer — leaving
     /// the spinner DrawingArea visible but frozen.
     pub wifi_connecting_icon: RefCell<Option<IconHandle>>,
+    /// Signature of rendered Wi-Fi rows to skip unchanged list rebuilds.
+    pub wifi_list_signature: RefCell<Option<String>>,
 }
 
 impl NetworkCardState {
@@ -415,6 +459,7 @@ impl NetworkCardState {
             wifi_failed_clear_source: RefCell::new(None),
             mobile_failed_clear_source: RefCell::new(None),
             wifi_connecting_icon: RefCell::new(None),
+            wifi_list_signature: RefCell::new(None),
         }
     }
 }
@@ -733,23 +778,23 @@ fn set_mobile_subtitle(widgets: &MobileRowWidgets, snapshot: &NetworkSnapshot) {
     let details_label = &widgets.details_label;
 
     if !mobile_enabled {
-        status_label.set_text("Off");
-        status_label.remove_css_class(color::ERROR);
-        status_label.add_css_class(color::MUTED);
-        status_label.set_visible(true);
-        accent_label.set_visible(false);
-        details_label.set_visible(false);
+        set_text_if_changed(status_label, "Off");
+        remove_class_if_present(status_label, color::ERROR);
+        add_class_if_missing(status_label, color::MUTED);
+        set_visible_if_changed(status_label, true);
+        set_visible_if_changed(accent_label, false);
+        set_visible_if_changed(details_label, false);
     } else if snapshot.mobile_connecting() {
-        status_label.set_text("Connecting...");
-        status_label.set_visible(true);
-        status_label.remove_css_class(color::ERROR);
-        status_label.add_css_class(color::MUTED);
-        accent_label.set_visible(false);
-        details_label.set_visible(false);
+        set_text_if_changed(status_label, "Connecting...");
+        set_visible_if_changed(status_label, true);
+        remove_class_if_present(status_label, color::ERROR);
+        add_class_if_missing(status_label, color::MUTED);
+        set_visible_if_changed(accent_label, false);
+        set_visible_if_changed(details_label, false);
     } else if snapshot.mobile_active() {
-        status_label.set_visible(false);
-        accent_label.set_text("Connected");
-        accent_label.set_visible(true);
+        set_visible_if_changed(status_label, false);
+        set_text_if_changed(accent_label, "Connected");
+        set_visible_if_changed(accent_label, true);
 
         let signal = snapshot.mobile_signal_quality().unwrap_or(0);
         let mut extra_parts: Vec<String> = Vec::new();
@@ -762,26 +807,26 @@ fn set_mobile_subtitle(widgets: &MobileRowWidgets, snapshot: &NetworkSnapshot) {
             extra_parts.push(format!("{}%", signal));
         }
         if extra_parts.is_empty() {
-            details_label.set_visible(false);
+            set_visible_if_changed(details_label, false);
         } else {
             let rest = format!(" \u{2022} {}", extra_parts.join(" \u{2022} "));
-            details_label.set_text(&rest);
-            details_label.set_visible(true);
+            set_text_if_changed(details_label, &rest);
+            set_visible_if_changed(details_label, true);
         }
     } else if snapshot.mobile_failed() {
-        status_label.set_text(CONNECTION_FAILURE_REASON);
-        status_label.remove_css_class(color::MUTED);
-        status_label.add_css_class(color::ERROR);
-        status_label.set_visible(true);
-        accent_label.set_visible(false);
-        details_label.set_visible(false);
+        set_text_if_changed(status_label, CONNECTION_FAILURE_REASON);
+        remove_class_if_present(status_label, color::MUTED);
+        add_class_if_missing(status_label, color::ERROR);
+        set_visible_if_changed(status_label, true);
+        set_visible_if_changed(accent_label, false);
+        set_visible_if_changed(details_label, false);
     } else {
-        status_label.set_text("Disconnected");
-        status_label.remove_css_class(color::ERROR);
-        status_label.add_css_class(color::MUTED);
-        status_label.set_visible(true);
-        accent_label.set_visible(false);
-        details_label.set_visible(false);
+        set_text_if_changed(status_label, "Disconnected");
+        remove_class_if_present(status_label, color::ERROR);
+        add_class_if_missing(status_label, color::MUTED);
+        set_visible_if_changed(status_label, true);
+        set_visible_if_changed(accent_label, false);
+        set_visible_if_changed(details_label, false);
     }
 }
 
@@ -930,7 +975,7 @@ pub fn update_ethernet_row(state: &NetworkCardState, snapshot: &NetworkSnapshot)
         return;
     };
 
-    w.container.set_visible(snapshot.wired_connected());
+    set_visible_if_changed(&w.container, snapshot.wired_connected());
 
     if !snapshot.wired_connected() {
         return;
@@ -942,7 +987,7 @@ pub fn update_ethernet_row(state: &NetworkCardState, snapshot: &NetworkSnapshot)
         .or(snapshot.wired_iface())
         .unwrap_or("Wired Connection");
     if w.title_label.text().as_str() != new_title {
-        w.title_label.set_text(new_title);
+        set_text_if_changed(&w.title_label, new_title);
     }
 
     // Rebuild subtitle only when the underlying data changes.
@@ -968,7 +1013,7 @@ pub fn update_mobile_row(state: &NetworkCardState, snapshot: &NetworkSnapshot) {
     let enabled = snapshot.mobile_enabled().unwrap_or(false);
 
     if let Some(mobile_row) = mobile.row.borrow().as_ref() {
-        mobile_row.set_visible(snapshot.mobile_supported());
+        set_visible_if_changed(mobile_row, snapshot.mobile_supported());
     }
 
     let mut widgets_ref = mobile.widgets.borrow_mut();
@@ -979,25 +1024,29 @@ pub fn update_mobile_row(state: &NetworkCardState, snapshot: &NetworkSnapshot) {
     // Update the row title (operator name may change, e.g., roaming).
     let new_title = snapshot.mobile_display_name();
     if w.title_label.text().as_str() != new_title {
-        w.title_label.set_text(new_title);
+        set_text_if_changed(&w.title_label, new_title);
     }
 
     // Hide the connection details row when modem is disabled (only header+switch remain)
-    w.connection_row.set_visible(enabled);
+    set_visible_if_changed(&w.connection_row, enabled);
 
     if w.switch.is_active() != enabled {
         w.switch.set_active(enabled);
     }
-    w.switch
-        .set_sensitive(snapshot.available() && snapshot.has_modem_device());
+    set_sensitive_if_changed(
+        &w.switch,
+        snapshot.available() && snapshot.has_modem_device(),
+    );
 
-    w.action_button.set_label(if snapshot.mobile_active() {
-        "Disconnect"
-    } else {
-        "Connect"
-    });
-    w.action_button
-        .set_sensitive(!snapshot.mobile_connecting() && enabled);
+    set_button_label_if_changed(
+        &w.action_button,
+        if snapshot.mobile_active() {
+            "Disconnect"
+        } else {
+            "Connect"
+        },
+    );
+    set_sensitive_if_changed(&w.action_button, !snapshot.mobile_connecting() && enabled);
 
     set_mobile_subtitle(w, snapshot);
 
@@ -1574,7 +1623,9 @@ pub fn update_scan_ui(state: &NetworkCardState, snapshot: &NetworkSnapshot) {
     let wifi_enabled = snapshot.wifi_enabled().unwrap_or(false);
 
     if let Some(scan_btn) = state.scan_button.borrow().as_ref() {
-        scan_btn.set_visible(wifi_enabled);
+        if scan_btn.widget().is_visible() != wifi_enabled {
+            scan_btn.set_visible(wifi_enabled);
+        }
         scan_btn.set_sensitive(!scanning);
         scan_btn.set_scanning(scanning);
     }
@@ -1646,7 +1697,8 @@ pub fn on_network_changed(
         }
         // Card toggle is only sensitive on WiFi-only devices (no ethernet port, no usable modem)
         // When ethernet or a supported modem (SIM + profile) is present, users must use the switch in expanded view
-        toggle.set_sensitive(
+        set_sensitive_if_changed(
+            toggle,
             snapshot.available()
                 && snapshot.has_wifi_device()
                 && !snapshot.has_ethernet_device()
@@ -1656,15 +1708,18 @@ pub fn on_network_changed(
 
     // Update Wi-Fi label and switch visibility (only show when alternative network device present)
     if let Some(wifi_label) = state.wifi_label.borrow().as_ref() {
-        wifi_label.set_visible(snapshot.has_non_wifi_device());
+        set_visible_if_changed(wifi_label, snapshot.has_non_wifi_device());
     }
     if let Some(wifi_switch) = state.wifi_switch.borrow().as_ref() {
-        wifi_switch.set_visible(snapshot.has_non_wifi_device());
+        set_visible_if_changed(wifi_switch, snapshot.has_non_wifi_device());
         if wifi_switch.is_active() != enabled {
             wifi_switch.set_active(enabled);
         }
         // Switch should only be sensitive if Wi-Fi device exists and service is available
-        wifi_switch.set_sensitive(snapshot.available() && snapshot.has_wifi_device());
+        set_sensitive_if_changed(
+            wifi_switch,
+            snapshot.available() && snapshot.has_wifi_device(),
+        );
     }
 
     // Update card title based on whether ethernet/modem device exists
@@ -1674,9 +1729,7 @@ pub fn on_network_changed(
         } else {
             "Wi-Fi"
         };
-        if title_label.label() != expected_title {
-            title_label.set_label(expected_title);
-        }
+        set_label_if_changed(title_label, expected_title);
     }
 
     // Update Wi-Fi card icon and its active state class
@@ -1744,9 +1797,50 @@ pub fn on_network_changed(
 
     let password_dialog_active = state.password_target_ssid.borrow().is_some();
     if !password_dialog_active && let Some(list_box) = state.base.list_box.borrow().as_ref() {
-        populate_wifi_list(state, list_box, snapshot);
-        // Apply Pango font attrs to dynamically created list rows
-        SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        let signature = wifi_list_signature(state, snapshot);
+        if state.wifi_list_signature.borrow().as_deref() != Some(signature.as_str()) {
+            *state.wifi_list_signature.borrow_mut() = Some(signature);
+            populate_wifi_list(state, list_box, snapshot);
+            // Apply Pango font attrs to dynamically created list rows
+            SurfaceStyleManager::global().apply_pango_attrs_all(list_box);
+        }
+    }
+}
+
+fn wifi_list_signature(state: &NetworkCardState, snapshot: &NetworkSnapshot) -> String {
+    let mut signature = format!(
+        "enabled={:?};has_wifi={};wired={};mobile={};target={:?};connecting={:?};failed={:?};networks={}",
+        snapshot.wifi_enabled(),
+        snapshot.has_wifi_device(),
+        snapshot.wired_connected(),
+        snapshot.mobile_active(),
+        state.password_target_ssid.borrow().as_deref(),
+        snapshot.connecting_ssid(),
+        snapshot.failed_ssid(),
+        snapshot.networks().len(),
+    );
+
+    for network in snapshot.networks() {
+        signature.push('|');
+        signature.push_str(&network.ssid);
+        signature.push('\t');
+        signature.push_str(&network.strength.to_string());
+        signature.push('\t');
+        signature.push_str(security_signature(network));
+        signature.push('\t');
+        signature.push_str(if network.active { "active" } else { "inactive" });
+        signature.push('\t');
+        signature.push_str(if network.known { "known" } else { "unknown" });
+    }
+
+    signature
+}
+
+fn security_signature(network: &WifiNetwork) -> &'static str {
+    if network.security.is_secured() {
+        "secured"
+    } else {
+        "open"
     }
 }
 

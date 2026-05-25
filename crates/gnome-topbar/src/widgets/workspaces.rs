@@ -182,6 +182,9 @@ mod ws_container_imp {
         /// the display). Display-scoped CSS is safe because workspace
         /// IDs are globally unique across all outputs.
         pub(super) long_mw_css_provider: RefCell<Option<CssProvider>>,
+        /// Last generated long-indicator CSS, used to avoid display-wide
+        /// provider churn when workspace labels re-render without width changes.
+        pub(super) long_mw_css: RefCell<String>,
     }
 
     #[glib::object_subclass]
@@ -453,6 +456,7 @@ impl WorkspaceContainer {
         {
             gtk4::style_context_remove_provider_for_display(&display, &provider);
         }
+        self.imp().long_mw_css.borrow_mut().clear();
     }
 
     /// Remove a specific child widget by reference. Order-preserving.
@@ -508,9 +512,12 @@ impl WorkspaceContainer {
             let _ = writeln!(css, ".{cls}.active {{ min-width: {active_mw}px; }}");
         }
 
-        self.remove_long_mw_provider();
-
         if css.is_empty() {
+            self.remove_long_mw_provider();
+            return;
+        }
+
+        if self.imp().long_mw_css.borrow().as_str() == css {
             return;
         }
 
@@ -520,8 +527,14 @@ impl WorkspaceContainer {
 
         let provider = CssProvider::new();
         provider.load_from_string(&css);
+
+        if let Some(old) = self.imp().long_mw_css_provider.borrow_mut().take() {
+            gtk4::style_context_remove_provider_for_display(&display, &old);
+        }
+
         gtk4::style_context_add_provider_for_display(&display, &provider, LONG_MW_CSS_PRIORITY);
         *self.imp().long_mw_css_provider.borrow_mut() = Some(provider);
+        *self.imp().long_mw_css.borrow_mut() = css;
     }
 
     /// Compute the current total width of children from live CSS measurements.
@@ -1136,6 +1149,12 @@ fn collect_grow_in_indicators(
     grow_in
 }
 
+fn set_label_text_if_changed(label: &Label, text: &str) {
+    if label.text().as_str() != text {
+        label.set_text(text);
+    }
+}
+
 /// Full recreate of indicators with grow-in CSS class on new IDs.
 ///
 /// Shared by the Swap and Addition paths: calls `create_indicators` then
@@ -1644,17 +1663,18 @@ fn update_indicators(
         {
             match label_type {
                 LabelType::Icons => {
-                    if workspace.active {
-                        label.set_text(ICON_ACTIVE);
+                    let text = if workspace.active {
+                        ICON_ACTIVE
                     } else if workspace.occupied {
-                        label.set_text(ICON_OCCUPIED);
+                        ICON_OCCUPIED
                     } else {
-                        label.set_text(ICON_EMPTY);
-                    }
+                        ICON_EMPTY
+                    };
+                    set_label_text_if_changed(&label, text);
                 }
                 LabelType::Name | LabelType::Index => {
                     let label_text = workspace_label_text(label_type, workspace);
-                    label.set_text(&label_text);
+                    set_label_text_if_changed(&label, &label_text);
                     let now_long = label_text.chars().count() > 2;
                     let was_long = indicator.has_css_class(widget::WORKSPACE_INDICATOR_LONG);
                     if now_long != was_long {

@@ -157,7 +157,7 @@ impl TooltipWindow {
     /// Measure the natural width of the tooltip with the given text.
     /// This sets the text and returns the preferred width.
     fn measure_width(&self, text: &str) -> i32 {
-        self.label.set_text(text);
+        set_label_text_if_changed(&self.label, text);
 
         // Get the natural width of the label
         let (_, natural_width, _, _) = self.label.measure(gtk4::Orientation::Horizontal, -1);
@@ -192,7 +192,9 @@ impl TooltipWindow {
     }
 
     fn hide(&self) {
-        self.window.set_visible(false);
+        if self.window.is_visible() {
+            self.window.set_visible(false);
+        }
     }
 
     fn update_styles(&self, styles: &SurfaceStyles) {
@@ -274,11 +276,11 @@ impl TooltipManager {
     ///
     /// This updates the internal styles and updates any existing tooltip window.
     pub fn reconfigure(&self, styles: SurfaceStyles) {
-        debug!(
-            "TooltipManager reconfiguring: bg={} -> {}",
-            self.styles.borrow().background_color,
-            styles.background_color
-        );
+        if surface_styles_equal(&self.styles.borrow(), &styles) {
+            return;
+        }
+
+        debug!("TooltipManager reconfiguring tooltip surface styles");
         *self.styles.borrow_mut() = styles.clone();
 
         // Update existing tooltip window if it exists
@@ -297,19 +299,26 @@ impl TooltipManager {
         // Use widget pointer as key
         let widget_addr = widget.as_ptr() as usize;
 
-        // Store/update the tooltip text
-        self.tooltip_texts
-            .borrow_mut()
-            .insert(widget_addr, text.to_string());
+        let changed = {
+            let mut texts = self.tooltip_texts.borrow_mut();
+            match texts.get(&widget_addr) {
+                Some(existing) if existing == text => false,
+                _ => {
+                    texts.insert(widget_addr, text.to_string());
+                    true
+                }
+            }
+        };
 
         // If the tooltip is currently visible for this widget, update it live
-        if let Some(ref current_weak) = *self.current_widget.borrow()
+        if changed
+            && let Some(ref current_weak) = *self.current_widget.borrow()
             && let Some(current) = current_weak.upgrade()
             && current.as_ptr() as usize == widget_addr
         {
             *self.current_text.borrow_mut() = text.to_string();
             if let Some(ref tw) = *self.tooltip_window.borrow() {
-                tw.label.set_text(text);
+                set_label_text_if_changed(&tw.label, text);
             }
         }
 
@@ -370,7 +379,9 @@ impl TooltipManager {
         let weak_ref = glib::WeakRef::new();
         weak_ref.set(Some(widget));
         *self.current_widget.borrow_mut() = Some(weak_ref);
-        *self.current_text.borrow_mut() = text.to_string();
+        if self.current_text.borrow().as_str() != text {
+            *self.current_text.borrow_mut() = text.to_string();
+        }
 
         // Schedule the show
         let manager = Self::global();
@@ -530,6 +541,25 @@ impl TooltipManager {
         let tooltip_window = TooltipWindow::new(&styles);
         *self.tooltip_window.borrow_mut() = Some(tooltip_window);
     }
+}
+
+fn set_label_text_if_changed(label: &Label, text: &str) {
+    if label.text().as_str() != text {
+        label.set_text(text);
+    }
+}
+
+fn surface_styles_equal(a: &SurfaceStyles, b: &SurfaceStyles) -> bool {
+    a.background_color == b.background_color
+        && a.text_color == b.text_color
+        && a.font_family == b.font_family
+        && a.font_size == b.font_size
+        && a.border_radius == b.border_radius
+        && a.border_color == b.border_color
+        && (a.opacity - b.opacity).abs() < f64::EPSILON
+        && a.shadow == b.shadow
+        && a.is_dark_mode == b.is_dark_mode
+        && a.shadows_enabled == b.shadows_enabled
 }
 
 #[cfg(test)]

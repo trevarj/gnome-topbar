@@ -27,6 +27,18 @@ use crate::widgets::control_panel::{WorldClockConfig, build_clock_control_panel}
 use crate::widgets::notifications_toast::NotificationToastManager;
 use crate::widgets::warn_unknown_options;
 
+fn set_label_if_changed(label: &Label, text: &str) {
+    if label.label().as_str() != text {
+        label.set_label(text);
+    }
+}
+
+fn set_visible_if_changed(widget: &impl IsA<gtk4::Widget>, visible: bool) {
+    if widget.as_ref().is_visible() != visible {
+        widget.as_ref().set_visible(visible);
+    }
+}
+
 /// Default format string for the clock display.
 const DEFAULT_FORMAT: &str = "%a %d %H:%M";
 const MAX_TOASTS_PER_BURST: u32 = 3;
@@ -235,7 +247,7 @@ impl ClockWidget {
     fn update_time(&self) {
         let now = chrono::Local::now();
         let text = now.format(&self.format).to_string();
-        self.label.set_label(&text);
+        set_label_if_changed(&self.label, &text);
         debug!("Clock updated: {}", text);
     }
 
@@ -251,7 +263,7 @@ impl ClockWidget {
         let source_id = glib::timeout_add_seconds_local_once(delay_seconds, move || {
             let now = chrono::Local::now();
             let text = now.format(&format).to_string();
-            label.set_label(&text);
+            set_label_if_changed(&label, &text);
 
             let label_clone = label.clone();
             let format_clone = format.clone();
@@ -259,7 +271,7 @@ impl ClockWidget {
             let repeating_id = glib::timeout_add_seconds_local(60, move || {
                 let now = chrono::Local::now();
                 let text = now.format(&format_clone).to_string();
-                label_clone.set_label(&text);
+                set_label_if_changed(&label_clone, &text);
                 glib::ControlFlow::Continue
             });
 
@@ -396,14 +408,13 @@ impl ClockNotificationInner {
         self.show_new_toasts(service);
 
         let count = service.history_count();
-        self.container.set_visible(notification_indicator_visible(
-            service.backend_available(),
-            count,
-            service.is_muted(),
-        ));
+        set_visible_if_changed(
+            &self.container,
+            notification_indicator_visible(service.backend_available(), count, service.is_muted()),
+        );
 
         let unread = self.calculate_unread_count(service);
-        self.badge.set_visible(unread > 0);
+        set_visible_if_changed(&self.badge, unread > 0);
 
         let has_critical = service
             .history_notifications()

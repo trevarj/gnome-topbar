@@ -1760,6 +1760,11 @@ impl QuickSettingsWindow {
         let anim_gen = Rc::clone(&self.anim_generation);
         let window_weak = self.window.downgrade();
         let shell_clone = self.anim_shell.clone();
+        let blur = if ConfigManager::global().blur_enabled() {
+            crate::services::background_effect::BackgroundEffectManager::global()
+        } else {
+            None
+        };
 
         self.anim_shell
             .add_tick_callback(move |shell, frame_clock| {
@@ -1786,9 +1791,7 @@ impl QuickSettingsWindow {
                 shell_clone.set_scale(scale);
 
                 if direction == AnimDirection::Opening
-                    && ConfigManager::global().blur_enabled()
-                    && let Some(blur) =
-                        crate::services::background_effect::BackgroundEffectManager::global()
+                    && let Some(blur) = blur.as_ref()
                     && let Some(window) = window_weak.upgrade()
                 {
                     blur.apply_open_animation_blur(

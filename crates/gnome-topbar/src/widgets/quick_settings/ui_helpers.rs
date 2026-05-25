@@ -88,8 +88,10 @@ pub fn set_icon_active(icon_handle: &IconHandle, active: bool) {
 /// When inactive, removes `qs-subtitle-active`.
 pub fn set_subtitle_active(label: &Label, active: bool) {
     if active {
-        label.add_css_class(state::SUBTITLE_ACTIVE);
-    } else {
+        if !label.has_css_class(state::SUBTITLE_ACTIVE) {
+            label.add_css_class(state::SUBTITLE_ACTIVE);
+        }
+    } else if label.has_css_class(state::SUBTITLE_ACTIVE) {
         label.remove_css_class(state::SUBTITLE_ACTIVE);
     }
 }
@@ -462,6 +464,7 @@ pub struct ScanButton {
     button: Button,
     label: Label,
     spinner: CairoSpinner,
+    scanning: Cell<bool>,
     /// Whether the button had keyboard-navigated focus when it was made
     /// insensitive (i.e. `focus_visible` was active on the window).
     had_keyboard_focus: Cell<bool>,
@@ -512,6 +515,7 @@ impl ScanButton {
             button,
             label,
             spinner,
+            scanning: Cell::new(false),
             had_keyboard_focus: Cell::new(false),
         })
     }
@@ -527,6 +531,9 @@ impl ScanButton {
     /// keyboard-navigated focus (i.e. `focus_visible` was active) so it
     /// can be restored when scanning ends.
     pub fn set_sensitive(&self, sensitive: bool) {
+        if self.button.is_sensitive() == sensitive {
+            return;
+        }
         if !sensitive && self.button.has_focus() {
             // Record that we had focus *and* that keyboard nav was active.
             // We check focus_visible now because GTK may clear it once the
@@ -543,7 +550,9 @@ impl ScanButton {
 
     /// Set button visibility.
     pub fn set_visible(&self, visible: bool) {
-        self.button.set_visible(visible);
+        if self.button.is_visible() != visible {
+            self.button.set_visible(visible);
+        }
     }
 
     /// Update active/scanning state.
@@ -553,12 +562,19 @@ impl ScanButton {
     /// keyboard-navigated focus before scanning started, focus is restored
     /// automatically and `focus_visible` is re-enabled on the window.
     pub fn set_scanning(&self, active: bool) {
+        if self.scanning.replace(active) == active {
+            return;
+        }
         if active {
-            self.label.set_visible(false);
+            if self.label.is_visible() {
+                self.label.set_visible(false);
+            }
             self.spinner.start();
         } else {
             self.spinner.stop();
-            self.label.set_visible(true);
+            if !self.label.is_visible() {
+                self.label.set_visible(true);
+            }
             // Restore focus if the button had keyboard-nav focus before it
             // was made insensitive.  We also re-enable focus_visible since
             // GTK may have cleared it when focus was lost.

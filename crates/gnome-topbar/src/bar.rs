@@ -6,7 +6,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use gnome_topbar_core::config::{WidgetEntry, WidgetOrGroup};
 use gnome_topbar_core::{Config, ThemePalette};
@@ -807,9 +807,17 @@ thread_local! {
     static THEME_CSS_PROVIDER: RefCell<Option<gtk4::CssProvider>> = const { RefCell::new(None) };
 }
 
-// Thread-local storage for the user CSS provider so we can replace it on reload
+struct UserCssState {
+    provider: gtk4::CssProvider,
+    path: PathBuf,
+    css: String,
+}
+
+// Thread-local storage for the user CSS provider so we can replace it on reload.
+// Keeps the last path/content too, so theme reloads can avoid re-registering an
+// unchanged provider and forcing another display-wide style recalculation.
 thread_local! {
-    static USER_CSS_PROVIDER: RefCell<Option<gtk4::CssProvider>> = const { RefCell::new(None) };
+    static USER_CSS_STATE: RefCell<Option<UserCssState>> = const { RefCell::new(None) };
 }
 
 // Thread-local storage for the transient CSS provider (grow-in rules).
@@ -933,9 +941,9 @@ pub(crate) fn replace_user_css() {
     let config_dir = ConfigManager::global().config_dir();
     let Some(path) = find_user_css(config_dir.as_deref()) else {
         // No style.css found anywhere — remove old provider if any
-        USER_CSS_PROVIDER.with(|cell| {
+        USER_CSS_STATE.with(|cell| {
             if let Some(old) = cell.borrow_mut().take() {
-                gtk4::style_context_remove_provider_for_display(&display, &old);
+                gtk4::style_context_remove_provider_for_display(&display, &old.provider);
                 debug!("Removed user CSS provider (no style.css found)");
             }
         });
@@ -944,20 +952,34 @@ pub(crate) fn replace_user_css() {
 
     match std::fs::read_to_string(&path) {
         Ok(css) => {
+            if USER_CSS_STATE.with(|cell| {
+                let state = cell.borrow();
+                state.as_ref().is_some_and(|state| {
+                    user_css_is_unchanged(&state.path, &state.css, &path, &css)
+                })
+            }) {
+                trace!("User CSS unchanged, keeping existing provider");
+                return;
+            }
+
             let provider = gtk4::CssProvider::new();
             provider.load_from_string(&css);
 
             // Success — swap: remove old provider first, then add new
-            USER_CSS_PROVIDER.with(|cell| {
+            USER_CSS_STATE.with(|cell| {
                 if let Some(old) = cell.borrow_mut().take() {
-                    gtk4::style_context_remove_provider_for_display(&display, &old);
+                    gtk4::style_context_remove_provider_for_display(&display, &old.provider);
                 }
             });
 
             gtk4::style_context_add_provider_for_display(&display, &provider, USER_CSS_PRIORITY);
 
-            USER_CSS_PROVIDER.with(|cell| {
-                *cell.borrow_mut() = Some(provider);
+            USER_CSS_STATE.with(|cell| {
+                *cell.borrow_mut() = Some(UserCssState {
+                    provider,
+                    path: path.clone(),
+                    css,
+                });
             });
 
             info!(
@@ -975,6 +997,10 @@ pub(crate) fn replace_user_css() {
             );
         }
     }
+}
+
+fn user_css_is_unchanged(old_path: &Path, old_css: &str, new_path: &Path, new_css: &str) -> bool {
+    old_path == new_path && old_css == new_css
 }
 
 /// Generate CSS string from configuration and theme palette.
@@ -1249,5 +1275,31 @@ mod tests {
                 .find(|p| p.exists());
 
         assert_eq!(found, Some(style_path));
+    }
+
+    #[test]
+    fn user_css_unchanged_requires_same_path_and_content() {
+        let old_path = PathBuf::from("/tmp/gnome-topbar/style.css");
+        let same_path = PathBuf::from("/tmp/gnome-topbar/style.css");
+        let other_path = PathBuf::from("/tmp/gnome-topbar/other-style.css");
+
+        assert!(user_css_is_unchanged(
+            &old_path,
+            ".bar { color: red; }",
+            &same_path,
+            ".bar { color: red; }"
+        ));
+        assert!(!user_css_is_unchanged(
+            &old_path,
+            ".bar { color: red; }",
+            &same_path,
+            ".bar { color: blue; }"
+        ));
+        assert!(!user_css_is_unchanged(
+            &old_path,
+            ".bar { color: red; }",
+            &other_path,
+            ".bar { color: red; }"
+        ));
     }
 }

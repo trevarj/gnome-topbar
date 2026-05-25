@@ -1099,6 +1099,11 @@ impl LayerShellPopover {
         let on_close = self.on_close.borrow().clone();
         let widget_name = self.widget_name.clone();
         let scale_from = self.hidden_scale();
+        let blur = if ConfigManager::global().blur_enabled() {
+            crate::services::background_effect::BackgroundEffectManager::global()
+        } else {
+            None
+        };
 
         anim_shell.add_tick_callback(move |shell, frame_clock| {
             // Generation check — bail if a newer cycle started.
@@ -1127,9 +1132,7 @@ impl LayerShellPopover {
             shell_for_scale.set_scale(scale);
 
             if direction == AnimDirection::Opening
-                && ConfigManager::global().blur_enabled()
-                && let Some(blur) =
-                    crate::services::background_effect::BackgroundEffectManager::global()
+                && let Some(blur) = blur.as_ref()
                 && let Some(ref w) = window
             {
                 blur.apply_open_animation_blur(w, POPOVER_SHADOW_MARGIN, scale, complete);
