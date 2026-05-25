@@ -17,7 +17,7 @@
 (define-public gnome-topbar
   (package
     (name "gnome-topbar")
-    (version "0.14.1")
+    (version "1.0.0")
     (source
      (local-file ".." "gnome-topbar-checkout"
                  #:recursive? #t
