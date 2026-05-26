@@ -11,6 +11,7 @@ use gtk4::{Box as GtkBox, Label};
 use serde::Deserialize;
 use tracing::warn;
 
+use crate::services::config_manager::ConfigManager;
 use crate::styles::widget as wgt;
 use crate::widgets::base::BaseWidget;
 use crate::widgets::{WidgetConfig, warn_unknown_options};
@@ -27,6 +28,7 @@ const KNOWN_OPTIONS: &[&str] = &[
     "interval",
     "tooltip",
     "max_chars",
+    "forecast_days",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,9 +130,79 @@ impl WidgetConfig for WeatherConfig {
     }
 }
 
+pub(crate) fn weather_config_from_widget_name(widget_name: &str) -> WeatherConfig {
+    let config = ConfigManager::global();
+    let default = WeatherConfig::default();
+    let latitude = config
+        .get_widget_option(widget_name, "latitude")
+        .and_then(|v| v.as_float())
+        .unwrap_or(default.latitude);
+    let longitude = config
+        .get_widget_option(widget_name, "longitude")
+        .and_then(|v| v.as_float())
+        .unwrap_or(default.longitude);
+    let unit = WeatherUnit::from_config(
+        config
+            .get_widget_option(widget_name, "unit")
+            .and_then(|v| v.as_str().map(str::to_string))
+            .as_deref(),
+    );
+    let interval = config
+        .get_widget_option(widget_name, "interval")
+        .and_then(|v| v.as_integer())
+        .filter(|v| *v >= 0)
+        .map(|v| v as u64)
+        .unwrap_or(default.interval);
+    let tooltip = config
+        .get_widget_option(widget_name, "tooltip")
+        .and_then(|v| v.as_str().map(str::to_string))
+        .filter(|s| !s.is_empty())
+        .unwrap_or(default.tooltip);
+    let max_chars = config
+        .get_widget_option(widget_name, "max_chars")
+        .and_then(|v| v.as_integer())
+        .filter(|v| *v > 0)
+        .map(|v| v as usize);
+
+    WeatherConfig {
+        latitude,
+        longitude,
+        unit,
+        interval,
+        tooltip,
+        max_chars,
+    }
+}
+
+pub(crate) fn forecast_days_from_widget_name(widget_name: &str) -> usize {
+    ConfigManager::global()
+        .get_widget_option(widget_name, "forecast_days")
+        .and_then(|v| v.as_integer())
+        .filter(|v| (3_i64..=5_i64).contains(v))
+        .map(|v| v as usize)
+        .unwrap_or(5)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WeatherDisplay {
     pub(crate) text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WeatherForecast {
+    pub(crate) current: String,
+    pub(crate) summary: String,
+    pub(crate) days: Vec<WeatherForecastDay>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WeatherForecastDay {
+    pub(crate) label: String,
+    pub(crate) icon: &'static str,
+    pub(crate) condition: &'static str,
+    pub(crate) high: i64,
+    pub(crate) low: i64,
+    pub(crate) precipitation: Option<i64>,
 }
 
 pub struct WeatherWidget {
@@ -222,7 +294,7 @@ pub(crate) fn fetch_weather_display(config: &WeatherConfig) -> WeatherDisplay {
         .send()
         .ok()
         .and_then(|response| response.as_str().ok().map(str::to_string))
-        .and_then(|body| serde_json::from_str::<OpenMeteoResponse>(&body).ok());
+        .and_then(|body| serde_json::from_str::<OpenMeteoCurrentResponse>(&body).ok());
 
     let Some(weather) = response.map(|r| r.current_weather) else {
         return WeatherDisplay {
@@ -242,7 +314,7 @@ pub(crate) fn fetch_weather_display(config: &WeatherConfig) -> WeatherDisplay {
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenMeteoResponse {
+struct OpenMeteoCurrentResponse {
     current_weather: CurrentWeather,
 }
 
@@ -250,6 +322,121 @@ struct OpenMeteoResponse {
 struct CurrentWeather {
     temperature: f64,
     weathercode: i64,
+}
+
+pub(crate) fn fetch_weather_forecast(
+    config: &WeatherConfig,
+    forecast_days: usize,
+) -> WeatherForecast {
+    let days = forecast_days.clamp(3, 5);
+    let url = format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit={}&forecast_days={}&timezone=auto",
+        config.latitude,
+        config.longitude,
+        config.unit.api_value(),
+        days
+    );
+
+    minreq::get(url)
+        .with_timeout(8)
+        .send()
+        .ok()
+        .and_then(|response| response.as_str().ok().map(str::to_string))
+        .and_then(|body| serde_json::from_str::<OpenMeteoForecastResponse>(&body).ok())
+        .map(|response| build_weather_forecast(response, config.unit))
+        .unwrap_or_else(|| WeatherForecast {
+            current: FALLBACK_ICON.to_string(),
+            summary: "Forecast unavailable".to_string(),
+            days: Vec::new(),
+        })
+}
+
+fn build_weather_forecast(
+    response: OpenMeteoForecastResponse,
+    unit: WeatherUnit,
+) -> WeatherForecast {
+    let current_temp = response.current.temperature_2m.round() as i64;
+    let current_condition = weather_condition(response.current.weather_code);
+    let current = format!(
+        "{} {}{}, {}",
+        weather_icon(response.current.weather_code),
+        current_temp,
+        unit.symbol(),
+        current_condition
+    );
+
+    let days = response
+        .daily
+        .time
+        .iter()
+        .enumerate()
+        .filter_map(|(index, date)| {
+            let code = *response.daily.weather_code.get(index)?;
+            let high = response.daily.temperature_2m_max.get(index)?.round() as i64;
+            let low = response.daily.temperature_2m_min.get(index)?.round() as i64;
+            let precipitation = response
+                .daily
+                .precipitation_probability_max
+                .as_ref()
+                .and_then(|values| values.get(index))
+                .map(|value| value.round() as i64);
+
+            Some(WeatherForecastDay {
+                label: forecast_day_label(index, date),
+                icon: weather_icon(code),
+                condition: weather_condition(code),
+                high,
+                low,
+                precipitation,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let summary = days.first().map_or_else(
+        || current_condition.to_string(),
+        |day| {
+            let precipitation = day
+                .precipitation
+                .map(|value| format!(", {}% precipitation", value))
+                .unwrap_or_default();
+            format!(
+                "Today: {}, high {}{}, low {}{}{}",
+                day.condition,
+                day.high,
+                unit.symbol(),
+                day.low,
+                unit.symbol(),
+                precipitation
+            )
+        },
+    );
+
+    WeatherForecast {
+        current,
+        summary,
+        days,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenMeteoForecastResponse {
+    current: ForecastCurrent,
+    daily: ForecastDaily,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForecastCurrent {
+    temperature_2m: f64,
+    weather_code: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForecastDaily {
+    time: Vec<String>,
+    weather_code: Vec<i64>,
+    temperature_2m_max: Vec<f64>,
+    temperature_2m_min: Vec<f64>,
+    precipitation_probability_max: Option<Vec<f64>>,
 }
 
 fn weather_icon(code: i64) -> &'static str {
@@ -265,6 +452,36 @@ fn weather_icon(code: i64) -> &'static str {
         95 | 96 | 99 => "󰙾",
         _ => FALLBACK_ICON,
     }
+}
+
+fn weather_condition(code: i64) -> &'static str {
+    match code {
+        0 => "Clear",
+        1 => "Mostly clear",
+        2 => "Partly cloudy",
+        3 => "Overcast",
+        45 | 48 => "Fog",
+        51 | 53 | 55 => "Drizzle",
+        56 | 57 => "Freezing drizzle",
+        61 | 63 | 65 => "Rain",
+        66 | 67 => "Freezing rain",
+        71 | 73 | 75 => "Snow",
+        77 => "Snow grains",
+        80..=82 => "Showers",
+        85 | 86 => "Snow showers",
+        95 => "Thunderstorm",
+        96 | 99 => "Thunderstorm with hail",
+        _ => "Weather unavailable",
+    }
+}
+
+fn forecast_day_label(index: usize, date: &str) -> String {
+    if index == 0 {
+        return "Today".to_string();
+    }
+    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map(|date| date.format("%a").to_string())
+        .unwrap_or_else(|_| date.to_string())
 }
 
 fn truncate_label(text: &str, max_chars: Option<usize>) -> String {
@@ -305,6 +522,49 @@ mod tests {
         assert_eq!(weather_icon(63), "󰖗");
         assert_eq!(weather_icon(95), "󰙾");
         assert_eq!(weather_icon(999), FALLBACK_ICON);
+    }
+
+    #[test]
+    fn weather_condition_maps_common_open_meteo_codes() {
+        assert_eq!(weather_condition(0), "Clear");
+        assert_eq!(weather_condition(2), "Partly cloudy");
+        assert_eq!(weather_condition(63), "Rain");
+        assert_eq!(weather_condition(999), "Weather unavailable");
+    }
+
+    #[test]
+    fn forecast_day_label_uses_today_and_weekdays() {
+        assert_eq!(forecast_day_label(0, "2026-05-26"), "Today");
+        assert_eq!(forecast_day_label(1, "2026-05-27"), "Wed");
+        assert_eq!(forecast_day_label(1, "bad-date"), "bad-date");
+    }
+
+    #[test]
+    fn build_weather_forecast_formats_current_summary_and_days() {
+        let response = OpenMeteoForecastResponse {
+            current: ForecastCurrent {
+                temperature_2m: 21.4,
+                weather_code: 2,
+            },
+            daily: ForecastDaily {
+                time: vec!["2026-05-26".to_string(), "2026-05-27".to_string()],
+                weather_code: vec![61, 0],
+                temperature_2m_max: vec![24.2, 26.0],
+                temperature_2m_min: vec![17.6, 18.2],
+                precipitation_probability_max: Some(vec![70.0, 5.0]),
+            },
+        };
+
+        let forecast = build_weather_forecast(response, WeatherUnit::Celsius);
+
+        assert_eq!(forecast.current, "󰖕 21°C, Partly cloudy");
+        assert_eq!(
+            forecast.summary,
+            "Today: Rain, high 24°C, low 18°C, 70% precipitation"
+        );
+        assert_eq!(forecast.days.len(), 2);
+        assert_eq!(forecast.days[0].label, "Today");
+        assert_eq!(forecast.days[1].label, "Wed");
     }
 
     #[test]

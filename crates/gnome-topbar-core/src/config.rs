@@ -1089,13 +1089,22 @@ impl WidgetsConfig {
                 }
             }
         }
-        if let Some(weather_widget) = self
-            .get_options("clock")
-            .and_then(|opts| opts.options.get("control_panel_weather_widget"))
-            .and_then(|value| value.as_str())
-            .filter(|value| !value.is_empty())
-        {
-            names.insert(weather_widget.to_string());
+        if let Some(clock) = self.get_options("clock") {
+            let control_panel_enabled = clock
+                .options
+                .get("control_panel")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let weather_widget = clock
+                .options
+                .get("control_panel_weather_widget")
+                .map(|value| value.as_str().unwrap_or_default())
+                .or(control_panel_enabled.then_some("weather"))
+                .filter(|value| !value.is_empty());
+
+            if let Some(weather_widget) = weather_widget {
+                names.insert(weather_widget.to_string());
+            }
         }
         names
     }
@@ -2320,6 +2329,25 @@ mod tests {
         let config: Config = toml::from_str(toml).unwrap();
         let unreferenced = config.widgets.unreferenced_configs();
         assert!(!unreferenced.contains(&"custom-weather".to_string()));
+    }
+
+    #[test]
+    fn test_clock_control_panel_default_weather_counts_as_referenced() {
+        let toml = r#"
+            [widgets]
+            center = ["clock"]
+
+            [widgets.clock]
+            control_panel = true
+
+            [widgets.weather]
+            latitude = 0.0
+            longitude = 0.0
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let unreferenced = config.widgets.unreferenced_configs();
+        assert!(!unreferenced.contains(&"weather".to_string()));
     }
 
     #[test]

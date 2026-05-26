@@ -22,6 +22,10 @@ use crate::widgets::calendar_popover::build_clock_calendar_popover;
 use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
 use crate::widgets::notifications_panel::build_control_panel_content as build_notifications_content;
+use crate::widgets::weather::{
+    WeatherForecastDay, fetch_weather_forecast, forecast_days_from_widget_name,
+    weather_config_from_widget_name,
+};
 
 const CONTROL_PANEL_LEFT_WIDTH: i32 = 380;
 const CONTROL_PANEL_RIGHT_WIDTH: i32 = 360;
@@ -74,7 +78,7 @@ pub fn build_clock_control_panel(
     right_col.set_vexpand(false);
     right_col.set_valign(Align::Start);
 
-    let time_card = build_time_weather_card(weather_widget_name, &world_clocks);
+    let time_card = build_time_weather_card(weather_widget_name.clone(), &world_clocks);
     time_card
         .container
         .set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
@@ -122,6 +126,19 @@ pub fn build_clock_control_panel(
     calendar_widget.set_valign(Align::Start);
     right_col.append(&calendar_widget);
 
+    let forecast_card = weather_widget_name
+        .as_ref()
+        .map(|widget_name| build_weather_forecast_card(widget_name));
+    if let Some(forecast_card) = &forecast_card {
+        forecast_card
+            .container
+            .set_width_request(CONTROL_PANEL_RIGHT_WIDTH);
+        forecast_card.container.set_halign(Align::Fill);
+        forecast_card.container.set_vexpand(false);
+        forecast_card.container.set_valign(Align::Start);
+        right_col.append(&forecast_card.container);
+    }
+
     let column_separator = GtkBox::new(Orientation::Vertical, 0);
     column_separator.add_css_class("control-panel-column-separator");
     column_separator.set_width_request(1);
@@ -148,12 +165,16 @@ pub fn build_clock_control_panel(
         let date_label = time_card.date_label.clone();
         let weather_label = time_card.weather_label.clone();
         let world_clock_rows = time_card.world_clock_rows.clone();
+        let forecast_card = forecast_card.clone();
         Rc::new(move || {
             refresh_time_labels(&time_label, &date_label);
             refresh_weather_label(&weather_label);
             refresh_world_clock_rows(&world_clock_rows);
             media_controller.update_from_snapshot(&MediaService::global().snapshot());
             calendar_refresh();
+            if let Some(forecast_card) = &forecast_card {
+                refresh_weather_forecast_card(forecast_card);
+            }
         }) as Rc<dyn Fn()>
     };
 
@@ -170,11 +191,163 @@ struct TimeWeatherCard {
 }
 
 #[derive(Clone)]
+struct WeatherForecastCard {
+    widget_name: String,
+    container: GtkBox,
+    current_label: Label,
+    summary_label: Label,
+    rows: Vec<WeatherForecastRow>,
+}
+
+#[derive(Clone)]
+struct WeatherForecastRow {
+    day_label: Label,
+    icon_label: Label,
+    condition_label: Label,
+    temp_label: Label,
+    precipitation_label: Label,
+}
+
+#[derive(Clone)]
 struct WorldClockRow {
     label: String,
     timezone: Tz,
     time_label: Label,
     date_label: Label,
+}
+
+fn build_weather_forecast_card(widget_name: &str) -> WeatherForecastCard {
+    let container = GtkBox::new(Orientation::Vertical, 8);
+    container.add_css_class("control-panel-card");
+    container.add_css_class("control-panel-forecast");
+
+    let header = GtkBox::new(Orientation::Vertical, 2);
+    let title_label = Label::new(Some("Weather"));
+    title_label.add_css_class(surface::POPOVER_TITLE);
+    title_label.add_css_class("control-panel-forecast-title");
+    title_label.set_xalign(0.0);
+
+    let current_label = Label::new(Some("Loading forecast"));
+    current_label.add_css_class("control-panel-forecast-current");
+    current_label.set_xalign(0.0);
+    current_label.set_wrap(true);
+
+    let summary_label = Label::new(None);
+    summary_label.add_css_class("control-panel-forecast-summary");
+    summary_label.set_xalign(0.0);
+    summary_label.set_wrap(true);
+
+    header.append(&title_label);
+    header.append(&current_label);
+    header.append(&summary_label);
+    container.append(&header);
+
+    let rows_box = GtkBox::new(Orientation::Vertical, 4);
+    rows_box.add_css_class("control-panel-forecast-days");
+
+    let rows = (0..5)
+        .map(|_| {
+            let row_box = GtkBox::new(Orientation::Horizontal, 8);
+            row_box.add_css_class("control-panel-forecast-row");
+            row_box.set_halign(Align::Fill);
+
+            let day_label = Label::new(None);
+            day_label.add_css_class("control-panel-forecast-day");
+            day_label.set_xalign(0.0);
+            day_label.set_width_chars(5);
+
+            let icon_label = Label::new(None);
+            icon_label.add_css_class("control-panel-forecast-icon");
+            icon_label.set_width_chars(2);
+
+            let condition_label = Label::new(None);
+            condition_label.add_css_class("control-panel-forecast-condition");
+            condition_label.set_xalign(0.0);
+            condition_label.set_hexpand(true);
+            condition_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+            let temp_label = Label::new(None);
+            temp_label.add_css_class("control-panel-forecast-temp");
+            temp_label.set_xalign(1.0);
+
+            let precipitation_label = Label::new(None);
+            precipitation_label.add_css_class("control-panel-forecast-precipitation");
+            precipitation_label.set_xalign(1.0);
+            precipitation_label.set_width_chars(4);
+
+            row_box.append(&day_label);
+            row_box.append(&icon_label);
+            row_box.append(&condition_label);
+            row_box.append(&temp_label);
+            row_box.append(&precipitation_label);
+            rows_box.append(&row_box);
+
+            WeatherForecastRow {
+                day_label,
+                icon_label,
+                condition_label,
+                temp_label,
+                precipitation_label,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    container.append(&rows_box);
+
+    WeatherForecastCard {
+        widget_name: widget_name.to_string(),
+        container,
+        current_label,
+        summary_label,
+        rows,
+    }
+}
+
+fn refresh_weather_forecast_card(card: &WeatherForecastCard) {
+    let card = card.clone();
+    let config = weather_config_from_widget_name(&card.widget_name);
+    let forecast_days = forecast_days_from_widget_name(&card.widget_name);
+    glib::spawn_future_local(async move {
+        let result =
+            gio::spawn_blocking(move || fetch_weather_forecast(&config, forecast_days)).await;
+
+        match result {
+            Ok(forecast) => {
+                set_label_if_changed(&card.current_label, &forecast.current);
+                set_label_if_changed(&card.summary_label, &forecast.summary);
+                set_visible_if_changed(&card.container, true);
+                for (row, day) in card.rows.iter().zip(forecast.days.iter()) {
+                    refresh_weather_forecast_row(row, day);
+                    set_visible_if_changed(&row.day_label, true);
+                    if let Some(parent) = row.day_label.parent() {
+                        set_visible_if_changed(&parent, true);
+                    }
+                }
+                for row in card.rows.iter().skip(forecast.days.len()) {
+                    if let Some(parent) = row.day_label.parent() {
+                        set_visible_if_changed(&parent, false);
+                    }
+                }
+            }
+            Err(err) => {
+                warn!("control panel weather forecast update failed: {:?}", err);
+                set_label_if_changed(&card.current_label, "Weather unavailable");
+                set_label_if_changed(&card.summary_label, "Forecast could not be updated.");
+            }
+        }
+    });
+}
+
+fn refresh_weather_forecast_row(row: &WeatherForecastRow, day: &WeatherForecastDay) {
+    set_label_if_changed(&row.day_label, &day.label);
+    set_label_if_changed(&row.icon_label, day.icon);
+    set_label_if_changed(&row.condition_label, day.condition);
+    set_label_if_changed(&row.temp_label, &format!("{}° / {}°", day.high, day.low));
+    let precipitation = day
+        .precipitation
+        .map(|value| format!("{}%", value))
+        .unwrap_or_default();
+    set_label_if_changed(&row.precipitation_label, &precipitation);
 }
 
 fn build_time_weather_card(

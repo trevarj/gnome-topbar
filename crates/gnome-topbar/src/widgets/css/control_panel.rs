@@ -28,6 +28,57 @@ pub fn css() -> &'static str {
     color: var(--color-foreground-muted);
 }
 
+.control-panel-forecast {
+    margin-top: 2px;
+}
+
+.control-panel-forecast-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+}
+
+.control-panel-forecast-current {
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-foreground);
+}
+
+.control-panel-forecast-summary {
+    font-size: var(--font-size-sm);
+    color: var(--color-foreground-muted);
+}
+
+.control-panel-forecast-days {
+    margin-top: 2px;
+}
+
+.control-panel-forecast-row {
+    min-height: 24px;
+}
+
+.control-panel-forecast-day,
+.control-panel-forecast-condition,
+.control-panel-forecast-temp,
+.control-panel-forecast-precipitation {
+    font-size: var(--font-size-sm);
+}
+
+.control-panel-forecast-day,
+.control-panel-forecast-temp {
+    font-weight: 600;
+    color: var(--color-foreground-secondary);
+}
+
+.control-panel-forecast-icon {
+    font-size: var(--font-size-md);
+    color: var(--color-foreground);
+}
+
+.control-panel-forecast-condition,
+.control-panel-forecast-precipitation {
+    color: var(--color-foreground-muted);
+}
+
 .control-panel-time-weather-with-world-clocks {
     margin-bottom: 10px;
 }

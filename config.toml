@@ -67,6 +67,7 @@ background_opacity = 0.0
 #   interval = 1800       # seconds between Open-Meteo refreshes
 #   tooltip = "Weather"
 #   max_chars = 24
+#   forecast_days = 5     # Control-panel forecast rows: 3 to 5 days
 #
 # Built-in headset battery indicator:
 #   right = ["tray", "headset", "quick_settings"]
@@ -117,6 +118,15 @@ control_panel = true
 world_clocks = [
   { label = "New York", timezone = "America/New_York" },
 ]
+
+[widgets.weather]
+latitude = 0.0
+longitude = 0.0
+unit = "celsius"
+interval = 1800
+tooltip = "Weather"
+max_chars = 24
+forecast_days = 5
 
 [widgets.system_monitor]
 cpu_threshold = 90

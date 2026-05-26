@@ -55,8 +55,10 @@ pub struct ClockConfig {
     /// Whether the clock opens the combined control panel instead of the
     /// calendar-only popover.
     pub control_panel: bool,
-    /// Optional custom widget name whose exec output is shown in the control
-    /// panel weather card.
+    /// Weather widget config used by the control panel forecast card.
+    ///
+    /// Defaults to the built-in `weather` widget. Set to an empty string to
+    /// hide the forecast card.
     pub control_panel_weather_widget: Option<String>,
     /// Secondary clocks shown in the clock control panel.
     pub world_clocks: Vec<WorldClockConfig>,
@@ -98,9 +100,8 @@ impl WidgetConfig for ClockConfig {
         let control_panel_weather_widget = entry
             .options
             .get("control_panel_weather_widget")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string);
+            .map(|value| value.as_str().filter(|s| !s.is_empty()).map(str::to_string))
+            .unwrap_or_else(|| Some("weather".to_string()));
         let world_clocks = parse_world_clock_config(entry.options.get("world_clocks"));
 
         Self {
@@ -119,7 +120,7 @@ impl Default for ClockConfig {
             format: DEFAULT_FORMAT.to_string(),
             show_week_numbers: true,
             control_panel: false,
-            control_panel_weather_widget: None,
+            control_panel_weather_widget: Some("weather".to_string()),
             world_clocks: Vec::new(),
         }
     }
@@ -654,6 +655,20 @@ mod tests {
     fn test_clock_config_default_impl() {
         let config = ClockConfig::default();
         assert_eq!(config.format, "%a %d %H:%M");
+        assert_eq!(
+            config.control_panel_weather_widget.as_deref(),
+            Some("weather")
+        );
+    }
+
+    #[test]
+    fn test_clock_config_defaults_control_panel_weather_widget() {
+        let config = ClockConfig::from_entry(&make_widget_entry("clock", HashMap::new()));
+
+        assert_eq!(
+            config.control_panel_weather_widget.as_deref(),
+            Some("weather")
+        );
     }
 
     #[test]
