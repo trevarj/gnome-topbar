@@ -279,7 +279,7 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active.clickable:hover {{
-    background-color: #ffffff;
+    background-color: var(--color-foreground-primary);
 }}
 
 .workspace-indicator-content {{
@@ -301,11 +301,11 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active .workspace-indicator-progress-fill {{
-    color: currentColor;
+    color: var(--color-accent-primary);
 }}
 
 .workspace-indicator.active .workspace-indicator-progress-track {{
-    color: #71717a;
+    color: var(--color-foreground-primary);
 }}
 
 .workspace-indicator.urgent.clickable:hover {{
@@ -323,8 +323,8 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active {{
-    color: #f4f4f5;
-    background-color: #f4f4f5;
+    color: var(--color-foreground-primary);
+    background-color: var(--color-foreground-primary);
     min-width: 24px;
 }}
 
