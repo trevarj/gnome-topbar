@@ -289,23 +289,23 @@ overlay.workspace-indicator {{
 .workspace-indicator-progress-track {{
     min-height: 100%;
     min-width: 100%;
-    background-color: currentColor;
+    color: #71717a;
     border-radius: var(--radius-round);
 }}
 
 .workspace-indicator-progress-fill {{
     min-height: 100%;
     min-width: 0;
-    background-color: var(--color-accent-primary);
+    color: var(--color-accent-primary);
     border-radius: var(--radius-round);
 }}
 
 .workspace-indicator.active .workspace-indicator-progress-fill {{
-    background-color: currentColor;
+    color: currentColor;
 }}
 
 .workspace-indicator.active .workspace-indicator-progress-track {{
-    background-color: #71717a;
+    color: #71717a;
 }}
 
 .workspace-indicator.urgent.clickable:hover {{
