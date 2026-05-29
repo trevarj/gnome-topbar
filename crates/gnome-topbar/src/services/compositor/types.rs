@@ -75,11 +75,13 @@ impl WorkspaceWindowProgress {
     ///
     /// 0 windows has no progress (`None`).
     /// A single window is treated as an empty pill (`0.0`).
+    /// For multiple windows, use equal steps so the first window starts at
+    /// `1 / total_windows` (50% with 2 windows) and the last at `1.0`.
     pub fn fraction(self) -> Option<f64> {
         match self.total_windows {
             0 => None,
             1 => Some(0.0),
-            total => Some((self.focused_index.min(total - 1)) as f64 / (total - 1) as f64),
+            total => Some((self.focused_index.min(total - 1) + 1) as f64 / total as f64),
         }
     }
 }
@@ -460,7 +462,7 @@ mod tests {
             focused_index: 0,
             total_windows: 10,
         };
-        assert_eq!(progress.fraction(), Some(0.0));
+        assert_eq!(progress.fraction(), Some(0.1));
     }
 
     #[test]
@@ -478,7 +480,16 @@ mod tests {
             focused_index: 4,
             total_windows: 10,
         };
-        assert_eq!(progress.fraction(), Some(4.0 / 9.0));
+        assert_eq!(progress.fraction(), Some(0.5));
+    }
+
+    #[test]
+    fn test_workspace_window_progress_two_windows_has_half_fill_for_first() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 0,
+            total_windows: 2,
+        };
+        assert_eq!(progress.fraction(), Some(0.5));
     }
 
     #[test]

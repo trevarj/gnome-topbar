@@ -357,7 +357,7 @@ mod tests {
         // Workspace 2 should be active
         let ws2 = Workspace::from_meta(&make_meta(2), &snapshot);
         assert!(ws2.active);
-        assert_eq!(ws2.active_window_progress, Some(3.0 / 4.0));
+        assert_eq!(ws2.active_window_progress, Some(4.0 / 5.0));
         assert_eq!(ws2.window_count, Some(5));
 
         // Workspace 1 should not be active
@@ -455,7 +455,7 @@ mod tests {
         assert!(ws2.active);
         assert!(ws2.occupied);
         assert_eq!(ws2.window_count, Some(5));
-        assert_eq!(ws2.active_window_progress, Some(4.0 / 9.0));
+        assert_eq!(ws2.active_window_progress, Some(0.5));
 
         // Workspace 1 should not be active on eDP-1
         let ws1 = Workspace::from_meta_per_output(&make_meta(1), &snapshot, "eDP-1");

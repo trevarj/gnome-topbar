@@ -1954,7 +1954,7 @@ mod tests {
             event_snapshot_changed(&shared, windows_payload());
         assert!(workspace_changed);
         assert!(window_changed);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
 
         let stale_event = json!({
             "WorkspaceActiveWindowChanged": {
@@ -1965,7 +1965,7 @@ mod tests {
         let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, stale_event);
         assert!(!workspace_changed);
         assert!(!window_changed);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
     }
 
     #[test]
@@ -1993,7 +1993,7 @@ mod tests {
         });
         let (_, window_changed, _) = event_snapshot_changed(&shared, focus_left);
         assert!(window_changed);
-        assert_eq!(active_fraction(&shared, 1), Some(0.0));
+        assert_eq!(active_fraction(&shared, 1), Some(1.0 / 3.0));
     }
 
     #[test]
@@ -2129,7 +2129,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, ws1_active);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
     }
 
     #[test]
@@ -2181,7 +2181,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, ws1_focus_center);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
 
         let stale_focus_from_ws2 = json!({
             "WindowFocusChanged": {
@@ -2192,7 +2192,7 @@ mod tests {
             event_snapshot_changed(&shared, stale_focus_from_ws2);
         assert!(!workspace_changed);
         assert!(!window_changed);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
     }
 
     #[test]
@@ -2295,7 +2295,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, ws1_focus_mid);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
 
         let activate_workspace_2 = json!({
             "WorkspaceActivated": {
@@ -2373,7 +2373,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, stale_windows_without_active_ws1);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
     }
 
     #[test]
@@ -2523,7 +2523,7 @@ mod tests {
         let shared = Arc::new(SharedState::default());
         let _ = event_snapshot_changed(&shared, workspaces_payload());
         let _ = event_snapshot_changed(&shared, windows_payload());
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
 
         let close = json!({
             "WindowClosed": {
@@ -2535,7 +2535,7 @@ mod tests {
         assert!(window_changed);
         assert!(shared.windows.read().get(&102).is_none());
         assert!(shared.focused_window.read().is_none());
-        assert_eq!(window_progress_fraction(&shared, 1), Some(0.0));
+        assert_eq!(window_progress_fraction(&shared, 1), Some(0.5));
         assert_eq!(
             shared
                 .workspace_snapshot
@@ -2592,7 +2592,7 @@ mod tests {
         assert!(workspace_changed);
         assert!(window_changed);
         assert_eq!(shared.windows.read().len(), 4);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
         assert_eq!(
             shared
                 .focused_window
@@ -2645,7 +2645,7 @@ mod tests {
         assert_eq!(window_updates[0].output.as_deref(), Some("eDP-1"));
         assert_eq!(window_list_updates[0].windows.len(), 3);
         assert_eq!(shared.windows.read().len(), 3);
-        assert_eq!(window_progress_fraction(&shared, 1), Some(0.0));
+        assert_eq!(window_progress_fraction(&shared, 1), Some(0.5));
     }
 
     #[test]
@@ -2795,13 +2795,13 @@ mod tests {
 
             let expected = match active_ws {
                 1 => match active_focus {
-                    Some(101) => Some(0.0),
-                    Some(102) => Some(0.5),
+                    Some(101) => Some(1.0 / 3.0),
+                    Some(102) => Some(2.0 / 3.0),
                     Some(103) => Some(1.0),
                     _ => Some(0.0),
                 },
                 2 => match active_focus {
-                    Some(201) => Some(0.0),
+                    Some(201) => Some(0.5),
                     Some(202) => Some(1.0),
                     _ => Some(0.0),
                 },
@@ -2983,7 +2983,7 @@ mod tests {
         let shared = Arc::new(SharedState::default());
         let _ = event_snapshot_changed(&shared, workspaces_payload());
         let _ = event_snapshot_changed(&shared, windows_payload());
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
         assert_eq!(
             shared
                 .focused_window
@@ -3009,7 +3009,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, new_window);
-        assert_eq!(active_fraction(&shared, 1), Some(0.5));
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
         assert_eq!(
             shared
                 .focused_window
