@@ -535,6 +535,15 @@ pub mod widget {
     /// Adds horizontal padding for labels longer than 2 characters.
     pub const WORKSPACE_INDICATOR_LONG: &str = "workspace-indicator-long";
 
+    /// Workspace progress track (`.workspace-indicator-progress-track`).
+    pub const WORKSPACE_INDICATOR_PROGRESS_TRACK: &str = "workspace-indicator-progress-track";
+
+    /// Workspace progress fill (`.workspace-indicator-progress-fill`).
+    pub const WORKSPACE_INDICATOR_PROGRESS_FILL: &str = "workspace-indicator-progress-fill";
+
+    /// Workspace indicator content overlay (`.workspace-indicator-content`).
+    pub const WORKSPACE_INDICATOR_CONTENT: &str = "workspace-indicator-content";
+
     /// Workspace indicator grow-in: forces zero width (`.workspace-grow-in`).
     /// Registered at transient CSS priority (above user CSS) to ensure
     /// user style.css cannot accidentally defeat the min-width: 0 reset.

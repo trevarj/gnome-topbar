@@ -1044,23 +1044,47 @@ fn clear_indicators(
 /// and `measure()` sees the correct min-width.
 fn create_single_indicator(label_type: LabelType, workspace: &Workspace) -> Widget {
     let workspace_id = workspace.id;
+    let mut is_long = false;
 
-    let (overlay, ripple_handle, is_long) = if label_type == LabelType::None {
-        // GtkBox avoids font-metric intrinsic sizing; CSS controls dimensions.
-        let dot = GtkBox::new(gtk4::Orientation::Horizontal, 0);
-        let (o, rh) = wrap_with_ripple(&dot);
-        (o, rh, false)
-    } else {
+    let content = GtkBox::new(gtk4::Orientation::Horizontal, 0);
+    content.add_css_class(widget::WORKSPACE_INDICATOR_CONTENT);
+
+    if label_type != LabelType::None {
         let label_text = workspace_label_text(label_type, workspace);
+        is_long = label_text.chars().count() > 2;
         let label = Label::new(Some(&label_text));
+
         // Optical centering: glyphs ●/○/◆ appear left-heavy at 0.5;
         // 0.55 nudges them to look visually centered in the pill.
         label.set_xalign(0.55);
         label.set_ellipsize(EllipsizeMode::End);
         label.set_single_line_mode(true);
-        let (o, rh) = wrap_with_ripple(&label);
-        (o, rh, label_text.chars().count() > 2)
-    };
+        content.append(&label);
+    }
+
+    let progress_track = GtkBox::new(gtk4::Orientation::Horizontal, 0);
+    progress_track.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS_TRACK);
+    progress_track.set_halign(Align::Fill);
+    progress_track.set_valign(Align::Fill);
+    progress_track.set_vexpand(true);
+    progress_track.set_hexpand(true);
+
+    let fill = GtkBox::new(gtk4::Orientation::Horizontal, 0);
+    fill.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS_FILL);
+    fill.set_halign(Align::Start);
+    fill.set_valign(Align::Fill);
+    fill.set_vexpand(true);
+    fill.set_size_request(0, -1);
+    progress_track.append(&fill);
+
+    let indicator_content = Overlay::new();
+    indicator_content.set_child(Some(&progress_track));
+
+    if label_type != LabelType::None {
+        indicator_content.add_overlay(&content);
+    }
+
+    let (overlay, ripple_handle) = wrap_with_ripple(&indicator_content);
 
     // Sizing, state, and visual classes go on the overlay — it is the
     // widget that WorkspaceContainer measures and lays out.
@@ -1094,6 +1118,85 @@ fn create_single_indicator(label_type: LabelType, workspace: &Workspace) -> Widg
     overlay.add_controller(gesture);
 
     overlay.upcast()
+}
+
+fn workspace_indicator_progress_track_and_fill(indicator: &Widget) -> Option<(GtkBox, GtkBox)> {
+    let overlay = indicator.downcast_ref::<Overlay>()?;
+    let content_overlay = overlay.child()?.downcast::<Overlay>().ok()?;
+    let progress_track = content_overlay.child()?.downcast::<GtkBox>().ok()?;
+    let fill = progress_track
+        .first_child()
+        .and_then(|fill| fill.downcast::<GtkBox>().ok())?;
+
+    Some((progress_track, fill))
+}
+
+fn workspace_indicator_label(indicator: &Widget) -> Option<Label> {
+    let overlay = indicator.downcast_ref::<Overlay>()?;
+    let content_overlay = overlay.child()?.downcast::<Overlay>().ok()?;
+
+    let mut child = content_overlay.first_child();
+    while let Some(child_widget) = child {
+        if child_widget.has_css_class(widget::WORKSPACE_INDICATOR_CONTENT) {
+            let content = child_widget.downcast::<GtkBox>().ok()?;
+            let mut content_child = content.first_child();
+
+            while let Some(node) = content_child {
+                if let Ok(label) = node.clone().downcast::<Label>() {
+                    return Some(label);
+                }
+
+                content_child = node.next_sibling();
+            }
+
+            break;
+        }
+
+        child = child_widget.next_sibling();
+    }
+
+    None
+}
+
+fn workspace_indicator_progress(indicator: &Widget, workspace: &Workspace) {
+    let Some((progress_track, fill)) = workspace_indicator_progress_track_and_fill(indicator)
+    else {
+        return;
+    };
+
+    let Some(progress) = workspace.active_window_progress else {
+        fill.set_visible(false);
+        fill.set_size_request(0, -1);
+        return;
+    };
+
+    if !workspace.active {
+        fill.set_visible(false);
+        fill.set_size_request(0, -1);
+        return;
+    }
+
+    let fraction = progress.clamp(0.0, 1.0);
+    let mut available = progress_track.width();
+    if available <= 0 {
+        available = indicator.width();
+    }
+    if available <= 0 {
+        available = progress_track.measure(gtk4::Orientation::Horizontal, -1).1;
+    }
+
+    if fraction <= 0.0 {
+        fill.set_visible(false);
+        fill.set_size_request(0, -1);
+        return;
+    }
+    let available = available.max(0);
+
+    fill.set_visible(true);
+    let width = (f64::from(available) * fraction)
+        .round()
+        .clamp(0.0, f64::from(available));
+    fill.set_size_request(width as i32, -1);
 }
 
 /// Create workspace indicator widgets for the given workspaces.
@@ -1651,16 +1754,8 @@ fn update_indicators(
         }
 
         // Update icon/name/index label.
-        // The indicator is an Overlay wrapping the inner label.
-        if let Some(label) = (label_type != LabelType::None)
-            .then(|| {
-                indicator
-                    .downcast_ref::<Overlay>()
-                    .and_then(|o| o.child())
-                    .and_then(|w| w.downcast::<Label>().ok())
-            })
-            .flatten()
-        {
+        // The indicator is an Overlay wrapping the content overlay and progress track.
+        if let Some(label) = workspace_indicator_label(indicator) {
             match label_type {
                 LabelType::Icons => {
                     let text = if workspace.active {
@@ -1691,6 +1786,8 @@ fn update_indicators(
                 LabelType::None => unreachable!(),
             }
         }
+
+        workspace_indicator_progress(indicator, workspace);
 
         let tooltip_text = build_tooltip(workspace);
         TooltipManager::global().set_styled_tooltip(indicator, &tooltip_text);
@@ -2175,6 +2272,7 @@ mod tests {
             active,
             occupied,
             urgent,
+            active_window_progress: None,
             window_count,
             output: None,
         }

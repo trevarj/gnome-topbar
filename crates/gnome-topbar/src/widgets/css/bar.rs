@@ -282,6 +282,32 @@ overlay.workspace-indicator {{
     background-color: #ffffff;
 }}
 
+.workspace-indicator-content {{
+    padding: 0;
+}}
+
+.workspace-indicator-progress-track {{
+    min-height: 100%;
+    min-width: 100%;
+    background-color: currentColor;
+    border-radius: var(--radius-round);
+}}
+
+.workspace-indicator-progress-fill {{
+    min-height: 100%;
+    min-width: 0;
+    background-color: var(--color-accent-primary);
+    border-radius: var(--radius-round);
+}}
+
+.workspace-indicator.active .workspace-indicator-progress-fill {{
+    background-color: currentColor;
+}}
+
+.workspace-indicator.active .workspace-indicator-progress-track {{
+    background-color: #71717a;
+}}
+
 .workspace-indicator.urgent.clickable:hover {{
     background-color: var(--color-workspace-indicator-urgent-hover-bg);
 }}

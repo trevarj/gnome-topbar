@@ -329,6 +329,9 @@ impl NiriBackend {
         let id_to_output = shared.id_to_output.read();
         let mut snapshot = shared.workspace_snapshot.write();
 
+        // Aggregate windows by workspace for progress calculation.
+        let mut workspace_windows: HashMap<i32, Vec<(i32, i32, u64, bool)>> = HashMap::new();
+
         // Reset global counts
         for count in snapshot.window_counts.values_mut() {
             *count = 0;
@@ -341,21 +344,74 @@ impl NiriBackend {
             }
         }
 
-        // Count windows per workspace
+        // Reset computed progress; it will be repopulated from current cache state.
+        snapshot.window_progress.clear();
+
+        // Collect windows grouped by workspace and keep stable ordering information.
         for win in win_cache.values() {
             if let Some(ws_niri_id) = win.workspace_id {
                 let stable_id = ws_niri_id as i32;
-
-                // Update global count
-                *snapshot.window_counts.entry(stable_id).or_insert(0) += 1;
-
-                // Update per-output count
-                if let Some(out_name) = id_to_output.get(&ws_niri_id)
-                    && let Some(per_out) = snapshot.per_output.get_mut(out_name)
-                {
-                    *per_out.window_counts.entry(stable_id).or_insert(0) += 1;
-                }
+                let layout_pos = win.layout_position.unwrap_or((i32::MAX, i32::MAX));
+                workspace_windows.entry(stable_id).or_default().push((
+                    layout_pos.0,
+                    layout_pos.1,
+                    win.id,
+                    win.is_focused,
+                ));
             }
+        }
+
+        // Compute per-workspace counts and progress from sorting order.
+        for (stable_id, mut windows) in workspace_windows {
+            windows.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+
+            let total_windows = windows.len() as u32;
+            let focused_index = windows.iter().position(|win| win.3).unwrap_or(0) as u32;
+
+            *snapshot.window_counts.entry(stable_id).or_insert(0) = total_windows;
+
+            snapshot.window_progress.insert(
+                stable_id,
+                super::WorkspaceWindowProgress {
+                    focused_index,
+                    total_windows,
+                },
+            );
+
+            // Update per-output counts based on workspace ownership.
+            if let Some(out_name) = id_to_output.get(&(stable_id as u64))
+                && let Some(per_out) = snapshot.per_output.get_mut(out_name)
+            {
+                *per_out.window_counts.entry(stable_id).or_insert(0) = total_windows;
+            }
+        }
+
+        // Ensure active workspaces are represented even when empty so the active
+        // pill style still has progress metadata available.
+        let active_workspaces: Vec<i32> = snapshot.active_workspace.iter().copied().collect();
+        for ws_id in active_workspaces {
+            snapshot
+                .window_progress
+                .entry(ws_id)
+                .or_insert(super::WorkspaceWindowProgress {
+                    focused_index: 0,
+                    total_windows: 0,
+                });
+        }
+
+        let per_output_active_workspaces: Vec<i32> = snapshot
+            .per_output
+            .values()
+            .flat_map(|per_out| per_out.active_workspace.iter().copied())
+            .collect();
+        for ws_id in per_output_active_workspaces {
+            snapshot
+                .window_progress
+                .entry(ws_id)
+                .or_insert(super::WorkspaceWindowProgress {
+                    focused_index: 0,
+                    total_windows: 0,
+                });
         }
     }
 
@@ -698,7 +754,6 @@ impl NiriBackend {
                 if is_focused && !snapshot.active_workspace.contains(&stable_id) {
                     snapshot.active_workspace.clear();
                     snapshot.active_workspace.insert(stable_id);
-                    workspace_changed = true;
                 }
 
                 if let Some(ref out_name) = output
@@ -707,14 +762,15 @@ impl NiriBackend {
                 {
                     per_out.active_workspace.clear();
                     per_out.active_workspace.insert(stable_id);
-                    workspace_changed = true;
                 }
 
                 drop(snapshot);
+                Self::update_window_counts(shared);
 
                 // Workspace switched - update per-output windows
                 Self::update_per_output_windows(shared);
                 window_changed = true;
+                workspace_changed = true;
             }
         } else if let Some(urgency_changed) = event.get("WorkspaceUrgencyChanged") {
             if let Some(ws_id) = urgency_changed.get("id").and_then(|v| v.as_u64()) {
@@ -735,22 +791,23 @@ impl NiriBackend {
             if let Some(windows) = windows_changed.get("windows").and_then(|v| v.as_array()) {
                 Self::process_windows(shared, windows);
                 window_changed = true;
+                workspace_changed = true;
             }
         } else if let Some(window_opened) = event.get("WindowOpenedOrChanged") {
             if let Some(window) = window_opened.get("window") {
                 Self::update_single_window(shared, window);
+                Self::update_window_counts(shared);
 
                 if let Some(ws_id) = window.get("workspace_id").and_then(|v| v.as_u64()) {
                     let stable_id = ws_id as i32;
                     let mut snapshot = shared.workspace_snapshot.write();
-                    if snapshot.occupied_workspaces.insert(stable_id) {
-                        workspace_changed = true;
-                    }
+                    snapshot.occupied_workspaces.insert(stable_id);
                 }
 
                 // Window opened/changed - update per-output windows
                 Self::update_per_output_windows(shared);
                 window_changed = true;
+                workspace_changed = true;
             }
         } else if let Some(layouts_changed) = event.get("WindowLayoutsChanged") {
             // changes is Vec<(u64, WindowLayout)> which serializes as an array of tuples:
@@ -780,7 +837,10 @@ impl NiriBackend {
                             });
                     }
                 }
+                drop(win_cache);
+                Self::update_window_counts(shared);
                 window_changed = true;
+                workspace_changed = true;
             }
         } else if let Some(window_closed) = event.get("WindowClosed") {
             if let Some(win_id) = window_closed.get("id").and_then(|v| v.as_u64()) {
@@ -798,9 +858,11 @@ impl NiriBackend {
                 win.is_focused = win_id.is_some_and(|id| win.id == id);
             }
             drop(win_cache);
+            Self::update_window_counts(shared);
             Self::update_focused_window_from_cache(shared);
             Self::update_per_output_windows(shared);
             window_changed = true;
+            workspace_changed = true;
         } else if let Some(urgency_changed) = event.get("WindowUrgencyChanged") {
             let win_id = urgency_changed.get("id").and_then(|v| v.as_u64());
             let is_urgent = urgency_changed
@@ -830,6 +892,15 @@ impl NiriBackend {
                     let workspace_id = Some(ws_id as i32);
                     drop(id_to_output);
 
+                    let mut win_cache = shared.windows.write();
+                    for win in win_cache.values_mut() {
+                        if win.workspace_id == Some(ws_id) {
+                            win.is_focused = active_win_id.is_some_and(|id| win.id == id);
+                        }
+                    }
+                    drop(win_cache);
+                    Self::update_window_counts(shared);
+
                     let win_info = if let Some(win_id) = active_win_id {
                         let win_cache = shared.windows.read();
                         win_cache.get(&win_id).map(|win| WindowInfo {
@@ -851,6 +922,7 @@ impl NiriBackend {
                         }),
                     );
                     window_changed = true;
+                    workspace_changed = true;
                 }
             }
         }
