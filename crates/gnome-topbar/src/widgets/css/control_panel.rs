@@ -7,8 +7,8 @@ pub fn css() -> &'static str {
 
 .control-panel .notification-header .vp-popover-title,
 .control-panel .calendar-header .vp-popover-title {
-    font-size: var(--font-size-base);
-    font-weight: 600;
+    font-size: calc(var(--font-size-lg) * 1.15);
+    font-weight: 700;
 }
 
 .control-panel-time {
@@ -18,13 +18,13 @@ pub fn css() -> &'static str {
 }
 
 .control-panel-date {
-    font-size: var(--font-size-md);
-    font-weight: 500;
+    font-size: calc(var(--font-size-lg) * 1.15);
+    font-weight: 700;
     color: var(--color-foreground-secondary);
 }
 
 .control-panel-weather {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     color: var(--color-foreground-muted);
 }
 
@@ -33,18 +33,18 @@ pub fn css() -> &'static str {
 }
 
 .control-panel-forecast-title {
-    font-size: var(--font-size-base);
-    font-weight: 600;
+    font-size: calc(var(--font-size-lg) * 1.15);
+    font-weight: 700;
 }
 
 .control-panel-forecast-current {
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-base);
     font-weight: 600;
     color: var(--color-foreground);
 }
 
 .control-panel-forecast-summary {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     color: var(--color-foreground-muted);
 }
 
@@ -60,7 +60,7 @@ pub fn css() -> &'static str {
 .control-panel-forecast-condition,
 .control-panel-forecast-temp,
 .control-panel-forecast-precipitation {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
 }
 
 .control-panel-forecast-day,
@@ -89,13 +89,13 @@ pub fn css() -> &'static str {
 }
 
 .control-panel-world-clock-label {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     font-weight: 500;
     color: var(--color-foreground-secondary);
 }
 
 .control-panel-world-clock-time {
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-base);
     font-weight: 600;
     color: var(--color-foreground);
 }
