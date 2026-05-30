@@ -7,7 +7,7 @@ use gnome_topbar_core::config::WidgetEntry;
 use gtk4::gio;
 use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Label};
+use gtk4::{Box as GtkBox, GestureClick, Label, gdk};
 use serde::Deserialize;
 use tracing::warn;
 
@@ -56,6 +56,13 @@ impl WeatherUnit {
         match self {
             Self::Celsius => "°C",
             Self::Fahrenheit => "°F",
+        }
+    }
+
+    fn toggled(self) -> Self {
+        match self {
+            Self::Celsius => Self::Fahrenheit,
+            Self::Fahrenheit => Self::Celsius,
         }
     }
 }
@@ -212,27 +219,54 @@ pub struct WeatherWidget {
 
 impl WeatherWidget {
     pub fn new(config: WeatherConfig) -> Self {
+        let config = Rc::new(RefCell::new(config));
         let base = BaseWidget::new(&[wgt::WEATHER]);
-        base.set_tooltip(&config.tooltip);
         let label = base.add_label(Some(FALLBACK_ICON), &[wgt::WEATHER]);
         label.set_xalign(0.5);
 
-        let timer = Rc::new(RefCell::new(None));
-        refresh_weather_label(&label, &config);
+        let on_click_right_cmd = ConfigManager::global().get_click_handlers(wgt::WEATHER).1;
 
-        if config.interval > 0 {
+        if on_click_right_cmd.is_none() {
+            let click = GestureClick::new();
+            click.set_button(gdk::BUTTON_SECONDARY);
+            let label_for_toggle = label.clone();
+            let config_for_toggle = config.clone();
+            click.connect_released(move |_gesture, _n_press, _x, _y| {
+                let mut config = config_for_toggle.borrow_mut();
+                config.unit = config.unit.toggled();
+                let current_config = config.clone();
+                drop(config);
+                refresh_weather_label(&label_for_toggle, &current_config);
+            });
+            base.widget().add_controller(click);
+        }
+
+        {
+            let snapshot = config.borrow().clone();
+            base.set_tooltip(&snapshot.tooltip);
+            refresh_weather_label(&label, &snapshot);
+        }
+
+        let interval = config.borrow().interval;
+        if interval > 0 {
+            let timer = Rc::new(RefCell::new(None));
             let label_for_timer = label.clone();
             let config_for_timer = config.clone();
-            let source = glib::timeout_add_seconds_local(config.interval as u32, move || {
-                refresh_weather_label(&label_for_timer, &config_for_timer);
+            let source = glib::timeout_add_seconds_local(interval as u32, move || {
+                let snapshot = config_for_timer.borrow().clone();
+                refresh_weather_label(&label_for_timer, &snapshot);
                 glib::ControlFlow::Continue
             });
             *timer.borrow_mut() = Some(source);
-        }
-
-        Self {
-            base,
-            _timer: timer,
+            Self {
+                base,
+                _timer: timer,
+            }
+        } else {
+            Self {
+                base,
+                _timer: Rc::new(RefCell::new(None)),
+            }
         }
     }
 

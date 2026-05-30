@@ -2934,7 +2934,7 @@ mod tests {
             .focused_window
             .read()
             .as_ref()
-            .and_then(|w| Some((w.workspace_id, w.title.clone())));
+            .map(|w| (w.workspace_id, w.title.clone()));
 
         let (workspace_changed, window_changed, _) =
             event_snapshot_changed(&shared, set_focus_mid.clone());
@@ -2946,7 +2946,7 @@ mod tests {
                 .focused_window
                 .read()
                 .as_ref()
-                .and_then(|w| Some((w.workspace_id, w.title.clone()))),
+                .map(|w| (w.workspace_id, w.title.clone())),
             before_focused
         );
     }
@@ -2989,7 +2989,7 @@ mod tests {
                 .focused_window
                 .read()
                 .as_ref()
-                .and_then(|w| Some(w.title.as_str())),
+                .map(|w| w.title.as_str()),
             Some("ws1-mid")
         );
 
@@ -3015,7 +3015,7 @@ mod tests {
                 .focused_window
                 .read()
                 .as_ref()
-                .and_then(|w| Some(w.title.as_str())),
+                .map(|w| w.title.as_str()),
             Some("ws1-mid")
         );
     }
