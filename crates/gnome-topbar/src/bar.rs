@@ -730,7 +730,7 @@ fn create_center_section(
 pub fn load_css(config: &Config) {
     let provider = gtk4::CssProvider::new();
 
-    // Use cached palettes from ConfigManager (avoids re-reading wallpaper image)
+    // Use cached palettes from ConfigManager
     let palette = ConfigManager::global().palette();
     let popover_palette = ConfigManager::global().popover_palette();
     let css = generate_css(config, &palette, popover_palette.as_ref());
@@ -785,8 +785,8 @@ pub fn load_css(config: &Config) {
     }
 }
 
-/// Generate the complete built-in CSS for a config without reading runtime
-/// wallpaper/material state. Used by the CLI dump command.
+/// Generate the complete built-in CSS for a config without runtime service state.
+/// Used by the CLI dump command.
 pub(crate) fn generate_builtin_css(config: &Config) -> String {
     let palette = ThemePalette::from_config(config, None, None);
     let popover_palette = ThemePalette::popover_palette(config, None, None);

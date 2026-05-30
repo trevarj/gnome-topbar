@@ -17,7 +17,7 @@
 //! - Structural changes (widget list, layout, bar size, margins) trigger a full
 //!   bar rebuild with a brief visual flicker.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -35,15 +35,9 @@ use gnome_topbar_core::theme::{BORDER_OPACITY_DARK, BORDER_OPACITY_GTK, BORDER_O
 use gnome_topbar_core::{Config, ThemePalette, ThemeSizes};
 
 use super::callbacks::{CallbackId, Callbacks};
-use super::wallpaper::{detect_wallpaper, extract_theme_from_image, theme_from_source_color};
-
 /// Debounce interval (in ms) for file change events. Editors often trigger
 /// multiple events for a single save; this batches them into one reload.
 const FILE_CHANGE_DEBOUNCE_MS: u64 = 300;
-
-/// Polling interval (in seconds) for checking if the wallpaper changed.
-/// Only active when `mode = "auto"` and no explicit wallpaper path is set.
-const WALLPAPER_POLL_INTERVAL_SECS: u32 = 2;
 
 use crate::bar;
 use crate::services::audio::AudioService;
@@ -106,8 +100,7 @@ pub struct ConfigManager {
     /// Current configuration.
     config: RefCell<Config>,
     /// Cached theme palette — computed once per config change, not on every access.
-    /// This avoids re-reading and re-processing the wallpaper image on every call
-    /// to `theme_sizes()`, `surface_border_radius()`, etc.
+    /// This keeps style queries cheap.
     palette: RefCell<ThemePalette>,
     /// Cached popover palette — a second palette with flipped polarity for popover
     /// surfaces, computed when `theme.popover` is set. `None` when not configured,
@@ -120,19 +113,6 @@ pub struct ConfigManager {
     /// Callbacks for theme/style changes (border radius, colors, etc.)
     /// that don't trigger a full bar rebuild.
     theme_callbacks: Callbacks<()>,
-    /// Last wallpaper path detected from wallpaper daemon (for change detection).
-    wallpaper_path: RefCell<Option<String>>,
-    /// Cached source color extracted from the wallpaper image. Rebuilding a
-    /// `material_colors::theme::Theme` from the source color is cheap (pure math);
-    /// the expensive part is image I/O + quantization, which this cache avoids.
-    cached_source_color: Cell<Option<material_colors::color::Argb>>,
-    /// Average relative luminance of the last extracted wallpaper image (0.0–1.0).
-    /// Used to auto-derive light/dark polarity when `theme.scheme` is not set.
-    cached_luminance: Cell<Option<f64>>,
-    /// Source ID for the wallpaper polling timer (so we can cancel it).
-    wallpaper_poll_source: RefCell<Option<glib::SourceId>>,
-    /// Guard against overlapping wallpaper polls (IPC + image processing is async).
-    poll_in_progress: Cell<bool>,
 }
 
 // Thread-local singleton storage
@@ -142,34 +122,8 @@ thread_local! {
 
 impl ConfigManager {
     fn new(config: Config, config_path: Option<PathBuf>) -> Rc<Self> {
-        // Detect wallpaper and extract Material You theme if in auto mode
-        let monitor_hint = config.bar.outputs.first().map(|s| s.as_str());
-        let (initial_wallpaper, material_theme, initial_luminance) =
-            if config.theme.mode == "auto" && config.theme.wallpaper.is_none() {
-                let wp = detect_wallpaper(monitor_hint);
-                let result = wp.as_deref().and_then(extract_theme_from_image);
-                let luminance = result.as_ref().map(|(_, l)| *l);
-                let theme = result.and_then(|(t, _)| t);
-                (wp, theme, luminance)
-            } else if config.theme.mode == "auto" {
-                // Explicit wallpaper path set
-                let result = config
-                    .theme
-                    .wallpaper
-                    .as_deref()
-                    .and_then(extract_theme_from_image);
-                let luminance = result.as_ref().map(|(_, l)| *l);
-                let theme = result.and_then(|(t, _)| t);
-                (None, theme, luminance)
-            } else {
-                (None, None, None)
-            };
-
-        let source_color = material_theme.as_ref().map(|t| t.source);
-        let palette =
-            ThemePalette::from_config(&config, material_theme.as_ref(), initial_luminance);
-        let popover_palette =
-            ThemePalette::popover_palette(&config, material_theme.as_ref(), initial_luminance);
+        let palette = ThemePalette::from_config(&config, None, None);
+        let popover_palette = ThemePalette::popover_palette(&config, None, None);
 
         Rc::new(Self {
             config: RefCell::new(config),
@@ -178,11 +132,6 @@ impl ConfigManager {
             config_path: RefCell::new(config_path),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             theme_callbacks: Callbacks::new(),
-            wallpaper_path: RefCell::new(initial_wallpaper),
-            cached_source_color: Cell::new(source_color),
-            cached_luminance: Cell::new(initial_luminance),
-            wallpaper_poll_source: RefCell::new(None),
-            poll_in_progress: Cell::new(false),
         })
     }
 
@@ -222,7 +171,7 @@ impl ConfigManager {
     /// Get the cached theme palette.
     ///
     /// The palette is computed once per config change and cached. This avoids
-    /// re-reading and re-processing the wallpaper image on every access.
+    /// re-reading and recomputing theme values on every access.
     pub fn palette(&self) -> ThemePalette {
         self.palette.borrow().clone()
     }
@@ -530,16 +479,12 @@ impl ConfigManager {
         self.theme_callbacks.unregister(id)
     }
 
-    /// Start watching the config file for changes and wallpaper polling.
+    /// Start watching the config file for changes.
     ///
     /// This spawns a background thread that monitors the config file. When changes
     /// are detected, the new config is parsed and sent to the GTK main thread.
     ///
-    /// Also starts wallpaper polling if `mode = "auto"` (wallpaper-adaptive theming).
     pub fn start_watching(self: &Rc<Self>) {
-        // Start wallpaper polling if in auto-detect mode
-        self.start_wallpaper_polling();
-
         let config_path = self.config_path.borrow().clone();
         let Some(path) = config_path else {
             info!("No config file to watch (using defaults)");
@@ -830,55 +775,12 @@ impl ConfigManager {
         let theme_changed = config_theme_changed(&old_config, &new_config);
         let structure_changed = config_structure_changed(&old_config, &new_config);
 
-        // Update detected wallpaper path before theme rebuild so the palette
-        // can use it (e.g. when an explicit wallpaper is removed and we need
-        // to fall back to auto-detection).
-        if new_config.theme.mode == "auto"
-            && new_config.theme.wallpaper.is_none()
-            && (old_config.theme.mode != "auto"
-                || old_config.theme.wallpaper != new_config.theme.wallpaper)
-        {
-            *self.wallpaper_path.borrow_mut() =
-                detect_wallpaper(new_config.bar.outputs.first().map(|s| s.as_str()));
-        }
-
         // Update theme/palette if theme config changed
         if theme_changed {
             info!("Theme configuration changed, updating styles...");
 
-            // Reuse cached source color unless the wallpaper source changed,
-            // avoiding redundant image I/O + quantization on the main thread.
-            // Rebuilding Theme from source color is cheap (pure math).
-            let material_theme = if new_config.theme.mode == "auto" {
-                let wallpaper_source_changed = old_config.theme.mode != "auto"
-                    || old_config.theme.wallpaper != new_config.theme.wallpaper;
-
-                if wallpaper_source_changed {
-                    let result = new_config
-                        .theme
-                        .wallpaper
-                        .as_deref()
-                        .or(self.wallpaper_path.borrow().as_deref())
-                        .and_then(extract_theme_from_image);
-                    let luminance = result.as_ref().map(|(_, l)| *l);
-                    let theme = result.and_then(|(t, _)| t);
-                    self.cached_source_color
-                        .set(theme.as_ref().map(|t| t.source));
-                    self.cached_luminance.set(luminance);
-                    theme
-                } else {
-                    self.cached_source_color.get().map(theme_from_source_color)
-                }
-            } else {
-                None
-            };
-
-            let luminance = self.cached_luminance.get();
-            // Rebuild the cached palette once
-            let palette =
-                ThemePalette::from_config(&new_config, material_theme.as_ref(), luminance);
-            let popover_palette =
-                ThemePalette::popover_palette(&new_config, material_theme.as_ref(), luminance);
+            let palette = ThemePalette::from_config(&new_config, None, None);
+            let popover_palette = ThemePalette::popover_palette(&new_config, None, None);
             let surface_styles = palette.surface_styles();
 
             // Update surface style manager
@@ -904,17 +806,6 @@ impl ConfigManager {
         // so widgets see the new values when notified
         *self.config.borrow_mut() = new_config.clone();
 
-        // Restart or stop wallpaper polling if auto mode or wallpaper config changed
-        if old_config.theme.mode != new_config.theme.mode
-            || old_config.theme.wallpaper != new_config.theme.wallpaper
-        {
-            self.start_wallpaper_polling();
-            // Clear cached path when leaving auto mode or setting an explicit wallpaper
-            if new_config.theme.mode != "auto" || new_config.theme.wallpaper.is_some() {
-                *self.wallpaper_path.borrow_mut() = None;
-            }
-        }
-
         if structure_changed {
             // Structural changes require full bar rebuild
             info!("Structural configuration changed, rebuilding bar...");
@@ -937,126 +828,10 @@ impl ConfigManager {
         info!("Configuration applied successfully");
     }
 
-    /// Start polling for wallpaper changes from supported daemons.
-    ///
-    /// Only active when `mode = "auto"` and no explicit `wallpaper` path is set.
-    /// Polls every `WALLPAPER_POLL_INTERVAL_SECS` seconds, compares to the cached path, and triggers a theme
-    /// rebuild if the wallpaper changed.
-    pub fn start_wallpaper_polling(self: &Rc<Self>) {
-        // Stop any existing poll timer first
-        self.stop_wallpaper_polling();
-
-        // Only poll when in auto mode with no explicit wallpaper path
-        let config = self.config.borrow();
-        let should_poll = config.theme.mode == "auto" && config.theme.wallpaper.is_none();
-        drop(config);
-        if !should_poll {
-            return;
-        }
-
-        info!(
-            "Starting wallpaper polling (every {}s)",
-            WALLPAPER_POLL_INTERVAL_SECS
-        );
-
-        let mgr = Rc::downgrade(self);
-        let source_id = glib::timeout_add_seconds_local(WALLPAPER_POLL_INTERVAL_SECS, move || {
-            let Some(mgr) = mgr.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            mgr.check_wallpaper_changed();
-            glib::ControlFlow::Continue
-        });
-        *self.wallpaper_poll_source.borrow_mut() = Some(source_id);
-    }
-
-    /// Stop wallpaper polling if active.
-    fn stop_wallpaper_polling(&self) {
-        if let Some(source_id) = self.wallpaper_poll_source.borrow_mut().take() {
-            source_id.remove();
-            debug!("Wallpaper polling stopped");
-        }
-    }
-
-    /// Check if the wallpaper path changed and rebuild the theme if so.
-    ///
-    /// The IPC/detection call and image processing run on a background thread to
-    /// avoid blocking the GTK main loop. Results are applied via `glib::idle_add_once`.
-    fn check_wallpaper_changed(&self) {
-        if self.poll_in_progress.get() {
-            return;
-        }
-        self.poll_in_progress.set(true);
-
-        let old_path = self.wallpaper_path.borrow().clone();
-        let monitor_hint = self.config.borrow().bar.outputs.first().cloned();
-
-        std::thread::spawn(move || {
-            let new_path = detect_wallpaper(monitor_hint.as_deref());
-
-            if new_path == old_path {
-                glib::idle_add_once(|| {
-                    ConfigManager::global().poll_in_progress.set(false);
-                });
-                return;
-            }
-
-            info!(
-                "Wallpaper changed: {:?} -> {:?}, rebuilding theme...",
-                old_path, new_path
-            );
-
-            // Heavy work: image I/O + quantization on background thread
-            let result = new_path.as_deref().and_then(extract_theme_from_image);
-            let new_luminance = result.as_ref().map(|(_, l)| *l);
-            let material_theme = result.and_then(|(t, _)| t);
-            let source_color = material_theme.as_ref().map(|t| t.source);
-
-            // Palette construction uses live config on the main thread
-            glib::idle_add_once(move || {
-                let mgr = ConfigManager::global();
-                mgr.poll_in_progress.set(false);
-
-                // If we're no longer in auto mode, or an explicit wallpaper has been
-                // set, skip — a config change already triggered its own theme rebuild.
-                // Mirrors the precondition in `start_wallpaper_polling`.
-                let config = mgr.config.borrow().clone();
-                if config.theme.mode != "auto" || config.theme.wallpaper.is_some() {
-                    debug!(
-                        "Wallpaper polling no longer applicable (mode/explicit wallpaper changed), skipping result"
-                    );
-                    return;
-                }
-
-                *mgr.wallpaper_path.borrow_mut() = new_path;
-                mgr.cached_source_color.set(source_color);
-                mgr.cached_luminance.set(new_luminance);
-
-                let palette =
-                    ThemePalette::from_config(&config, material_theme.as_ref(), new_luminance);
-                let popover_palette =
-                    ThemePalette::popover_palette(&config, material_theme.as_ref(), new_luminance);
-                let surface_styles = palette.surface_styles();
-
-                SurfaceStyleManager::global()
-                    .reconfigure(surface_styles.clone(), config.advanced.pango_font_rendering);
-                TooltipManager::global().reconfigure(surface_styles);
-
-                *mgr.palette.borrow_mut() = palette;
-                *mgr.popover_palette.borrow_mut() = popover_palette;
-                bar::load_css(&config);
-
-                mgr.theme_callbacks.notify(&());
-                info!("Wallpaper theme updated");
-            });
-        });
-    }
-
-    /// Stop watching the config file and wallpaper polling.
+    /// Stop watching the config file.
     pub fn stop_watching(&self) {
         // Signal the watcher thread to shut down
         self.shutdown_flag.store(true, Ordering::Relaxed);
-        self.stop_wallpaper_polling();
         debug!("Config watcher stopped");
     }
 }
