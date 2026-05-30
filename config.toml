@@ -134,6 +134,10 @@ memory_threshold = 85
 interval = 5
 tooltip = "System load"
 
+[widgets.media]
+art_radius = 12
+visualizer = true
+
 [osd]
 enabled = true
 position = "bottom" # "bottom", "top", "left", "right"
