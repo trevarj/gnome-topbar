@@ -68,18 +68,29 @@ pub fn css(animations: bool) -> String {
 .notification-toast-app {{
     font-size: var(--font-size-sm);
     font-weight: 600;
+    line-height: 1.15;
+}}
+
+.notification-toast-app {{
+    font-size: calc(var(--font-size-md) * 1.05);
+    color: var(--color-foreground-muted);
 }}
 
 .notification-summary,
 .notification-toast-summary {{
-    font-size: var(--font-size-md);
-    font-weight: 500;
+    font-size: calc(var(--font-size-md) * 1.1);
+    font-weight: 600;
+    color: var(--color-foreground-primary);
+    line-height: 1.18;
 }}
 
 .notification-body,
 .notification-toast-body {{
-    font-size: var(--font-size-sm);
-    margin-top: 2px;
+    font-size: calc(var(--font-size-md) * 1.1);
+    color: var(--color-foreground-primary);
+    line-height: 1.18;
+    font-weight: 400;
+    margin-top: 1px;
 }}
 
 /* Shared dismiss button styling (row + toast) */
@@ -238,7 +249,7 @@ button.notification-group-clear:hover {{
 }}
 
 .notification-timestamp {{
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-sm);
 }}
 
 /* Action buttons */

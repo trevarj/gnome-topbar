@@ -38,7 +38,7 @@ fn toast_stack_step(measured_height: i32) -> i32 {
 use crate::services::background_effect::{BackgroundEffectManager, attach_blur_surface_lifecycle};
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
-use crate::styles::{button, color, notification as notif};
+use crate::styles::{button, notification as notif};
 
 use super::animation::ease_out_cubic;
 use super::notifications_common::{
@@ -290,7 +290,6 @@ impl NotificationToast {
 
         let app_label = Label::new(Some(&notification.app_name));
         app_label.add_css_class(notif::TOAST_APP);
-        app_label.add_css_class(color::MUTED);
         app_label.set_xalign(0.0);
         app_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         app_label.set_margin_bottom(4);
@@ -310,7 +309,6 @@ impl NotificationToast {
             let body_label = Label::new(None);
             body_label.set_markup(&body_markup);
             body_label.add_css_class(notif::TOAST_BODY);
-            body_label.add_css_class(color::MUTED);
             body_label.set_xalign(0.0);
             body_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             body_label.set_lines(2);

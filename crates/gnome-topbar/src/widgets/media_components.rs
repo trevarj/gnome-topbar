@@ -71,7 +71,9 @@ pub fn art_radius_percent() -> f32 {
         .get_widget_option("media", "art_radius")
         .and_then(|v| v.as_integer())
         .map(|v| v.clamp(0, 100) as u32)
-        .unwrap_or_else(|| config_mgr.widget_radius_percent());
+        // Default to a subtle rounded-square appearance for album art, bounded by
+        // the global widget radius to keep the look consistent.
+        .unwrap_or_else(|| config_mgr.widget_radius_percent().min(12));
     (percent as f32 / 100.0).min(0.5)
 }
 

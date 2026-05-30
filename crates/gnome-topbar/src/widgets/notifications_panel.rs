@@ -812,7 +812,6 @@ fn build_notification_row(
         let body_label = Label::new(None);
         body_label.set_markup(body_clean);
         body_label.add_css_class(notif::BODY);
-        body_label.add_css_class(color::MUTED);
         body_label.set_xalign(0.0);
         body_label.set_wrap(true);
         body_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
