@@ -34,6 +34,10 @@ pub struct Workspace {
     pub occupied: bool,
     /// Whether this workspace is marked urgent.
     pub urgent: bool,
+    /// Progress through active workspace windows (0.0..=1.0).
+    ///
+    /// `None` when progress is unavailable or when not active.
+    pub active_window_progress: Option<f64>,
     /// Number of windows on this workspace (if available from backend).
     pub window_count: Option<u32>,
     /// Output/monitor this workspace belongs to.
@@ -45,13 +49,15 @@ pub struct Workspace {
 impl Workspace {
     /// Create a workspace from metadata using global state.
     fn from_meta(meta: &WorkspaceMeta, snapshot: &WorkspaceSnapshot) -> Self {
+        let active = snapshot.active_workspace.contains(&meta.id);
         Self {
             id: meta.id,
             idx: meta.idx,
             name: meta.name.clone(),
-            active: snapshot.active_workspace.contains(&meta.id),
+            active,
             occupied: snapshot.occupied_workspaces.contains(&meta.id),
             urgent: snapshot.urgent_workspaces.contains(&meta.id),
+            active_window_progress: workspace_active_progress(active, meta.id, snapshot),
             window_count: snapshot.window_counts.get(&meta.id).copied(),
             output: meta.output.clone(),
         }
@@ -91,10 +97,33 @@ impl Workspace {
             active,
             occupied,
             urgent: snapshot.urgent_workspaces.contains(&meta.id),
+            active_window_progress: workspace_active_progress(active, meta.id, snapshot),
             window_count,
             output: meta.output.clone(),
         }
     }
+}
+
+fn workspace_active_progress(
+    active: bool,
+    workspace_id: i32,
+    snapshot: &WorkspaceSnapshot,
+) -> Option<f64> {
+    if !active {
+        return None;
+    }
+    snapshot
+        .window_progress
+        .get(&workspace_id)
+        .and_then(|progress| {
+            progress.fraction().or({
+                if progress.total_windows == 0 {
+                    Some(0.0)
+                } else {
+                    None
+                }
+            })
+        })
 }
 
 /// Per-output workspace state for widget consumption.
@@ -287,6 +316,7 @@ impl Drop for WorkspaceService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::compositor::WorkspaceWindowProgress;
     use crate::services::compositor::types::PerOutputState;
 
     fn make_meta(id: i32) -> WorkspaceMeta {
@@ -315,18 +345,46 @@ mod tests {
     fn test_workspace_from_meta_single_active() {
         let mut snapshot = WorkspaceSnapshot::default();
         snapshot.active_workspace.insert(2);
+        snapshot.window_progress.insert(
+            2,
+            WorkspaceWindowProgress {
+                focused_index: 3,
+                total_windows: 5,
+            },
+        );
+        snapshot.window_counts.insert(2, 5);
 
         // Workspace 2 should be active
         let ws2 = Workspace::from_meta(&make_meta(2), &snapshot);
         assert!(ws2.active);
+        assert_eq!(ws2.active_window_progress, Some(4.0 / 5.0));
+        assert_eq!(ws2.window_count, Some(5));
 
         // Workspace 1 should not be active
         let ws1 = Workspace::from_meta(&make_meta(1), &snapshot);
         assert!(!ws1.active);
+        assert_eq!(ws1.active_window_progress, None);
 
         // Workspace 3 should not be active
         let ws3 = Workspace::from_meta(&make_meta(3), &snapshot);
         assert!(!ws3.active);
+    }
+
+    #[test]
+    fn test_workspace_from_meta_single_active_with_empty_progress() {
+        let mut snapshot = WorkspaceSnapshot::default();
+        snapshot.active_workspace.insert(2);
+        snapshot.window_progress.insert(
+            2,
+            WorkspaceWindowProgress {
+                focused_index: 0,
+                total_windows: 0,
+            },
+        );
+
+        let ws2 = Workspace::from_meta(&make_meta(2), &snapshot);
+        assert!(ws2.active);
+        assert_eq!(ws2.active_window_progress, Some(0.0));
     }
 
     #[test]
@@ -384,16 +442,25 @@ mod tests {
         snapshot
             .per_output
             .insert("eDP-1".to_string(), per_output_state);
+        snapshot.window_progress.insert(
+            2,
+            WorkspaceWindowProgress {
+                focused_index: 4,
+                total_windows: 10,
+            },
+        );
 
         // Workspace 2 should be active on eDP-1
         let ws2 = Workspace::from_meta_per_output(&make_meta(2), &snapshot, "eDP-1");
         assert!(ws2.active);
         assert!(ws2.occupied);
         assert_eq!(ws2.window_count, Some(5));
+        assert_eq!(ws2.active_window_progress, Some(0.5));
 
         // Workspace 1 should not be active on eDP-1
         let ws1 = Workspace::from_meta_per_output(&make_meta(1), &snapshot, "eDP-1");
         assert!(!ws1.active);
+        assert_eq!(ws1.active_window_progress, None);
     }
 
     #[test]

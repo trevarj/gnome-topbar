@@ -8,7 +8,7 @@
 //!
 //! Reference: https://github.com/YaLTeR/niri/wiki/IPC
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -86,6 +86,17 @@ struct WindowData {
     is_urgent: bool,
     /// Column and tile position in the scrolling layout (niri-specific).
     /// Used for stable window-list ordering.
+    layout_position: Option<(i32, i32)>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct WindowSummary {
+    id: u64,
+    workspace_id: Option<u64>,
+    title: String,
+    app_id: String,
+    is_focused: bool,
+    is_urgent: bool,
     layout_position: Option<(i32, i32)>,
 }
 
@@ -329,6 +340,10 @@ impl NiriBackend {
         let id_to_output = shared.id_to_output.read();
         let mut snapshot = shared.workspace_snapshot.write();
 
+        // Aggregate windows by workspace for progress calculation.
+        // Ordering for progress only uses x to avoid y-based row jitter.
+        let mut workspace_windows: HashMap<i32, Vec<(i32, u64, bool)>> = HashMap::new();
+
         // Reset global counts
         for count in snapshot.window_counts.values_mut() {
             *count = 0;
@@ -341,28 +356,94 @@ impl NiriBackend {
             }
         }
 
-        // Count windows per workspace
+        // Reset computed progress; it will be repopulated from current cache state.
+        snapshot.window_progress.clear();
+
+        // Collect windows grouped by workspace and keep stable ordering information.
         for win in win_cache.values() {
             if let Some(ws_niri_id) = win.workspace_id {
                 let stable_id = ws_niri_id as i32;
-
-                // Update global count
-                *snapshot.window_counts.entry(stable_id).or_insert(0) += 1;
-
-                // Update per-output count
-                if let Some(out_name) = id_to_output.get(&ws_niri_id)
-                    && let Some(per_out) = snapshot.per_output.get_mut(out_name)
-                {
-                    *per_out.window_counts.entry(stable_id).or_insert(0) += 1;
-                }
+                let layout_pos = win.layout_position.unwrap_or((i32::MAX, i32::MAX));
+                workspace_windows.entry(stable_id).or_default().push((
+                    layout_pos.0,
+                    win.id,
+                    win.is_focused,
+                ));
             }
+        }
+
+        // Compute per-workspace counts and progress from sorting order.
+        for (stable_id, mut windows) in workspace_windows {
+            windows.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+            let total_windows = windows.len() as u32;
+            let focused_index = windows.iter().position(|win| win.2).unwrap_or(0) as u32;
+
+            *snapshot.window_counts.entry(stable_id).or_insert(0) = total_windows;
+
+            snapshot.window_progress.insert(
+                stable_id,
+                super::WorkspaceWindowProgress {
+                    focused_index,
+                    total_windows,
+                },
+            );
+
+            // Update per-output counts based on workspace ownership.
+            if let Some(out_name) = id_to_output.get(&(stable_id as u64))
+                && let Some(per_out) = snapshot.per_output.get_mut(out_name)
+            {
+                *per_out.window_counts.entry(stable_id).or_insert(0) = total_windows;
+            }
+        }
+
+        // Ensure active workspaces are represented even when empty so the active
+        // pill style still has progress metadata available.
+        let active_workspaces: Vec<i32> = snapshot.active_workspace.iter().copied().collect();
+        for ws_id in active_workspaces {
+            snapshot
+                .window_progress
+                .entry(ws_id)
+                .or_insert(super::WorkspaceWindowProgress {
+                    focused_index: 0,
+                    total_windows: 0,
+                });
+        }
+
+        let per_output_active_workspaces: Vec<i32> = snapshot
+            .per_output
+            .values()
+            .flat_map(|per_out| per_out.active_workspace.iter().copied())
+            .collect();
+        for ws_id in per_output_active_workspaces {
+            snapshot
+                .window_progress
+                .entry(ws_id)
+                .or_insert(super::WorkspaceWindowProgress {
+                    focused_index: 0,
+                    total_windows: 0,
+                });
         }
     }
 
     /// Process window list and update internal state.
     fn process_windows(shared: &SharedState, windows: &[Value]) {
         let mut win_cache = shared.windows.write();
-        win_cache.clear();
+        let previous_focus_by_workspace: HashMap<i32, u64> = win_cache
+            .values()
+            .filter(|win| win.is_focused)
+            .filter_map(|win| win.workspace_id.map(|ws_id| (ws_id as i32, win.id)))
+            .collect();
+        let mut parsed_windows = Vec::with_capacity(windows.len());
+        let active_workspace_ids: HashSet<i32> = {
+            let snapshot = shared.workspace_snapshot.read();
+            let mut active: HashSet<i32> = snapshot.active_workspace.iter().copied().collect();
+            for per_out in snapshot.per_output.values() {
+                active.extend(per_out.active_workspace.iter().copied());
+            }
+            active
+        };
+        let mut focused_in_active_by_workspace: HashMap<i32, u64> = HashMap::new();
 
         for win in windows {
             let Some(win_id) = win.get("id").and_then(|v| v.as_u64()) else {
@@ -393,13 +474,78 @@ impl NiriBackend {
                 layout_position: parse_layout_position(win),
             };
 
-            win_cache.insert(win_id, data);
+            if data.is_focused
+                && data
+                    .workspace_id
+                    .is_some_and(|ws_id| active_workspace_ids.contains(&(ws_id as i32)))
+                && let Some(ws_id) = data.workspace_id
+            {
+                focused_in_active_by_workspace.insert(ws_id as i32, win_id);
+            }
+
+            parsed_windows.push(data);
+        }
+
+        for mut parsed in parsed_windows {
+            if let Some(ws_id) = parsed.workspace_id.map(|ws| ws as i32) {
+                parsed.is_focused = focused_in_active_by_workspace
+                    .get(&ws_id)
+                    .copied()
+                    .is_some_and(|focused_id| focused_id == parsed.id)
+                    || previous_focus_by_workspace
+                        .get(&ws_id)
+                        .is_some_and(|focused_id| *focused_id == parsed.id);
+            } else {
+                parsed.is_focused = false;
+            }
+            win_cache.insert(parsed.id, parsed);
         }
 
         drop(win_cache);
         Self::update_window_counts(shared);
         Self::update_focused_window_from_cache(shared);
         Self::update_per_output_windows(shared);
+    }
+
+    fn summarize_windows(shared: &SharedState) -> Vec<WindowSummary> {
+        let mut windows = shared
+            .windows
+            .read()
+            .values()
+            .map(|win| WindowSummary {
+                id: win.id,
+                workspace_id: win.workspace_id,
+                title: win.title.clone(),
+                app_id: win.app_id.clone(),
+                is_focused: win.is_focused,
+                is_urgent: win.is_urgent,
+                layout_position: win.layout_position,
+            })
+            .collect::<Vec<_>>();
+        windows.sort_by_key(|item| item.id);
+        windows
+    }
+
+    /// Set a single focused window in the cache and clear stale focus state.
+    fn set_focused_window(shared: &SharedState, focused_window_id: Option<u64>) {
+        let mut win_cache = shared.windows.write();
+        for win in win_cache.values_mut() {
+            win.is_focused = focused_window_id.is_some_and(|id| win.id == id);
+        }
+    }
+
+    /// Update focus state for a single workspace only.
+    fn set_focused_window_in_workspace(
+        shared: &SharedState,
+        ws_niri_id: u64,
+        focused_window_id: Option<u64>,
+    ) {
+        let mut win_cache = shared.windows.write();
+        for win in win_cache.values_mut() {
+            if win.workspace_id == Some(ws_niri_id) {
+                win.is_focused = focused_window_id == Some(win.id);
+            }
+        }
     }
 
     /// Update per-output active window info from window cache and workspace state.
@@ -489,7 +635,7 @@ impl NiriBackend {
 
     /// Update a single window in the cache.
     ///
-    /// Returns true if this should trigger a window callback (focus changed).
+    /// Returns true if this changes the cached window data.
     fn update_single_window(shared: &SharedState, window: &Value) -> bool {
         let Some(win_id) = window.get("id").and_then(|v| v.as_u64()) else {
             return false;
@@ -524,26 +670,70 @@ impl NiriBackend {
             is_urgent,
             layout_position: parse_layout_position(window),
         };
+        let active_workspace_ids: HashSet<i32> = {
+            let snapshot = shared.workspace_snapshot.read();
+            let mut active: HashSet<i32> = snapshot.active_workspace.iter().copied().collect();
+            for per_out in snapshot.per_output.values() {
+                active.extend(per_out.active_workspace.iter().copied());
+            }
+            active
+        };
+        let is_focused = data
+            .workspace_id
+            .is_some_and(|ws_id| active_workspace_ids.contains(&(ws_id as i32)))
+            && is_focused;
+        let workspace_id = data.workspace_id;
+
+        let mut changed = false;
 
         {
             let mut win_cache = shared.windows.write();
-            if is_focused {
-                for win in win_cache.values_mut() {
-                    win.is_focused = false;
+            if let Some(existing) = win_cache.get_mut(&win_id) {
+                if existing.title != data.title {
+                    existing.title = data.title.clone();
+                    changed = true;
+                }
+                if existing.app_id != data.app_id {
+                    existing.app_id = data.app_id.clone();
+                    changed = true;
+                }
+                if existing.workspace_id != data.workspace_id {
+                    existing.workspace_id = data.workspace_id;
+                    changed = true;
+                }
+                if existing.is_urgent != data.is_urgent {
+                    existing.is_urgent = data.is_urgent;
+                    changed = true;
+                }
+                if existing.layout_position != data.layout_position {
+                    existing.layout_position = data.layout_position;
+                    changed = true;
+                }
+                if existing.is_focused != is_focused {
+                    existing.is_focused = is_focused;
+                    changed = true;
+                }
+            } else {
+                changed = true;
+                let mut new_data = data;
+                new_data.is_focused = is_focused;
+                win_cache.insert(win_id, new_data);
+            }
+        }
+
+        if !changed {
+            return false;
+        }
+
+        if is_focused && let Some(ws_id) = workspace_id {
+            let mut win_cache = shared.windows.write();
+            for win in win_cache.values_mut() {
+                if win.workspace_id == Some(ws_id) {
+                    win.is_focused = win.id == win_id;
                 }
             }
-            win_cache.insert(win_id, data);
         }
-
-        // Update window counts
-        Self::update_window_counts(shared);
-
-        // If the window is focused, update focused-output state.
-        if is_focused {
-            return Self::update_focused_window_from_cache(shared);
-        }
-
-        false
+        true
     }
 
     /// Fetch initial state from Niri.
@@ -610,6 +800,15 @@ impl NiriBackend {
             .get("current_idx")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize;
+        let (before_names, before_idx) = {
+            let before_names = shared.keyboard_layout_names.read();
+            let before_idx = *shared.keyboard_layout_idx.read();
+            (before_names.clone(), before_idx)
+        };
+
+        if before_names.as_slice() == names.as_slice() && before_idx == current_idx {
+            return false;
+        }
 
         let layout_count = names.len();
         let layout_name = names.get(current_idx).cloned().unwrap_or_default();
@@ -633,9 +832,17 @@ impl NiriBackend {
 
     /// Process a keyboard layout switch event.
     fn process_keyboard_layout_switch(shared: &SharedState, idx: usize) -> bool {
-        let names = shared.keyboard_layout_names.read();
-        let layout_name = names.get(idx).cloned().unwrap_or_default();
-        let layout_count = names.len();
+        let (layout_name, layout_count, current_idx) = {
+            let names = shared.keyboard_layout_names.read();
+            let layout_name = names.get(idx).cloned().unwrap_or_default();
+            let layout_count = names.len();
+            let current_idx = *shared.keyboard_layout_idx.read();
+            (layout_name, layout_count, current_idx)
+        };
+
+        if idx == current_idx {
+            return false;
+        }
 
         debug!(
             "process_keyboard_layout_switch: idx={}, layout='{}'",
@@ -677,8 +884,10 @@ impl NiriBackend {
                 .get("workspaces")
                 .and_then(|v| v.as_array())
             {
+                let before = shared.workspace_snapshot.read().clone();
                 Self::process_workspaces(shared, workspaces);
-                workspace_changed = true;
+                let after = shared.workspace_snapshot.read().clone();
+                workspace_changed = before != after;
             }
         } else if let Some(workspace_activated) = event.get("WorkspaceActivated") {
             let ws_niri_id = workspace_activated.get("id").and_then(|v| v.as_u64());
@@ -689,16 +898,18 @@ impl NiriBackend {
 
             if let Some(ws_id) = ws_niri_id {
                 let stable_id = ws_id as i32;
+                let mut switched_workspace = false;
                 let id_to_output = shared.id_to_output.read();
                 let output = id_to_output.get(&ws_id).cloned();
                 drop(id_to_output);
 
                 let mut snapshot = shared.workspace_snapshot.write();
+                let mut output_changed = false;
 
                 if is_focused && !snapshot.active_workspace.contains(&stable_id) {
                     snapshot.active_workspace.clear();
                     snapshot.active_workspace.insert(stable_id);
-                    workspace_changed = true;
+                    switched_workspace = true;
                 }
 
                 if let Some(ref out_name) = output
@@ -707,14 +918,17 @@ impl NiriBackend {
                 {
                     per_out.active_workspace.clear();
                     per_out.active_workspace.insert(stable_id);
-                    workspace_changed = true;
+                    output_changed = true;
                 }
 
                 drop(snapshot);
 
-                // Workspace switched - update per-output windows
-                Self::update_per_output_windows(shared);
-                window_changed = true;
+                if switched_workspace || output_changed {
+                    Self::update_window_counts(shared);
+                    Self::update_per_output_windows(shared);
+                    window_changed = true;
+                    workspace_changed = true;
+                }
             }
         } else if let Some(urgency_changed) = event.get("WorkspaceUrgencyChanged") {
             if let Some(ws_id) = urgency_changed.get("id").and_then(|v| v.as_u64()) {
@@ -724,39 +938,61 @@ impl NiriBackend {
                     .unwrap_or(false);
 
                 let stable_id = ws_id as i32;
-                let mut snapshot = shared.workspace_snapshot.write();
-                if is_urgent {
-                    workspace_changed = snapshot.urgent_workspaces.insert(stable_id);
-                } else {
-                    workspace_changed = snapshot.urgent_workspaces.remove(&stable_id);
+                let contains_workspace = {
+                    let snapshot = shared.workspace_snapshot.read();
+                    snapshot.occupied_workspaces.contains(&stable_id)
+                };
+                if contains_workspace {
+                    let mut snapshot = shared.workspace_snapshot.write();
+                    if is_urgent {
+                        workspace_changed = snapshot.urgent_workspaces.insert(stable_id);
+                    } else {
+                        workspace_changed = snapshot.urgent_workspaces.remove(&stable_id);
+                    }
                 }
             }
         } else if let Some(windows_changed) = event.get("WindowsChanged") {
             if let Some(windows) = windows_changed.get("windows").and_then(|v| v.as_array()) {
+                let has_malformed_window = windows
+                    .iter()
+                    .any(|window| window.get("id").and_then(|v| v.as_u64()).is_none());
+                let before_snapshot = shared.workspace_snapshot.read().clone();
+                let before_windows = Self::summarize_windows(shared);
                 Self::process_windows(shared, windows);
-                window_changed = true;
+                let after_snapshot = shared.workspace_snapshot.read().clone();
+                let after_windows = Self::summarize_windows(shared);
+                workspace_changed = before_snapshot != after_snapshot || has_malformed_window;
+                window_changed = before_windows != after_windows || has_malformed_window;
+                workspace_changed |= window_changed;
             }
         } else if let Some(window_opened) = event.get("WindowOpenedOrChanged") {
             if let Some(window) = window_opened.get("window") {
-                Self::update_single_window(shared, window);
+                let before_windows = Self::summarize_windows(shared);
+                let changed = Self::update_single_window(shared, window);
+                if !changed {
+                    return (workspace_changed, window_changed, keyboard_layout_changed);
+                }
 
+                Self::update_window_counts(shared);
                 if let Some(ws_id) = window.get("workspace_id").and_then(|v| v.as_u64()) {
                     let stable_id = ws_id as i32;
                     let mut snapshot = shared.workspace_snapshot.write();
-                    if snapshot.occupied_workspaces.insert(stable_id) {
-                        workspace_changed = true;
-                    }
+                    snapshot.occupied_workspaces.insert(stable_id);
                 }
-
-                // Window opened/changed - update per-output windows
+                Self::update_focused_window_from_cache(shared);
                 Self::update_per_output_windows(shared);
-                window_changed = true;
+
+                let after_windows = Self::summarize_windows(shared);
+                window_changed = before_windows != after_windows;
+                workspace_changed = true;
             }
         } else if let Some(layouts_changed) = event.get("WindowLayoutsChanged") {
             // changes is Vec<(u64, WindowLayout)> which serializes as an array of tuples:
             // [[window_id, {layout_obj}], ...]
             if let Some(changes) = layouts_changed.get("changes").and_then(|v| v.as_array()) {
                 let mut win_cache = shared.windows.write();
+                let mut changed = false;
+
                 for entry in changes {
                     let entry = match entry.as_array() {
                         Some(arr) if arr.len() >= 2 => arr,
@@ -768,7 +1004,7 @@ impl NiriBackend {
                     };
                     if let Some(win) = win_cache.get_mut(&win_id) {
                         // entry[1] is a WindowLayout object with pos_in_scrolling_layout directly
-                        win.layout_position = entry[1]
+                        let new_layout_position = entry[1]
                             .get("pos_in_scrolling_layout")
                             .and_then(|v| v.as_array())
                             .and_then(|arr| {
@@ -778,29 +1014,74 @@ impl NiriBackend {
                                     None
                                 }
                             });
+                        if let Some(new_position) = new_layout_position
+                            && win.layout_position != Some(new_position)
+                        {
+                            win.layout_position = Some(new_position);
+                            changed = true;
+                        }
                     }
                 }
-                window_changed = true;
+                drop(win_cache);
+                if changed {
+                    Self::update_window_counts(shared);
+                    window_changed = true;
+                    workspace_changed = true;
+                }
             }
         } else if let Some(window_closed) = event.get("WindowClosed") {
             if let Some(win_id) = window_closed.get("id").and_then(|v| v.as_u64()) {
-                shared.windows.write().remove(&win_id);
+                let removed = shared.windows.write().remove(&win_id);
+                if removed.is_some() {
+                    Self::update_window_counts(shared);
+                    Self::update_focused_window_from_cache(shared);
+                    Self::update_per_output_windows(shared);
+                    window_changed = true;
+                    workspace_changed = true;
+                }
+            }
+        } else if let Some(focus_changed) = event.get("WindowFocusChanged") {
+            let win_id = focus_changed.get("id").and_then(|v| v.as_u64());
+            let Some(win_id) = win_id else {
+                Self::set_focused_window(shared, None);
                 Self::update_window_counts(shared);
                 Self::update_focused_window_from_cache(shared);
                 Self::update_per_output_windows(shared);
                 window_changed = true;
                 workspace_changed = true;
+                return (workspace_changed, window_changed, keyboard_layout_changed);
+            };
+
+            let workspace_id = {
+                let win_cache = shared.windows.read();
+                win_cache.get(&win_id).and_then(|win| win.workspace_id)
+            };
+
+            if let Some(ws_id) = workspace_id {
+                let is_workspace_active = {
+                    let snapshot = shared.workspace_snapshot.read();
+                    let stable_id = ws_id as i32;
+                    snapshot.active_workspace.contains(&stable_id)
+                        || snapshot
+                            .per_output
+                            .values()
+                            .any(|per_out| per_out.active_workspace.contains(&stable_id))
+                };
+                if !is_workspace_active {
+                    return (workspace_changed, window_changed, keyboard_layout_changed);
+                }
+            } else {
+                return (workspace_changed, window_changed, keyboard_layout_changed);
             }
-        } else if let Some(focus_changed) = event.get("WindowFocusChanged") {
-            let win_id = focus_changed.get("id").and_then(|v| v.as_u64());
-            let mut win_cache = shared.windows.write();
-            for win in win_cache.values_mut() {
-                win.is_focused = win_id.is_some_and(|id| win.id == id);
+
+            if let Some(ws_id) = workspace_id {
+                Self::set_focused_window_in_workspace(shared, ws_id, Some(win_id));
             }
-            drop(win_cache);
+            Self::update_window_counts(shared);
             Self::update_focused_window_from_cache(shared);
             Self::update_per_output_windows(shared);
             window_changed = true;
+            workspace_changed = true;
         } else if let Some(urgency_changed) = event.get("WindowUrgencyChanged") {
             let win_id = urgency_changed.get("id").and_then(|v| v.as_u64());
             let is_urgent = urgency_changed
@@ -824,18 +1105,50 @@ impl NiriBackend {
                 .and_then(|v| v.as_u64());
 
             if let Some(ws_id) = ws_niri_id {
+                let before_active_win_id = {
+                    let win_cache = shared.windows.read();
+                    win_cache
+                        .values()
+                        .find(|win| win.workspace_id == Some(ws_id) && win.is_focused)
+                        .map(|win| win.id)
+                };
+                if before_active_win_id == active_win_id {
+                    return (workspace_changed, window_changed, keyboard_layout_changed);
+                }
+
                 let id_to_output = shared.id_to_output.read();
 
                 if let Some(output) = id_to_output.get(&ws_id).cloned() {
-                    let workspace_id = Some(ws_id as i32);
+                    let workspace_id = ws_id as i32;
                     drop(id_to_output);
+
+                    let is_workspace_active = {
+                        let snapshot = shared.workspace_snapshot.read();
+                        snapshot.active_workspace.contains(&workspace_id)
+                            || snapshot
+                                .per_output
+                                .values()
+                                .any(|per_out| per_out.active_workspace.contains(&workspace_id))
+                    };
+
+                    if !is_workspace_active {
+                        return (workspace_changed, window_changed, keyboard_layout_changed);
+                    }
+
+                    if let Some(active_win_id) = active_win_id {
+                        Self::set_focused_window_in_workspace(shared, ws_id, Some(active_win_id));
+                    } else {
+                        Self::set_focused_window_in_workspace(shared, ws_id, None);
+                    }
+                    Self::update_window_counts(shared);
+                    Self::update_focused_window_from_cache(shared);
 
                     let win_info = if let Some(win_id) = active_win_id {
                         let win_cache = shared.windows.read();
                         win_cache.get(&win_id).map(|win| WindowInfo {
                             title: win.title.clone(),
                             app_id: win.app_id.clone(),
-                            workspace_id,
+                            workspace_id: Some(workspace_id),
                             output: Some(output.clone()),
                         })
                     } else {
@@ -851,6 +1164,7 @@ impl NiriBackend {
                         }),
                     );
                     window_changed = true;
+                    workspace_changed = true;
                 }
             }
         }
@@ -1210,5 +1524,1636 @@ impl CompositorBackend for NiriBackend {
 impl Drop for NiriBackend {
     fn drop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::compositor::WindowListSnapshot;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn event_snapshot_changed(shared: &Arc<SharedState>, event: Value) -> (bool, bool, bool) {
+        NiriBackend::handle_event(shared, &event)
+    }
+
+    fn active_fraction(shared: &Arc<SharedState>, workspace_id: i32) -> Option<f64> {
+        let snapshot = shared.workspace_snapshot.read();
+        if !snapshot.active_workspace.contains(&workspace_id) {
+            return None;
+        }
+
+        snapshot
+            .window_progress
+            .get(&workspace_id)
+            .and_then(|progress| progress.fraction())
+    }
+
+    fn window_progress_fraction(shared: &Arc<SharedState>, workspace_id: i32) -> Option<f64> {
+        let snapshot = shared.workspace_snapshot.read();
+        snapshot
+            .window_progress
+            .get(&workspace_id)
+            .and_then(|progress| progress.fraction())
+    }
+
+    fn run_event_with_simulated_callbacks(
+        shared: &Arc<SharedState>,
+        event: Value,
+    ) -> (
+        Vec<super::WorkspaceSnapshot>,
+        Vec<WindowInfo>,
+        Vec<WindowListSnapshot>,
+        Vec<String>,
+    ) {
+        let mut workspace_updates = Vec::new();
+        let mut window_updates = Vec::new();
+        let mut window_list_updates = Vec::new();
+        let mut callback_order = Vec::new();
+
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(shared, event);
+
+        if workspace_changed {
+            callback_order.push("workspace".to_string());
+            workspace_updates.push(shared.workspace_snapshot.read().clone());
+        }
+        if window_changed {
+            callback_order.push("window".to_string());
+            let per_output = shared.per_output_window.read();
+            for win_info in per_output.values() {
+                window_updates.push(win_info.clone());
+            }
+        }
+        if workspace_changed || window_changed {
+            callback_order.push("window_list".to_string());
+            let windows = NiriBackend::get_windows_from_shared(shared);
+            window_list_updates.push(WindowListSnapshot { windows });
+        }
+
+        (
+            workspace_updates,
+            window_updates,
+            window_list_updates,
+            callback_order,
+        )
+    }
+
+    fn workspaces_payload() -> Value {
+        json!({
+            "WorkspacesChanged": {
+                "workspaces": [
+                    {
+                        "id": 1,
+                        "idx": 1,
+                        "name": "1",
+                        "output": "eDP-1",
+                        "is_focused": true,
+                        "is_active": true,
+                    },
+                    {
+                        "id": 2,
+                        "idx": 2,
+                        "name": "2",
+                        "output": "eDP-1",
+                        "is_focused": false,
+                        "is_active": false,
+                    },
+                ]
+            }
+        })
+    }
+
+    fn windows_payload() -> Value {
+        json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "ws1-left",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-mid",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 103,
+                        "title": "ws1-right",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [3, 1]
+                        }
+                    },
+                    {
+                        "id": 201,
+                        "title": "ws2-only",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                ]
+            }
+        })
+    }
+
+    fn windows_payload_multi_ws2() -> Value {
+        json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "ws1-left",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-mid",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 103,
+                        "title": "ws1-right",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [3, 1]
+                        }
+                    },
+                    {
+                        "id": 201,
+                        "title": "ws2-left",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 202,
+                        "title": "ws2-right",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                ]
+            }
+        })
+    }
+
+    fn workspaces_payload_ws2_and_ws3() -> Value {
+        json!({
+            "WorkspacesChanged": {
+                "workspaces": [
+                    {
+                        "id": 2,
+                        "idx": 2,
+                        "name": "2",
+                        "output": "eDP-1",
+                        "is_focused": true,
+                        "is_active": true,
+                    },
+                    {
+                        "id": 3,
+                        "idx": 3,
+                        "name": "3",
+                        "output": "eDP-1",
+                        "is_focused": false,
+                        "is_active": false,
+                    },
+                ]
+            }
+        })
+    }
+
+    fn windows_payload_ws2_three_ws3_one() -> Value {
+        json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 201,
+                        "title": "ws2-left",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 202,
+                        "title": "ws2-mid",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 203,
+                        "title": "ws2-right",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [3, 1]
+                        }
+                    },
+                    {
+                        "id": 301,
+                        "title": "ws3-only",
+                        "app_id": "a",
+                        "workspace_id": 3,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                ]
+            }
+        })
+    }
+
+    fn windows_payload_ws3_only() -> Value {
+        json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 301,
+                        "title": "ws3-only",
+                        "app_id": "a",
+                        "workspace_id": 3,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                ]
+            }
+        })
+    }
+
+    fn workspaces_payload_dual_outputs() -> Value {
+        json!({
+            "WorkspacesChanged": {
+                "workspaces": [
+                    {
+                        "id": 1,
+                        "idx": 1,
+                        "name": "1",
+                        "output": "eDP-1",
+                        "is_focused": true,
+                        "is_active": true,
+                    },
+                    {
+                        "id": 2,
+                        "idx": 2,
+                        "name": "2",
+                        "output": "HDMI-A-1",
+                        "is_focused": false,
+                        "is_active": false,
+                    },
+                ]
+            }
+        })
+    }
+
+    fn windows_payload_dual_outputs() -> Value {
+        json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "ws1-left",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-right",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 201,
+                        "title": "ws2-left",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 202,
+                        "title": "ws2-right",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                ]
+            }
+        })
+    }
+
+    fn workspaces_payload_dual_outputs_ws2_focused_only() -> Value {
+        json!({
+            "WorkspacesChanged": {
+                "workspaces": [
+                    {
+                        "id": 1,
+                        "idx": 1,
+                        "name": "1",
+                        "output": "eDP-1",
+                        "is_focused": false,
+                        "is_active": false,
+                    },
+                    {
+                        "id": 2,
+                        "idx": 2,
+                        "name": "2",
+                        "output": "HDMI-A-1",
+                        "is_focused": true,
+                        "is_active": true,
+                    },
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn active_window_changed_on_inactive_workspace_is_ignored() {
+        let shared = Arc::new(SharedState::default());
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, workspaces_payload());
+        assert!(workspace_changed);
+        assert!(!window_changed);
+
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, windows_payload());
+        assert!(workspace_changed);
+        assert!(window_changed);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+
+        let stale_event = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 201
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, stale_event);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+    }
+
+    #[test]
+    fn workspace_active_window_changed_tracks_sorted_focus_position() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let focus_right = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 1,
+                "active_window_id": 103
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, focus_right);
+        assert!(workspace_changed);
+        assert!(window_changed);
+        assert_eq!(active_fraction(&shared, 1), Some(1.0));
+
+        let focus_left = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 1,
+                "active_window_id": 101
+            }
+        });
+        let (_, window_changed, _) = event_snapshot_changed(&shared, focus_left);
+        assert!(window_changed);
+        assert_eq!(active_fraction(&shared, 1), Some(1.0 / 3.0));
+    }
+
+    #[test]
+    fn workspace_active_window_progress_ignores_layout_y_coordinate() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+
+        let same_column = json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "first-x",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 9]
+                        }
+                    },
+                    {
+                        "id": 202,
+                        "title": "second-x",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    }
+                ]
+            }
+        });
+
+        let _ = event_snapshot_changed(&shared, same_column);
+        assert_eq!(active_fraction(&shared, 1), Some(1.0));
+    }
+
+    #[test]
+    fn window_layout_changes_only_affecting_row_position_do_not_change_progress() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+
+        let initial_layouts = json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "first-in-column",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 9]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "second-in-column",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    }
+                ]
+            }
+        });
+        let _ = event_snapshot_changed(&shared, initial_layouts);
+        let before = active_fraction(&shared, 1).unwrap_or(0.0);
+
+        let y_noise_only = json!({
+            "WindowLayoutsChanged": {
+                "changes": [
+                    [101, { "pos_in_scrolling_layout": [1, 1] }],
+                    [102, { "pos_in_scrolling_layout": [1, 9] }]
+                ]
+            }
+        });
+        let _ = event_snapshot_changed(&shared, y_noise_only);
+        assert_eq!(active_fraction(&shared, 1), Some(before));
+    }
+
+    #[test]
+    fn rapid_switch_back_uses_current_workspace_progress() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let activate_workspace_2 = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_2);
+        assert!(active_fraction(&shared, 2).is_some());
+
+        let ws2_active = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 201
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_active);
+        assert_eq!(active_fraction(&shared, 2), Some(0.0));
+
+        let activate_workspace_1 = json!({
+            "WorkspaceActivated": {
+                "id": 1,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_1);
+
+        let stale_ws2_focus = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 201
+            }
+        });
+        let _ = event_snapshot_changed(&shared, stale_ws2_focus);
+
+        let ws1_active = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 1,
+                "active_window_id": 102
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws1_active);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+    }
+
+    #[test]
+    fn stale_window_focus_change_is_ignored_for_inactive_workspace() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload_multi_ws2());
+
+        let activate_workspace_2 = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_2);
+
+        let ws2_focus_right = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 202
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_focus_right);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+
+        let stale_focus_from_ws1 = json!({
+            "WindowFocusChanged": {
+                "id": 101
+            }
+        });
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, stale_focus_from_ws1);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+
+        let activate_workspace_1 = json!({
+            "WorkspaceActivated": {
+                "id": 1,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_1);
+
+        let ws1_focus_center = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 1,
+                "active_window_id": 102
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws1_focus_center);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+
+        let stale_focus_from_ws2 = json!({
+            "WindowFocusChanged": {
+                "id": 202
+            }
+        });
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, stale_focus_from_ws2);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+    }
+
+    #[test]
+    fn windows_changed_from_inactive_workspace_does_not_reset_active_progress() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload_multi_ws2());
+
+        let activate_workspace_2 = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_2);
+
+        let ws2_focus_right = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 202
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_focus_right);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+
+        let stale_windows = json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "ws1-left",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-mid",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 103,
+                        "title": "ws1-right",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [3, 1]
+                        }
+                    },
+                    {
+                        "id": 201,
+                        "title": "ws2-left",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 202,
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                ]
+            }
+        });
+        let _ = event_snapshot_changed(&shared, stale_windows);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+    }
+
+    #[test]
+    fn switch_to_other_workspace_and_back_restores_previous_active_fraction_without_focus_event() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let ws1_focus_mid = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 1,
+                "active_window_id": 102
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws1_focus_mid);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+
+        let activate_workspace_2 = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_2);
+
+        let ws2_focus = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 201
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_focus);
+        assert_eq!(active_fraction(&shared, 2), Some(0.0));
+
+        let activate_workspace_1 = json!({
+            "WorkspaceActivated": {
+                "id": 1,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_workspace_1);
+
+        let stale_windows_without_active_ws1 = json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "ws1-left",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-mid",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 103,
+                        "title": "ws1-right",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [3, 1]
+                        }
+                    },
+                    {
+                        "id": 201,
+                        "title": "ws2-only",
+                        "app_id": "a",
+                        "workspace_id": 2,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                ]
+            }
+        });
+        let _ = event_snapshot_changed(&shared, stale_windows_without_active_ws1);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+    }
+
+    #[test]
+    fn partial_windows_changed_after_workspace_switch_keeps_prior_workspace_progress() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload_ws2_and_ws3());
+        let _ = event_snapshot_changed(&shared, windows_payload_ws2_three_ws3_one());
+
+        let ws2_focus_last = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 203
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_focus_last);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+
+        let activate_ws3 = json!({
+            "WorkspaceActivated": {
+                "id": 3,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_ws3);
+
+        let ws3_focus = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 3,
+                "active_window_id": 301
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws3_focus);
+        assert_eq!(active_fraction(&shared, 3), Some(0.0));
+
+        let _ = event_snapshot_changed(&shared, windows_payload_ws3_only());
+
+        let activate_ws2 = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, activate_ws2);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+    }
+
+    #[test]
+    fn per_output_workspace_focus_uses_output_active_set_when_not_global_active() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload_dual_outputs());
+        let _ = event_snapshot_changed(&shared, windows_payload_dual_outputs());
+
+        let ws2_activate = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": false
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_activate);
+
+        let ws2_focus = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 202
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, ws2_focus);
+        assert!(workspace_changed);
+        assert!(window_changed);
+
+        let snapshot = shared.workspace_snapshot.read();
+        let per_out = snapshot.per_output.get("HDMI-A-1").expect("output entry");
+        assert!(per_out.active_workspace.contains(&2));
+        drop(snapshot);
+
+        assert_eq!(window_progress_fraction(&shared, 2), Some(1.0));
+        let per_output = shared.per_output_window.read();
+        let focused = per_output
+            .get("HDMI-A-1")
+            .expect("HDMI output should have a window entry");
+        assert_eq!(focused.title, "ws2-right");
+        assert_eq!(focused.output.as_deref(), Some("HDMI-A-1"));
+    }
+
+    #[test]
+    fn stale_window_focus_events_ignored_when_workspace_inactive_globally_and_per_output() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload_dual_outputs());
+        let _ = event_snapshot_changed(&shared, windows_payload_dual_outputs());
+
+        let ws2_activate = json!({
+            "WorkspaceActivated": {
+                "id": 2,
+                "focused": true
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_activate);
+
+        let ws2_focus = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 2,
+                "active_window_id": 202
+            }
+        });
+        let _ = event_snapshot_changed(&shared, ws2_focus);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+        let per_output = shared.per_output_window.read();
+        let active_hdmi = per_output
+            .get("HDMI-A-1")
+            .expect("HDMI output should have a window entry");
+        assert_eq!(active_hdmi.title, "ws2-right");
+        assert_eq!(active_hdmi.output.as_deref(), Some("HDMI-A-1"));
+        let _ = event_snapshot_changed(&shared, workspaces_payload_dual_outputs_ws2_focused_only());
+
+        let stale_focus = json!({
+            "WindowFocusChanged": {
+                "id": 101
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, stale_focus);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+        assert_eq!(
+            shared
+                .per_output_window
+                .read()
+                .get("HDMI-A-1")
+                .as_ref()
+                .map(|w| w.workspace_id),
+            Some(Some(2))
+        );
+        assert_eq!(
+            shared
+                .per_output_window
+                .read()
+                .get("HDMI-A-1")
+                .as_ref()
+                .map(|w| w.title.as_str()),
+            Some("ws2-right")
+        );
+        assert_eq!(window_progress_fraction(&shared, 2), Some(1.0));
+    }
+
+    #[test]
+    fn window_closed_updates_window_cache_and_progress() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+
+        let close = json!({
+            "WindowClosed": {
+                "id": 102
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, close);
+        assert!(workspace_changed);
+        assert!(window_changed);
+        assert!(shared.windows.read().get(&102).is_none());
+        assert!(shared.focused_window.read().is_none());
+        assert_eq!(window_progress_fraction(&shared, 1), Some(0.5));
+        assert_eq!(
+            shared
+                .workspace_snapshot
+                .read()
+                .window_counts
+                .get(&1)
+                .copied(),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn malformed_windows_changed_payload_is_tolerated() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+        let initial_len = shared.windows.read().len();
+        assert_eq!(initial_len, 4);
+
+        let malformed = json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": "bad-id",
+                        "title": "broken",
+                        "workspace_id": 1
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-mid",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "title": "missing-id",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [10, 1]
+                        }
+                    }
+                ]
+            }
+        });
+
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, malformed);
+        assert!(workspace_changed);
+        assert!(window_changed);
+        assert_eq!(shared.windows.read().len(), 4);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .and_then(|w| w.workspace_id),
+            Some(1)
+        );
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .map(|w| w.title.as_str()),
+            Some("ws1-mid")
+        );
+
+        let malformed_type = json!({
+            "WindowsChanged": {
+                "windows": "not-an-array"
+            }
+        });
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, malformed_type);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.windows.read().len(), 4);
+    }
+
+    #[test]
+    fn window_closed_triggers_window_update_callbacks_in_expected_order() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let close = json!({
+            "WindowClosed": {
+                "id": 102
+            }
+        });
+
+        let (workspace_updates, window_updates, window_list_updates, callback_order) =
+            run_event_with_simulated_callbacks(&shared, close);
+
+        assert_eq!(callback_order, vec!["workspace", "window", "window_list"]);
+        assert_eq!(workspace_updates.len(), 1);
+        assert_eq!(window_updates.len(), 1);
+        assert_eq!(window_list_updates.len(), 1);
+        assert_eq!(workspace_updates[0].active_workspace.len(), 1);
+        assert_eq!(window_updates[0].output.as_deref(), Some("eDP-1"));
+        assert_eq!(window_list_updates[0].windows.len(), 3);
+        assert_eq!(shared.windows.read().len(), 3);
+        assert_eq!(window_progress_fraction(&shared, 1), Some(0.5));
+    }
+
+    #[test]
+    fn malformed_windows_payload_rejects_callbacks() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let malformed = json!({
+            "WindowsChanged": {
+                "windows": "not-an-array"
+            }
+        });
+
+        let (workspace_updates, window_updates, window_list_updates, callback_order) =
+            run_event_with_simulated_callbacks(&shared, malformed);
+
+        assert!(callback_order.is_empty());
+        assert!(workspace_updates.is_empty());
+        assert!(window_updates.is_empty());
+        assert!(window_list_updates.is_empty());
+        assert_eq!(shared.windows.read().len(), 4);
+    }
+
+    #[test]
+    fn window_closed_unknown_id_does_not_emit_change_events_or_mutate_state() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let before_snapshot = shared.workspace_snapshot.read().clone();
+        let before_windows = shared.windows.read().len();
+
+        let close = json!({
+            "WindowClosed": {
+                "id": 9_999
+            }
+        });
+        let (workspace_updates, window_updates, window_list_updates, callback_order) =
+            run_event_with_simulated_callbacks(&shared, close);
+
+        assert!(
+            callback_order.is_empty(),
+            "unexpected callback emission for unknown closed window id"
+        );
+        assert!(workspace_updates.is_empty());
+        assert!(window_updates.is_empty());
+        assert!(window_list_updates.is_empty());
+        assert_eq!(shared.windows.read().len(), before_windows);
+        assert_eq!(*shared.workspace_snapshot.read(), before_snapshot);
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .and_then(|w| w.workspace_id),
+            Some(1)
+        );
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .map(|w| w.title.as_str()),
+            Some("ws1-mid")
+        );
+    }
+
+    #[test]
+    fn window_layouts_changed_with_empty_change_set_is_treated_as_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let before_snapshot = shared.workspace_snapshot.read().clone();
+        let mut before_windows: Vec<u64> = shared.windows.read().keys().copied().collect();
+        before_windows.sort_unstable();
+
+        let layouts = json!({
+            "WindowLayoutsChanged": {
+                "changes": []
+            }
+        });
+
+        let (workspace_updates, window_updates, window_list_updates, callback_order) =
+            run_event_with_simulated_callbacks(&shared, layouts);
+
+        assert!(
+            callback_order.is_empty(),
+            "empty layout-changes payload should not emit workspace/window callbacks"
+        );
+        assert!(workspace_updates.is_empty());
+        assert!(window_updates.is_empty());
+        assert!(window_list_updates.is_empty());
+        assert_eq!(shared.workspace_snapshot.read().clone(), before_snapshot);
+        let mut after_windows: Vec<u64> = shared.windows.read().keys().copied().collect();
+        after_windows.sort_unstable();
+        assert_eq!(after_windows, before_windows);
+        assert_eq!(
+            shared.windows.read().len(),
+            before_windows.len(),
+            "window cache size changed for empty layout updates"
+        );
+    }
+
+    #[test]
+    fn spammed_workspace_switches_ignore_stale_focus_payloads() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload_multi_ws2());
+
+        let steps = [
+            (2, Some(202), 101, None),
+            (1, Some(102), 202, Some(103)),
+            (2, Some(201), 102, Some(202)),
+            (1, Some(101), 201, Some(101)),
+            (2, Some(202), 102, Some(201)),
+            (1, Some(103), 201, Some(103)),
+        ];
+
+        for (i, step) in steps.iter().enumerate() {
+            let (active_ws, active_focus, stale_focus, stale_windows_focus_ws2) = *step;
+            let activate = json!({
+                "WorkspaceActivated": {
+                    "id": active_ws,
+                    "focused": true
+                }
+            });
+            let _ = event_snapshot_changed(&shared, activate);
+
+            let active_focus_evt = if let Some(active_focus_id) = active_focus {
+                json!({
+                    "WorkspaceActiveWindowChanged": {
+                        "workspace_id": active_ws,
+                        "active_window_id": active_focus_id
+                    }
+                })
+            } else {
+                json!({
+                    "WorkspaceActiveWindowChanged": {
+                        "workspace_id": active_ws,
+                        "active_window_id": serde_json::Value::Null
+                    }
+                })
+            };
+            let _ = event_snapshot_changed(&shared, active_focus_evt);
+
+            let expected = match active_ws {
+                1 => match active_focus {
+                    Some(101) => Some(1.0 / 3.0),
+                    Some(102) => Some(2.0 / 3.0),
+                    Some(103) => Some(1.0),
+                    _ => Some(0.0),
+                },
+                2 => match active_focus {
+                    Some(201) => Some(0.5),
+                    Some(202) => Some(1.0),
+                    _ => Some(0.0),
+                },
+                _ => None,
+            };
+
+            assert_eq!(active_fraction(&shared, active_ws), expected);
+
+            let stale_focus_evt = json!({
+                "WindowFocusChanged": {
+                    "id": stale_focus
+                }
+            });
+            let _ = event_snapshot_changed(&shared, stale_focus_evt);
+            assert_eq!(active_fraction(&shared, active_ws), expected);
+
+            let stale_windows_focus_id = stale_windows_focus_ws2.or(Some(stale_focus));
+            let stale_windows_payload = json!({
+                "WindowsChanged": {
+                    "windows": [
+                        {
+                            "id": 101,
+                            "title": "ws1-left",
+                            "app_id": "a",
+                            "workspace_id": 1,
+                            "is_focused": stale_focus == 101 && stale_windows_focus_id == Some(101),
+                            "is_urgent": false,
+                            "layout": {
+                                "pos_in_scrolling_layout": [1, 1]
+                            }
+                        },
+                        {
+                            "id": 102,
+                            "title": "ws1-mid",
+                            "app_id": "a",
+                            "workspace_id": 1,
+                            "is_focused": stale_focus == 102 && stale_windows_focus_id == Some(102),
+                            "is_urgent": false,
+                            "layout": {
+                                "pos_in_scrolling_layout": [2, 1]
+                            }
+                        },
+                        {
+                            "id": 103,
+                            "title": "ws1-right",
+                            "app_id": "a",
+                            "workspace_id": 1,
+                            "is_focused": stale_focus == 103 && stale_windows_focus_id == Some(103),
+                            "is_urgent": false,
+                            "layout": {
+                                "pos_in_scrolling_layout": [3, 1]
+                            }
+                        },
+                        {
+                            "id": 201,
+                            "title": "ws2-left",
+                            "app_id": "a",
+                            "workspace_id": 2,
+                            "is_focused": stale_focus == 201 && stale_windows_focus_id == Some(201),
+                            "is_urgent": false,
+                            "layout": {
+                                "pos_in_scrolling_layout": [1, 1]
+                            }
+                        },
+                        {
+                            "id": 202,
+                            "title": "ws2-right",
+                            "app_id": "a",
+                            "workspace_id": 2,
+                            "is_focused": stale_focus == 202 && stale_windows_focus_id == Some(202),
+                            "is_urgent": false,
+                            "layout": {
+                                "pos_in_scrolling_layout": [2, 1]
+                            }
+                        },
+                    ]
+                }
+            });
+            let _ = event_snapshot_changed(&shared, stale_windows_payload);
+            assert_eq!(active_fraction(&shared, active_ws), expected);
+
+            if i == steps.len() - 1 {
+                continue;
+            }
+        }
+    }
+
+    #[test]
+    fn workspace_activated_redundant_event_without_state_change_is_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+
+        let focus_true = json!({
+            "WorkspaceActivated": {
+                "id": 1,
+                "focused": true
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, focus_true);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+
+        let focus_false = json!({
+            "WorkspaceActivated": {
+                "id": 1,
+                "focused": false
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, focus_false);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+    }
+
+    #[test]
+    fn workspace_active_window_changed_repeated_focus_is_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let set_focus_mid = json!({
+            "WorkspaceActiveWindowChanged": {
+                "workspace_id": 1,
+                "active_window_id": 102
+            }
+        });
+        let _ = event_snapshot_changed(&shared, set_focus_mid.clone());
+
+        let before_snapshot = shared.workspace_snapshot.read().clone();
+        let before_focused = shared
+            .focused_window
+            .read()
+            .as_ref()
+            .and_then(|w| Some((w.workspace_id, w.title.clone())));
+
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, set_focus_mid.clone());
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.workspace_snapshot.read().clone(), before_snapshot);
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .and_then(|w| Some((w.workspace_id, w.title.clone()))),
+            before_focused
+        );
+    }
+
+    #[test]
+    fn window_opened_or_changed_missing_id_is_a_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let before_snapshot = shared.workspace_snapshot.read().clone();
+        let before_windows = shared.windows.read().len();
+
+        let malformed = json!({
+            "WindowOpenedOrChanged": {
+                "window": {
+                    "title": "mystery",
+                    "app_id": "x",
+                    "workspace_id": 1,
+                    "is_focused": true,
+                    "is_urgent": false
+                }
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, malformed);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.windows.read().len(), before_windows);
+        assert_eq!(*shared.workspace_snapshot.read(), before_snapshot);
+    }
+
+    #[test]
+    fn window_opened_or_changed_inactive_workspace_focus_does_not_change_global_focus() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .and_then(|w| Some(w.title.as_str())),
+            Some("ws1-mid")
+        );
+
+        let new_window = json!({
+            "WindowOpenedOrChanged": {
+                "window": {
+                    "id": 999,
+                    "title": "ws2-new",
+                    "app_id": "b",
+                    "workspace_id": 2,
+                    "is_focused": true,
+                    "is_urgent": false,
+                    "layout": {
+                        "pos_in_scrolling_layout": [1, 1]
+                    }
+                }
+            }
+        });
+        let _ = event_snapshot_changed(&shared, new_window);
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+        assert_eq!(
+            shared
+                .focused_window
+                .read()
+                .as_ref()
+                .and_then(|w| Some(w.title.as_str())),
+            Some("ws1-mid")
+        );
+    }
+
+    #[test]
+    fn workspace_urgency_changed_unknown_workspace_is_ignored() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+        let before = shared.workspace_snapshot.read().urgent_workspaces.clone();
+
+        let unknown_urgent = json!({
+            "WorkspaceUrgencyChanged": {
+                "id": 99,
+                "urgent": true
+            }
+        });
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, unknown_urgent);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.workspace_snapshot.read().urgent_workspaces, before);
+    }
+
+    #[test]
+    fn keyboard_layout_switch_noop_when_unchanged() {
+        let shared = Arc::new(SharedState::default());
+        let init = json!({
+            "KeyboardLayoutsChanged": {
+                "keyboard_layouts": {
+                    "names": ["English", "Deutsch"],
+                    "current_idx": 0
+                }
+            }
+        });
+        let (_, _, kb_changed) = event_snapshot_changed(&shared, init);
+        assert!(kb_changed);
+
+        let same = json!({
+            "KeyboardLayoutSwitched": {
+                "idx": 0
+            }
+        });
+        let (_, _, kb_changed) = event_snapshot_changed(&shared, same);
+        assert!(!kb_changed);
+    }
+
+    #[test]
+    fn keyboard_layouts_changed_noop_when_payload_is_identical() {
+        let shared = Arc::new(SharedState::default());
+        let init = json!({
+            "KeyboardLayoutsChanged": {
+                "keyboard_layouts": {
+                    "names": ["English", "Deutsch"],
+                    "current_idx": 0
+                }
+            }
+        });
+        let (_, _, kb_changed) = event_snapshot_changed(&shared, init.clone());
+        assert!(kb_changed);
+
+        let (_, _, kb_changed) = event_snapshot_changed(&shared, init);
+        assert!(!kb_changed);
+    }
+
+    #[test]
+    fn windows_changed_repeated_payload_is_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+        let before = shared.workspace_snapshot.read().clone();
+
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, windows_payload());
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.workspace_snapshot.read().clone(), before);
+    }
+
+    #[test]
+    fn workspaces_changed_repeated_payload_is_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let before = shared.workspace_snapshot.read().clone();
+
+        let (workspace_changed, window_changed, _) =
+            event_snapshot_changed(&shared, workspaces_payload());
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.workspace_snapshot.read().clone(), before);
+    }
+
+    #[test]
+    fn window_opened_or_changed_repeated_payload_is_noop() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+
+        let before = shared.workspace_snapshot.read().clone();
+        let before_window = shared
+            .windows
+            .read()
+            .get(&102)
+            .cloned()
+            .expect("expected window 102");
+
+        let open = json!({
+            "WindowOpenedOrChanged": {
+                "window": {
+                    "id": 102,
+                    "title": "ws1-mid",
+                    "app_id": "a",
+                    "workspace_id": 1,
+                    "is_focused": true,
+                    "is_urgent": false,
+                    "layout": {
+                        "pos_in_scrolling_layout": [2, 1]
+                    }
+                }
+            }
+        });
+        let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, open);
+        assert!(!workspace_changed);
+        assert!(!window_changed);
+        assert_eq!(shared.workspace_snapshot.read().clone(), before);
+        let after_window = shared
+            .windows
+            .read()
+            .get(&102)
+            .expect("expected window 102")
+            .clone();
+
+        assert_eq!(after_window.id, before_window.id);
+        assert_eq!(after_window.title, before_window.title);
+        assert_eq!(after_window.app_id, before_window.app_id);
+        assert_eq!(after_window.workspace_id, before_window.workspace_id);
+        assert_eq!(after_window.is_focused, before_window.is_focused);
+        assert_eq!(after_window.is_urgent, before_window.is_urgent);
+        assert_eq!(after_window.layout_position, before_window.layout_position);
     }
 }

@@ -103,6 +103,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
 use std::rc::Rc;
 
 use gnome_topbar_core::config::WidgetEntry;
@@ -112,8 +113,8 @@ use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, CssProvider, EventControllerScroll, EventControllerScrollFlags,
-    GestureClick, Label, Overlay, Widget,
+    Align, Box as GtkBox, CssProvider, DrawingArea, EventControllerScroll,
+    EventControllerScrollFlags, GestureClick, Label, Overlay, Widget,
 };
 use tracing::{debug, trace, warn};
 
@@ -126,6 +127,34 @@ use crate::widgets::WidgetConfig;
 use crate::widgets::base::BaseWidget;
 use crate::widgets::ripple::{trigger_ripple_from_gesture, wrap_with_ripple};
 use crate::widgets::warn_unknown_options;
+
+#[derive(Debug)]
+struct WorkspaceIndicatorProgressState {
+    fraction: Cell<f64>,
+    visible: Cell<bool>,
+    track: glib::WeakRef<DrawingArea>,
+    fill: glib::WeakRef<DrawingArea>,
+}
+
+impl WorkspaceIndicatorProgressState {
+    fn new() -> Self {
+        Self {
+            fraction: Cell::new(0.0),
+            visible: Cell::new(false),
+            track: glib::WeakRef::new(),
+            fill: glib::WeakRef::new(),
+        }
+    }
+
+    fn request_redraw(&self) {
+        if let Some(track) = self.track.upgrade() {
+            track.queue_draw();
+        }
+        if let Some(fill) = self.fill.upgrade() {
+            fill.queue_draw();
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // WorkspaceContainer — custom widget that follows children's live CSS widths
@@ -926,6 +955,8 @@ impl WorkspacesWidget {
 
         let workspace_labels: Rc<RefCell<HashMap<i32, Widget>>> =
             Rc::new(RefCell::new(HashMap::new()));
+        let progress_states: Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>> =
+            Rc::new(RefCell::new(HashMap::new()));
         let current_ids = Rc::new(RefCell::new(Vec::new()));
         let separator = config.separator;
 
@@ -962,6 +993,7 @@ impl WorkspacesWidget {
                 &content_box,
                 ws_container.as_ref(),
                 &workspace_labels,
+                &progress_states,
                 &current_ids,
                 label_type,
                 &separator,
@@ -1023,6 +1055,7 @@ fn clear_indicators(
     container: &GtkBox,
     ws_container: Option<&WorkspaceContainer>,
     labels: &Rc<RefCell<HashMap<i32, Widget>>>,
+    progress_states: &Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>>,
     ids: &Rc<RefCell<Vec<i32>>>,
 ) {
     if let Some(wsc) = ws_container {
@@ -1033,6 +1066,7 @@ fn clear_indicators(
         }
     }
     labels.borrow_mut().clear();
+    progress_states.borrow_mut().clear();
     ids.borrow_mut().clear();
 }
 
@@ -1042,25 +1076,129 @@ fn clear_indicators(
 /// CSS classes for sizing and state go on the overlay so that
 /// `WorkspaceContainer::size_allocate` can detect the active indicator
 /// and `measure()` sees the correct min-width.
-fn create_single_indicator(label_type: LabelType, workspace: &Workspace) -> Widget {
+#[allow(clippy::too_many_arguments)]
+fn create_single_indicator(
+    label_type: LabelType,
+    workspace: &Workspace,
+    progress_states: &Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>>,
+) -> Widget {
     let workspace_id = workspace.id;
+    let mut is_long = false;
 
-    let (overlay, ripple_handle, is_long) = if label_type == LabelType::None {
-        // GtkBox avoids font-metric intrinsic sizing; CSS controls dimensions.
-        let dot = GtkBox::new(gtk4::Orientation::Horizontal, 0);
-        let (o, rh) = wrap_with_ripple(&dot);
-        (o, rh, false)
-    } else {
+    let content = GtkBox::new(gtk4::Orientation::Horizontal, 0);
+    content.add_css_class(widget::WORKSPACE_INDICATOR_CONTENT);
+
+    if label_type != LabelType::None {
         let label_text = workspace_label_text(label_type, workspace);
+        is_long = label_text.chars().count() > 2;
         let label = Label::new(Some(&label_text));
+
         // Optical centering: glyphs ●/○/◆ appear left-heavy at 0.5;
         // 0.55 nudges them to look visually centered in the pill.
         label.set_xalign(0.55);
         label.set_ellipsize(EllipsizeMode::End);
         label.set_single_line_mode(true);
-        let (o, rh) = wrap_with_ripple(&label);
-        (o, rh, label_text.chars().count() > 2)
-    };
+        content.append(&label);
+    }
+
+    let progress_state = Rc::new(WorkspaceIndicatorProgressState::new());
+
+    let progress_track = DrawingArea::new();
+    progress_track.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS_TRACK);
+    progress_track.set_halign(Align::Fill);
+    progress_track.set_valign(Align::Fill);
+    progress_track.set_vexpand(true);
+    progress_track.set_hexpand(true);
+    progress_track.set_can_target(false);
+
+    let fill = DrawingArea::new();
+    fill.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS_FILL);
+    fill.set_halign(Align::Fill);
+    fill.set_valign(Align::Fill);
+    fill.set_vexpand(true);
+    fill.set_hexpand(true);
+    fill.set_can_target(false);
+
+    let progress_overlay = Overlay::new();
+    progress_overlay.set_child(Some(&progress_track));
+    progress_overlay.add_overlay(&fill);
+
+    if label_type != LabelType::None {
+        progress_overlay.add_overlay(&content);
+    }
+
+    progress_track.set_draw_func(|area, cr, width, height| {
+        let width = f64::from(width);
+        let height = f64::from(height);
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+
+        let color = area.color();
+        cr.set_source_rgba(
+            f64::from(color.red()),
+            f64::from(color.green()),
+            f64::from(color.blue()),
+            f64::from(color.alpha()),
+        );
+        draw_rounded_rect(
+            cr,
+            0.0,
+            0.0,
+            width,
+            height,
+            (width.min(height) / 2.0).max(0.0),
+        );
+        let _ = cr.fill();
+    });
+
+    let state_for_fill = Rc::clone(&progress_state);
+    fill.set_draw_func(move |area, cr, width, height| {
+        let width = f64::from(width);
+        let height = f64::from(height);
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+
+        if !state_for_fill.visible.get() {
+            return;
+        }
+
+        let fraction = state_for_fill.fraction.get().clamp(0.0, 1.0);
+        if fraction <= 0.0 {
+            return;
+        }
+
+        let fill_width = (width * fraction).round().clamp(0.0, width);
+        if fill_width <= 0.0 {
+            return;
+        }
+
+        let color = area.color();
+        cr.set_source_rgba(
+            f64::from(color.red()),
+            f64::from(color.green()),
+            f64::from(color.blue()),
+            f64::from(color.alpha()),
+        );
+        draw_rounded_rect(
+            cr,
+            0.0,
+            0.0,
+            fill_width,
+            height,
+            (width.min(height) / 2.0).max(0.0).min(fill_width / 2.0),
+        );
+        let _ = cr.fill();
+    });
+
+    let (overlay, ripple_handle) = wrap_with_ripple(&progress_overlay);
+
+    progress_state.track.set(Some(&progress_track));
+    progress_state.fill.set(Some(&fill));
+    progress_states
+        .borrow_mut()
+        .insert(workspace_id, Rc::clone(&progress_state));
 
     // Sizing, state, and visual classes go on the overlay — it is the
     // widget that WorkspaceContainer measures and lays out.
@@ -1096,24 +1234,103 @@ fn create_single_indicator(label_type: LabelType, workspace: &Workspace) -> Widg
     overlay.upcast()
 }
 
+fn draw_rounded_rect(
+    cr: &gtk4::cairo::Context,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+) {
+    let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
+    if radius <= 0.0 {
+        cr.rectangle(x, y, width, height);
+        return;
+    }
+
+    let x0 = x;
+    let y0 = y;
+    let x1 = x + width;
+    let y1 = y + height;
+
+    cr.new_path();
+    cr.move_to(x0 + radius, y0);
+    cr.arc(x1 - radius, y0 + radius, radius, -PI / 2.0, 0.0);
+    cr.arc(x1 - radius, y1 - radius, radius, 0.0, PI / 2.0);
+    cr.arc(x0 + radius, y1 - radius, radius, PI / 2.0, PI);
+    cr.arc(x0 + radius, y0 + radius, radius, PI, 3.0 * PI / 2.0);
+    cr.close_path();
+}
+
+fn workspace_indicator_label(indicator: &Widget) -> Option<Label> {
+    let overlay = indicator.downcast_ref::<Overlay>()?;
+    let content_overlay = overlay.child()?.downcast::<Overlay>().ok()?;
+
+    let mut child = content_overlay.first_child();
+    while let Some(child_widget) = child {
+        if child_widget.has_css_class(widget::WORKSPACE_INDICATOR_CONTENT) {
+            let content = child_widget.downcast::<GtkBox>().ok()?;
+            let mut content_child = content.first_child();
+
+            while let Some(node) = content_child {
+                if let Ok(label) = node.clone().downcast::<Label>() {
+                    return Some(label);
+                }
+
+                content_child = node.next_sibling();
+            }
+
+            break;
+        }
+
+        child = child_widget.next_sibling();
+    }
+
+    None
+}
+
+fn workspace_indicator_progress(
+    progress_states: &Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>>,
+    workspace: &Workspace,
+) {
+    let Some(state) = progress_states.borrow().get(&workspace.id).cloned() else {
+        return;
+    };
+
+    let (visible, fraction) = match workspace.active_window_progress {
+        Some(progress) if workspace.active => (true, progress.clamp(0.0, 1.0)),
+        _ => (false, 0.0),
+    };
+    state.visible.set(visible);
+    state.fraction.set(fraction);
+    state.request_redraw();
+}
+
 /// Create workspace indicator widgets for the given workspaces.
 #[allow(clippy::too_many_arguments)]
 fn create_indicators(
     container: &GtkBox,
     ws_container: Option<&WorkspaceContainer>,
     labels_cell: &Rc<RefCell<HashMap<i32, Widget>>>,
+    progress_states: &Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>>,
     ids_cell: &Rc<RefCell<Vec<i32>>>,
     label_type: LabelType,
     separator: &str,
     workspaces: &[Workspace],
 ) {
-    clear_indicators(container, ws_container, labels_cell, ids_cell);
+    clear_indicators(
+        container,
+        ws_container,
+        labels_cell,
+        progress_states,
+        ids_cell,
+    );
 
     let mut labels = labels_cell.borrow_mut();
     let mut ids = ids_cell.borrow_mut();
 
     for (i, workspace) in workspaces.iter().enumerate() {
-        let indicator = create_single_indicator(label_type, workspace);
+        let indicator = create_single_indicator(label_type, workspace, progress_states);
 
         labels.insert(workspace.id, indicator.clone());
         if let Some(wsc) = ws_container {
@@ -1165,6 +1382,7 @@ fn recreate_with_grow_in(
     container: &GtkBox,
     wsc: &WorkspaceContainer,
     labels_cell: &Rc<RefCell<HashMap<i32, Widget>>>,
+    progress_states: &Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>>,
     ids_cell: &Rc<RefCell<Vec<i32>>>,
     label_type: LabelType,
     separator: &str,
@@ -1176,6 +1394,7 @@ fn recreate_with_grow_in(
         container,
         Some(wsc),
         labels_cell,
+        progress_states,
         ids_cell,
         label_type,
         separator,
@@ -1366,6 +1585,7 @@ fn update_indicators(
     container: &GtkBox,
     ws_container: Option<&WorkspaceContainer>,
     labels_cell: &Rc<RefCell<HashMap<i32, Widget>>>,
+    progress_states: &Rc<RefCell<HashMap<i32, Rc<WorkspaceIndicatorProgressState>>>>,
     ids_cell: &Rc<RefCell<Vec<i32>>>,
     label_type: LabelType,
     separator: &str,
@@ -1437,7 +1657,13 @@ fn update_indicators(
         let current_ids = ids_cell.borrow();
         if !current_ids.is_empty() {
             drop(current_ids);
-            clear_indicators(container, ws_container, labels_cell, ids_cell);
+            clear_indicators(
+                container,
+                ws_container,
+                labels_cell,
+                progress_states,
+                ids_cell,
+            );
         }
         if let Some(wsc) = ws_container {
             wsc.set_target_width(0);
@@ -1498,6 +1724,7 @@ fn update_indicators(
 
                     {
                         let mut labels = labels_cell.borrow_mut();
+                        let mut states = progress_states.borrow_mut();
                         let ids = ids_cell.borrow();
                         let mut left_removed = 0usize;
                         for (i, &id) in ids.iter().enumerate() {
@@ -1510,6 +1737,7 @@ fn update_indicators(
                             if let Some(indicator) = labels.remove(&id) {
                                 wsc.remove_child(&indicator);
                             }
+                            states.remove(&id);
                         }
                         drop(ids);
                         ids_cell.borrow_mut().retain(|id| new_ids_set.contains(id));
@@ -1525,6 +1753,7 @@ fn update_indicators(
                         container,
                         wsc,
                         labels_cell,
+                        progress_states,
                         ids_cell,
                         label_type,
                         separator,
@@ -1541,6 +1770,7 @@ fn update_indicators(
                         container,
                         wsc,
                         labels_cell,
+                        progress_states,
                         ids_cell,
                         label_type,
                         separator,
@@ -1559,6 +1789,7 @@ fn update_indicators(
                         container,
                         wsc,
                         labels_cell,
+                        progress_states,
                         ids_cell,
                         label_type,
                         separator,
@@ -1581,6 +1812,7 @@ fn update_indicators(
                 container,
                 None,
                 labels_cell,
+                progress_states,
                 ids_cell,
                 label_type,
                 separator,
@@ -1651,16 +1883,8 @@ fn update_indicators(
         }
 
         // Update icon/name/index label.
-        // The indicator is an Overlay wrapping the inner label.
-        if let Some(label) = (label_type != LabelType::None)
-            .then(|| {
-                indicator
-                    .downcast_ref::<Overlay>()
-                    .and_then(|o| o.child())
-                    .and_then(|w| w.downcast::<Label>().ok())
-            })
-            .flatten()
-        {
+        // The indicator is an Overlay wrapping the content overlay and progress track.
+        if let Some(label) = workspace_indicator_label(indicator) {
             match label_type {
                 LabelType::Icons => {
                     let text = if workspace.active {
@@ -1691,6 +1915,8 @@ fn update_indicators(
                 LabelType::None => unreachable!(),
             }
         }
+
+        workspace_indicator_progress(progress_states, workspace);
 
         let tooltip_text = build_tooltip(workspace);
         TooltipManager::global().set_styled_tooltip(indicator, &tooltip_text);
@@ -2175,6 +2401,7 @@ mod tests {
             active,
             occupied,
             urgent,
+            active_window_progress: None,
             window_count,
             output: None,
         }

@@ -279,7 +279,33 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active.clickable:hover {{
-    background-color: #ffffff;
+    background-color: var(--color-foreground-primary);
+}}
+
+.workspace-indicator-content {{
+    padding: 0;
+}}
+
+.workspace-indicator-progress-track {{
+    min-height: 100%;
+    min-width: 100%;
+    color: #71717a;
+    border-radius: var(--radius-round);
+}}
+
+.workspace-indicator-progress-fill {{
+    min-height: 100%;
+    min-width: 0;
+    color: var(--color-accent-primary);
+    border-radius: var(--radius-round);
+}}
+
+.workspace-indicator.active .workspace-indicator-progress-fill {{
+    color: var(--color-accent-primary);
+}}
+
+.workspace-indicator.active .workspace-indicator-progress-track {{
+    color: var(--color-foreground-primary);
 }}
 
 .workspace-indicator.urgent.clickable:hover {{
@@ -297,8 +323,8 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active {{
-    color: #f4f4f5;
-    background-color: #f4f4f5;
+    color: var(--color-foreground-primary);
+    background-color: var(--color-foreground-primary);
     min-width: 24px;
 }}
 

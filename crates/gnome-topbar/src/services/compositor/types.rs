@@ -59,6 +59,33 @@ pub struct PerOutputState {
     pub window_counts: HashMap<i32, u32>,
 }
 
+/// Focused window order metadata for a workspace.
+///
+/// Used to derive active workspace progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceWindowProgress {
+    /// 0-based index of the focused window in layout order.
+    pub focused_index: u32,
+    /// Total windows on this workspace.
+    pub total_windows: u32,
+}
+
+impl WorkspaceWindowProgress {
+    /// Convert the focused window location to a `0.0..=1.0` fraction.
+    ///
+    /// 0 windows has no progress (`None`).
+    /// A single window is treated as an empty pill (`0.0`).
+    /// For multiple windows, use equal steps so the first window starts at
+    /// `1 / total_windows` (50% with 2 windows) and the last at `1.0`.
+    pub fn fraction(self) -> Option<f64> {
+        match self.total_windows {
+            0 => None,
+            1 => Some(0.0),
+            total => Some((self.focused_index.min(total - 1) + 1) as f64 / total as f64),
+        }
+    }
+}
+
 /// Point-in-time snapshot of workspace state.
 ///
 /// This represents the current state across all workspaces,
@@ -74,6 +101,9 @@ pub struct WorkspaceSnapshot {
     /// Number of windows per workspace (workspace_id -> count).
     /// Not all backends provide this information.
     pub window_counts: HashMap<i32, u32>,
+    /// Focused window position per workspace.
+    /// Used to render active workspace progress.
+    pub window_progress: HashMap<i32, WorkspaceWindowProgress>,
     /// Per-output workspace state for multi-monitor setups.
     /// Key is the output/monitor connector name (e.g., "eDP-1", "DP-1").
     pub per_output: HashMap<String, PerOutputState>,
@@ -424,5 +454,59 @@ mod tests {
             layout_count: Some(2),
         };
         assert_ne!(info1, info3);
+    }
+
+    #[test]
+    fn test_workspace_window_progress_first_window_is_empty() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 0,
+            total_windows: 10,
+        };
+        assert_eq!(progress.fraction(), Some(0.1));
+    }
+
+    #[test]
+    fn test_workspace_window_progress_last_window_is_full() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 9,
+            total_windows: 10,
+        };
+        assert_eq!(progress.fraction(), Some(1.0));
+    }
+
+    #[test]
+    fn test_workspace_window_progress_middle_window_scales_linearly() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 4,
+            total_windows: 10,
+        };
+        assert_eq!(progress.fraction(), Some(0.5));
+    }
+
+    #[test]
+    fn test_workspace_window_progress_two_windows_has_half_fill_for_first() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 0,
+            total_windows: 2,
+        };
+        assert_eq!(progress.fraction(), Some(0.5));
+    }
+
+    #[test]
+    fn test_workspace_window_progress_single_window_is_empty() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 0,
+            total_windows: 1,
+        };
+        assert_eq!(progress.fraction(), Some(0.0));
+    }
+
+    #[test]
+    fn test_workspace_window_progress_zero_windows_is_none() {
+        let progress = WorkspaceWindowProgress {
+            focused_index: 0,
+            total_windows: 0,
+        };
+        assert_eq!(progress.fraction(), None);
     }
 }
