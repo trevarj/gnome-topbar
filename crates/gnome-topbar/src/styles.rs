@@ -287,6 +287,9 @@ pub mod qs {
     /// Battery health card (`.qs-battery-health`).
     pub const BATTERY_HEALTH: &str = "qs-battery-health";
 
+    /// Resource overview card (`.qs-resource-overview`).
+    pub const RESOURCE_OVERVIEW: &str = "qs-resource-overview";
+
     // Slider row identifiers (for per-row CSS targeting)
     /// Audio output slider row (`.qs-audio-output`).
     pub const AUDIO_OUTPUT: &str = "qs-audio-output";
@@ -427,6 +430,12 @@ pub mod qs {
     /// Battery health control note (`.qs-battery-health-control-note`).
     pub const BATTERY_HEALTH_CONTROL_NOTE: &str = "qs-battery-health-control-note";
 
+    /// Resource overview details container (`.qs-resource-overview-details`).
+    pub const RESOURCE_OVERVIEW_DETAILS: &str = "qs-resource-overview-details";
+
+    /// Resource overview details list (`.qs-resource-overview-list`).
+    pub const RESOURCE_OVERVIEW_LIST: &str = "qs-resource-overview-list";
+
     // Network card
     /// Network row shared by Wi-Fi, Ethernet, and Mobile sections (`.qs-network-row`).
     pub const NETWORK_ROW: &str = "qs-network-row";
@@ -510,9 +519,6 @@ pub mod widget {
 
     /// Operating-system logo icon (`.os-logo-icon`).
     pub const OS_LOGO_ICON: &str = "os-logo-icon";
-
-    /// System monitor alert widget (`.system_monitor`).
-    pub const SYSTEM_MONITOR: &str = "system_monitor";
 
     // Battery
     /// Battery widget (`.battery`).

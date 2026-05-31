@@ -78,6 +78,7 @@ pub struct QuickSettingsCardsConfig {
     pub brightness: bool,
     pub power: bool,
     pub battery_health: bool,
+    pub resource_overview: bool,
     /// Close the Quick Settings panel when a VPN connection succeeds.
     /// Defaults to `true`. Useful when VPN connections trigger password prompts.
     pub vpn_close_on_connect: bool,
@@ -96,6 +97,7 @@ impl Default for QuickSettingsCardsConfig {
             brightness: true,
             power: true,
             battery_health: true,
+            resource_overview: true,
             vpn_close_on_connect: true,
         }
     }
@@ -111,6 +113,7 @@ impl Default for QuickSettingsCardsConfig {
 /// vpn = false                          # hide the VPN card
 /// idle_inhibitor = false               # hide the idle inhibitor card
 /// battery_health = true                # show battery health / charge-limit status
+/// resource_overview = true             # show CPU, memory, and disk status
 /// vpn_close_on_connect = true          # close panel when VPN connects successfully
 /// audio_scroll_percentage = 5          # volume change per scroll tick (% points, 1..=25)
 /// ```
@@ -137,6 +140,7 @@ impl WidgetConfig for QuickSettingsConfig {
             "brightness",
             "power",
             "battery_health",
+            "resource_overview",
             "battery",
             "vpn_close_on_connect",
             "audio_scroll_percentage",
@@ -181,6 +185,7 @@ impl WidgetConfig for QuickSettingsConfig {
                 brightness: get_bool("brightness"),
                 power: get_bool("power"),
                 battery_health: get_bool("battery_health"),
+                resource_overview: get_bool("resource_overview"),
                 vpn_close_on_connect: get_bool("vpn_close_on_connect"),
             },
             battery: get_bool("battery"),
@@ -231,6 +236,9 @@ impl QuickSettingsConfig {
         }
         if cards.battery_health {
             names.push("battery_health");
+        }
+        if cards.resource_overview {
+            names.push("resource_overview");
         }
         if cards.power {
             names.push("power");
@@ -826,6 +834,7 @@ mod tests {
                 "mic",
                 "brightness",
                 "battery_health",
+                "resource_overview",
                 "power"
             ]
         );
@@ -843,6 +852,7 @@ mod tests {
         options.insert("audio".to_string(), Value::Boolean(false));
         options.insert("battery".to_string(), Value::Boolean(false));
         options.insert("battery_health".to_string(), Value::Boolean(false));
+        options.insert("resource_overview".to_string(), Value::Boolean(false));
         options.insert("power".to_string(), Value::Boolean(false));
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
@@ -896,6 +906,10 @@ mod tests {
             "battery_health".to_string(),
             Value::String("false".to_string()),
         );
+        options.insert(
+            "resource_overview".to_string(),
+            Value::String("false".to_string()),
+        );
         options.insert("vpn".to_string(), Value::Integer(0));
 
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(options));
@@ -903,6 +917,7 @@ mod tests {
         assert!(config.cards.network);
         assert!(config.battery);
         assert!(config.cards.battery_health);
+        assert!(config.cards.resource_overview);
         assert!(config.cards.vpn);
     }
 }

@@ -14,6 +14,7 @@
 //! - `brightness_card` - Brightness slider
 //! - `idle_inhibitor_card` - Idle inhibitor toggle
 //! - `updates_card` - System updates panel
+//! - `resource_overview_card` - CPU, memory, and disk overview
 //! - `power_card` - Power menu (shutdown, reboot, etc.)
 
 pub mod audio_card;
@@ -26,6 +27,7 @@ pub mod idle_inhibitor_card;
 pub mod mic_card;
 pub mod network_card;
 pub mod power_card;
+pub mod resource_overview_card;
 pub mod ui_helpers;
 pub mod updates_card;
 pub mod vpn_card;

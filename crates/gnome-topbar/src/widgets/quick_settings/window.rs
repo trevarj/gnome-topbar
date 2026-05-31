@@ -53,6 +53,7 @@ use super::network_card::{
     resolve_material_network_icon,
 };
 use super::power_card::{self, PowerCardBuildResult, PowerCardExpanderState};
+use super::resource_overview_card::{ResourceOverviewCardState, build_resource_overview_card};
 use super::ui_helpers::{
     AUDIO_REVEALER_DURATION_MS, AccordionManager, CARD_REVEALER_DURATION_MS, ExpandableCard,
     build_slide_down_revealer, collapse_revealer_instant,
@@ -185,6 +186,7 @@ pub struct QuickSettingsWindow {
     pub brightness: Rc<BrightnessCardState>,
     pub updates: Rc<UpdatesCardState>,
     pub battery_health: Rc<BatteryHealthCardState>,
+    pub resource_overview: Rc<ResourceOverviewCardState>,
     /// Power card state (expander variant only). Stored here so
     /// `reset_ui_state()` can collapse it without walking the widget tree.
     pub power: RefCell<Option<Rc<PowerCardExpanderState>>>,
@@ -280,6 +282,7 @@ impl QuickSettingsWindow {
             brightness: Rc::new(BrightnessCardState::new()),
             updates: Rc::new(UpdatesCardState::new()),
             battery_health: Rc::new(BatteryHealthCardState::new()),
+            resource_overview: Rc::new(ResourceOverviewCardState::new()),
             power: RefCell::new(None),
             deferred_kbd_controller: RefCell::new(None),
         });
@@ -558,6 +561,20 @@ impl QuickSettingsWindow {
                 expander_button,
                 expandable: Some(Rc::clone(&qs.battery_health) as Rc<dyn ExpandableCard>),
                 on_toggle: None,
+            });
+        }
+        if cfg.resource_overview {
+            let (card, revealer, expander_button) =
+                build_resource_overview_card(&qs.resource_overview);
+            let state = Rc::clone(&qs.resource_overview);
+            toggle_cards.push(ToggleCardInfo {
+                card,
+                revealer: Some(revealer),
+                expander_button,
+                expandable: Some(Rc::clone(&qs.resource_overview) as Rc<dyn ExpandableCard>),
+                on_toggle: Some(Rc::new(move |expanded| {
+                    state.set_expanded(expanded);
+                })),
             });
         }
         // Power card (always last in the grid)
@@ -1244,6 +1261,7 @@ impl QuickSettingsWindow {
             qs.vpn.base.revealer.borrow(),
             qs.updates.base.revealer.borrow(),
             qs.battery_health.base.revealer.borrow(),
+            qs.resource_overview.base.revealer.borrow(),
         ] {
             if let Some(r) = revealer.as_ref() {
                 r.set_transition_duration(card_duration);
@@ -1290,6 +1308,8 @@ impl QuickSettingsWindow {
         collapse(&self.vpn.base);
         collapse(&self.updates.base);
         collapse(&self.battery_health.base);
+        collapse(&self.resource_overview.base);
+        self.resource_overview.set_expanded(false);
 
         // Power card (expander variant)
         if let Some(ref power_state) = *self.power.borrow() {
@@ -1459,6 +1479,9 @@ impl QuickSettingsWindow {
 
         // Set the global current QS window reference
         set_current_qs_window(self);
+        if self.cards_config.resource_overview {
+            self.resource_overview.start_polling();
+        }
 
         if was_closing {
             // Keep the current visual progress and reverse it into an open
@@ -1648,6 +1671,9 @@ impl QuickSettingsWindow {
         // Clear the global QS window reference so card-level actions
         // (e.g., show_wifi_password_dialog) don't fire while hidden.
         clear_current_qs_window();
+        if self.cards_config.resource_overview {
+            self.resource_overview.stop_polling();
+        }
 
         // Release keyboard grab while hidden
         self.window.set_keyboard_mode(KeyboardMode::None);

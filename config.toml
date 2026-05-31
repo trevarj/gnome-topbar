@@ -28,7 +28,6 @@ left = ["workspaces"]
 center = ["clock"]
 right = [
   "tray",
-  "system_monitor",
   "quick_settings",
 ]
 border_radius = 50
@@ -78,14 +77,9 @@ background_opacity = 0.0
 #   max_chars = 12
 #   command = "headsetcontrol"
 #
-# Built-in CPU/memory threshold alert. Hidden while usage is below threshold:
-#   right = ["tray", "system_monitor", "quick_settings"]
-#
-#   [widgets.system_monitor]
-#   cpu_threshold = 90
-#   memory_threshold = 85
-#   interval = 5
-#   tooltip = "System load"
+# Resource overview lives in Quick Settings:
+#   [widgets.quick_settings]
+#   resource_overview = true
 #
 # See documentation for all widget options.
 
@@ -127,12 +121,6 @@ interval = 1800
 tooltip = "Weather"
 max_chars = 24
 forecast_days = 5
-
-[widgets.system_monitor]
-cpu_threshold = 90
-memory_threshold = 85
-interval = 5
-tooltip = "System load"
 
 [widgets.media]
 art_radius = 12

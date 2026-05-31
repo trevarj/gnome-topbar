@@ -272,6 +272,10 @@ window.quick-settings-window {{
     padding: 0 8px 6px 8px;
 }}
 
+.qs-resource-overview-details {{
+    margin-top: 6px;
+}}
+
 /* Row menu content */
 .qs-row-menu-content {{
     font-family: var(--font-family);

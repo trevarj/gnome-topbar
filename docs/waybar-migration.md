@@ -42,17 +42,12 @@ scripts out of the bar unless you need a deliberately separate indicator.
 
 Standalone widget names such as `battery`, `media`, `cpu`, and `memory` are
 intentionally outside the supported surface. Existing configs that reference
-them warn and skip the widget. Use the built-in `system_monitor` widget when you
-only need CPU or memory threshold alerts.
+them warn and skip the widget. Use Quick Settings resource overview for CPU,
+memory, and disk status.
 
 ```toml
-[widgets]
-right = ["tray", "system_monitor", "quick_settings"]
-
-[widgets.system_monitor]
-cpu_threshold = 90
-memory_threshold = 85
-interval = 5
+[widgets.quick_settings]
+resource_overview = true
 ```
 
 ## Output Formats

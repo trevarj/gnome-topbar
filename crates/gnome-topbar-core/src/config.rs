@@ -59,7 +59,6 @@ const SUPPORTED_WIDGETS: &[&str] = &[
     "keyboard_layout",
     "os_logo",
     "quick_settings",
-    "system_monitor",
     "tray",
     "weather",
     "workspaces",
@@ -74,6 +73,7 @@ const REMOVED_WIDGETS: &[&str] = &[
     "memory",
     "network_speed",
     "spacer",
+    "system_monitor",
     "taskbar",
     "updates",
     "window_title",
@@ -873,7 +873,6 @@ impl Default for WidgetsConfig {
             center: vec![WidgetPlacement::Single("clock".to_string())],
             right: vec![
                 WidgetPlacement::Single("tray".to_string()),
-                WidgetPlacement::Single("system_monitor".to_string()),
                 WidgetPlacement::Single("quick_settings".to_string()),
             ],
             border_radius: 50,
@@ -1615,7 +1614,7 @@ mod tests {
         assert_eq!(config.widgets.background_opacity, 0.0);
         assert_eq!(config.widgets.left.len(), 1);
         assert_eq!(config.widgets.center.len(), 1);
-        assert_eq!(config.widgets.right.len(), 3);
+        assert_eq!(config.widgets.right.len(), 2);
         assert!(!config.audio.allow_overdrive);
         assert_eq!(config.advanced.compositor, "auto");
         assert_eq!(config.theme.mode, "dark");
