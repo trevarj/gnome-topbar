@@ -1,6 +1,6 @@
 //! Built-in Open-Meteo weather widget.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gnome_topbar_core::config::WidgetEntry;
@@ -220,6 +220,7 @@ pub struct WeatherWidget {
 impl WeatherWidget {
     pub fn new(config: WeatherConfig) -> Self {
         let config = Rc::new(RefCell::new(config));
+        let refresh_generation = Rc::new(Cell::new(0_u64));
         let base = BaseWidget::new(&[wgt::WEATHER]);
         let label = base.add_label(Some(FALLBACK_ICON), &[wgt::WEATHER]);
         label.set_xalign(0.5);
@@ -231,12 +232,13 @@ impl WeatherWidget {
             click.set_button(gdk::BUTTON_SECONDARY);
             let label_for_toggle = label.clone();
             let config_for_toggle = config.clone();
+            let generation_for_toggle = refresh_generation.clone();
             click.connect_released(move |_gesture, _n_press, _x, _y| {
                 let mut config = config_for_toggle.borrow_mut();
                 config.unit = config.unit.toggled();
                 let current_config = config.clone();
                 drop(config);
-                refresh_weather_label(&label_for_toggle, &current_config);
+                refresh_weather_label(&label_for_toggle, &current_config, &generation_for_toggle);
             });
             base.widget().add_controller(click);
         }
@@ -244,7 +246,7 @@ impl WeatherWidget {
         {
             let snapshot = config.borrow().clone();
             base.set_tooltip(&snapshot.tooltip);
-            refresh_weather_label(&label, &snapshot);
+            refresh_weather_label(&label, &snapshot, &refresh_generation);
         }
 
         let interval = config.borrow().interval;
@@ -252,9 +254,10 @@ impl WeatherWidget {
             let timer = Rc::new(RefCell::new(None));
             let label_for_timer = label.clone();
             let config_for_timer = config.clone();
+            let generation_for_timer = refresh_generation.clone();
             let source = glib::timeout_add_seconds_local(interval as u32, move || {
                 let snapshot = config_for_timer.borrow().clone();
-                refresh_weather_label(&label_for_timer, &snapshot);
+                refresh_weather_label(&label_for_timer, &snapshot, &generation_for_timer);
                 glib::ControlFlow::Continue
             });
             *timer.borrow_mut() = Some(source);
@@ -275,12 +278,18 @@ impl WeatherWidget {
     }
 }
 
-fn refresh_weather_label(label: &Label, config: &WeatherConfig) {
+fn refresh_weather_label(label: &Label, config: &WeatherConfig, generation: &Rc<Cell<u64>>) {
     let label = label.clone();
     let config = config.clone();
     let max_chars = config.max_chars;
+    let request_generation = generation.get().wrapping_add(1);
+    generation.set(request_generation);
+    let generation = generation.clone();
     glib::spawn_future_local(async move {
         let result = gio::spawn_blocking(move || fetch_weather_display(&config)).await;
+        if generation.get() != request_generation {
+            return;
+        }
         match result {
             Ok(display) => {
                 set_label_if_changed(&label, &truncate_label(&display.text, max_chars));

@@ -428,12 +428,14 @@ impl NiriBackend {
 
     /// Process window list and update internal state.
     fn process_windows(shared: &SharedState, windows: &[Value]) {
-        let mut win_cache = shared.windows.write();
-        let previous_focus_by_workspace: HashMap<i32, u64> = win_cache
-            .values()
-            .filter(|win| win.is_focused)
-            .filter_map(|win| win.workspace_id.map(|ws_id| (ws_id as i32, win.id)))
-            .collect();
+        let previous_focus_by_workspace: HashMap<i32, u64> = {
+            let win_cache = shared.windows.read();
+            win_cache
+                .values()
+                .filter(|win| win.is_focused)
+                .filter_map(|win| win.workspace_id.map(|ws_id| (ws_id as i32, win.id)))
+                .collect()
+        };
         let mut parsed_windows = Vec::with_capacity(windows.len());
         let active_workspace_ids: HashSet<i32> = {
             let snapshot = shared.workspace_snapshot.read();
@@ -486,15 +488,19 @@ impl NiriBackend {
             parsed_windows.push(data);
         }
 
+        let mut win_cache = shared.windows.write();
+        win_cache.clear();
         for mut parsed in parsed_windows {
             if let Some(ws_id) = parsed.workspace_id.map(|ws| ws as i32) {
-                parsed.is_focused = focused_in_active_by_workspace
-                    .get(&ws_id)
-                    .copied()
-                    .is_some_and(|focused_id| focused_id == parsed.id)
-                    || previous_focus_by_workspace
-                        .get(&ws_id)
-                        .is_some_and(|focused_id| *focused_id == parsed.id);
+                parsed.is_focused =
+                    if let Some(focused_id) = focused_in_active_by_workspace.get(&ws_id) {
+                        *focused_id == parsed.id
+                    } else {
+                        active_workspace_ids.contains(&ws_id)
+                            && previous_focus_by_workspace
+                                .get(&ws_id)
+                                .is_some_and(|focused_id| *focused_id == parsed.id)
+                    };
             } else {
                 parsed.is_focused = false;
             }
@@ -2377,7 +2383,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_windows_changed_after_workspace_switch_keeps_prior_workspace_progress() {
+    fn windows_changed_after_workspace_switch_replaces_missing_workspace_windows() {
         let shared = Arc::new(SharedState::default());
         let _ = event_snapshot_changed(&shared, workspaces_payload_ws2_and_ws3());
         let _ = event_snapshot_changed(&shared, windows_payload_ws2_three_ws3_one());
@@ -2417,7 +2423,24 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, activate_ws2);
-        assert_eq!(active_fraction(&shared, 2), Some(1.0));
+        assert_eq!(
+            shared
+                .workspace_snapshot
+                .read()
+                .window_progress
+                .get(&2)
+                .map(|progress| progress.total_windows),
+            Some(0)
+        );
+        assert_eq!(
+            shared
+                .workspace_snapshot
+                .read()
+                .window_counts
+                .get(&2)
+                .copied(),
+            Some(0)
+        );
     }
 
     #[test]
@@ -2591,8 +2614,8 @@ mod tests {
         let (workspace_changed, window_changed, _) = event_snapshot_changed(&shared, malformed);
         assert!(workspace_changed);
         assert!(window_changed);
-        assert_eq!(shared.windows.read().len(), 4);
-        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+        assert_eq!(shared.windows.read().len(), 1);
+        assert_eq!(active_fraction(&shared, 1), Some(0.0));
         assert_eq!(
             shared
                 .focused_window
@@ -2619,7 +2642,7 @@ mod tests {
             event_snapshot_changed(&shared, malformed_type);
         assert!(!workspace_changed);
         assert!(!window_changed);
-        assert_eq!(shared.windows.read().len(), 4);
+        assert_eq!(shared.windows.read().len(), 1);
     }
 
     #[test]
@@ -3018,6 +3041,92 @@ mod tests {
                 .map(|w| w.title.as_str()),
             Some("ws1-mid")
         );
+    }
+
+    #[test]
+    fn windows_changed_replaces_cached_windows_and_removes_missing_entries() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload_ws2_and_ws3());
+        let _ = event_snapshot_changed(&shared, windows_payload_ws2_three_ws3_one());
+        assert_eq!(shared.windows.read().len(), 4);
+
+        let _ = event_snapshot_changed(&shared, windows_payload_ws3_only());
+
+        let windows = shared.windows.read();
+        assert_eq!(windows.len(), 1);
+        assert!(windows.contains_key(&301));
+        assert!(!windows.contains_key(&201));
+        assert!(!windows.contains_key(&202));
+        assert!(!windows.contains_key(&203));
+        drop(windows);
+        assert_eq!(
+            shared
+                .workspace_snapshot
+                .read()
+                .window_counts
+                .get(&2)
+                .copied(),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn windows_changed_new_active_focus_overrides_previous_focus() {
+        let shared = Arc::new(SharedState::default());
+        let _ = event_snapshot_changed(&shared, workspaces_payload());
+        let _ = event_snapshot_changed(&shared, windows_payload());
+        assert_eq!(active_fraction(&shared, 1), Some(2.0 / 3.0));
+
+        let focus_left_snapshot = json!({
+            "WindowsChanged": {
+                "windows": [
+                    {
+                        "id": 101,
+                        "title": "ws1-left",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": true,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [1, 1]
+                        }
+                    },
+                    {
+                        "id": 102,
+                        "title": "ws1-mid",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [2, 1]
+                        }
+                    },
+                    {
+                        "id": 103,
+                        "title": "ws1-right",
+                        "app_id": "a",
+                        "workspace_id": 1,
+                        "is_focused": false,
+                        "is_urgent": false,
+                        "layout": {
+                            "pos_in_scrolling_layout": [3, 1]
+                        }
+                    }
+                ]
+            }
+        });
+
+        let _ = event_snapshot_changed(&shared, focus_left_snapshot);
+        assert_eq!(active_fraction(&shared, 1), Some(1.0 / 3.0));
+        let focused_windows = shared
+            .windows
+            .read()
+            .values()
+            .filter(|win| win.workspace_id == Some(1) && win.is_focused)
+            .map(|win| win.id)
+            .collect::<Vec<_>>();
+        assert_eq!(focused_windows, vec![101]);
     }
 
     #[test]

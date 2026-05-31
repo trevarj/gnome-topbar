@@ -1127,10 +1127,15 @@ fn create_single_indicator(
         progress_overlay.add_overlay(&content);
     }
 
-    progress_track.set_draw_func(|area, cr, width, height| {
+    let state_for_track = Rc::clone(&progress_state);
+    progress_track.set_draw_func(move |area, cr, width, height| {
         let width = f64::from(width);
         let height = f64::from(height);
         if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+
+        if !state_for_track.visible.get() {
             return;
         }
 

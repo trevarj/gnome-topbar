@@ -64,8 +64,7 @@ pub fn css(animations: bool) -> String {
 }}
 
 /* Shared typography (row + toast) */
-.notification-app-name,
-.notification-toast-app {{
+.notification-app-name {{
     font-size: var(--font-size-sm);
     font-weight: 600;
     line-height: 1.15;
@@ -73,7 +72,9 @@ pub fn css(animations: bool) -> String {
 
 .notification-toast-app {{
     font-size: calc(var(--font-size-md) * 1.05);
+    font-weight: 600;
     color: var(--color-foreground-muted);
+    line-height: 1.15;
 }}
 
 .notification-summary,
