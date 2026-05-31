@@ -806,8 +806,6 @@ impl BarConfig {
 /// [widgets.clock]
 /// format = "%H:%M"
 ///
-/// [widgets.battery]
-/// disabled = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -1128,7 +1126,7 @@ impl WidgetsConfig {
 /// [widgets]
 /// right = [
 ///   "clock",                              # single widget
-///   { group = ["battery", "volume"] },    # grouped widgets sharing one island
+///   { group = ["weather", "headset"] },   # grouped widgets sharing one island
 /// ]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1184,9 +1182,6 @@ impl WidgetPlacement {
 /// format = "%H:%M"
 /// color = "#f5c2e7"
 ///
-/// [widgets.battery]
-/// disabled = true
-/// show_percentage = true
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct WidgetOptions {
@@ -2084,8 +2079,8 @@ mod tests {
             [widgets]
             right = [
                 "clock",
-                { group = ["battery", "volume"] },
-                "weather",
+                { group = ["weather", "headset"] },
+                "quick_settings",
             ]
         "#;
 
@@ -2102,15 +2097,15 @@ mod tests {
         match &config.widgets.right[1] {
             WidgetPlacement::Group { group } => {
                 assert_eq!(group.len(), 2);
-                assert_eq!(group[0], "battery");
-                assert_eq!(group[1], "volume");
+                assert_eq!(group[0], "weather");
+                assert_eq!(group[1], "headset");
             }
             WidgetPlacement::Single(_) => panic!("expected group"),
         }
 
         // Third: single widget
         match &config.widgets.right[2] {
-            WidgetPlacement::Single(name) => assert_eq!(name, "weather"),
+            WidgetPlacement::Single(name) => assert_eq!(name, "quick_settings"),
             WidgetPlacement::Group { .. } => panic!("expected single widget"),
         }
     }
@@ -2120,13 +2115,13 @@ mod tests {
         // New format: widget options in [widgets.<name>] sections
         let toml = r#"
             [widgets]
-            left = [{ group = ["clock", "battery"] }]
+            left = [{ group = ["clock", "weather"] }]
 
             [widgets.clock]
             format = "%H:%M"
 
-            [widgets.battery]
-            show_percentage = true
+            [widgets.weather]
+            unit = "fahrenheit"
         "#;
 
         let config: Config = toml::from_str(toml).unwrap();
@@ -2146,10 +2141,10 @@ mod tests {
             config
                 .widgets
                 .widget_configs
-                .get("battery")
-                .and_then(|o| o.options.get("show_percentage"))
-                .and_then(|v| v.as_bool()),
-            Some(true)
+                .get("weather")
+                .and_then(|o| o.options.get("unit"))
+                .and_then(|v| v.as_str()),
+            Some("fahrenheit")
         );
     }
 
@@ -2181,7 +2176,7 @@ mod tests {
         assert_eq!(single.widget_count(), 1);
 
         let group = WidgetPlacement::Group {
-            group: vec!["battery".to_string(), "volume".to_string()],
+            group: vec!["weather".to_string(), "headset".to_string()],
         };
         assert_eq!(group.widget_count(), 2);
     }
@@ -2210,9 +2205,9 @@ mod tests {
     fn test_widget_disabled() {
         let toml = r#"
             [widgets]
-            right = ["clock", "battery"]
+            right = ["clock", "headset"]
 
-            [widgets.battery]
+            [widgets.headset]
             disabled = true
         "#;
 
@@ -2221,8 +2216,8 @@ mod tests {
         // Both widgets are in the placement array
         assert_eq!(config.widgets.right.len(), 2);
 
-        // But battery is disabled
-        assert!(config.widgets.is_disabled("battery"));
+        // But headset is disabled
+        assert!(config.widgets.is_disabled("headset"));
         assert!(!config.widgets.is_disabled("clock"));
 
         // Resolved section should only have clock

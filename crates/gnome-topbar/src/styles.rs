@@ -10,7 +10,7 @@
 //! - **No prefix**: Domain-specific names unlikely to collide
 //!   (e.g., `widget`, `clock`, `bar`, `popover`, `notification-toast`).
 //! - **Widget prefix**: Sub-element classes namespaced by widget name
-//!   (e.g., `media-*`, `notification-*`, `qs-*`, `battery-popover-*`).
+//!   (e.g., `media-*`, `notification-*`, `qs-*`).
 //! - **State modifiers**: Short names used only in compound selectors
 //!   (e.g., `.active`, `.expanded`, `.clickable`).
 //!
@@ -520,13 +520,6 @@ pub mod widget {
     /// Operating-system logo icon (`.os-logo-icon`).
     pub const OS_LOGO_ICON: &str = "os-logo-icon";
 
-    // Battery
-    /// Battery widget (`.battery`).
-    pub const BATTERY: &str = "battery";
-
-    /// Battery percentage label (`.battery-percentage`).
-    pub const BATTERY_PERCENTAGE: &str = "battery-percentage";
-
     // Workspaces
     /// Workspaces widget (`.workspaces`).
     pub const WORKSPACES: &str = "workspaces";
@@ -619,96 +612,9 @@ pub mod widget {
     /// Notification badge dot (`.notification-badge-dot`).
     pub const NOTIFICATION_BADGE_DOT: &str = "notification-badge-dot";
 
-    // Window title
-    /// Window title widget (`.window-title`).
-    pub const WINDOW_TITLE: &str = "window-title";
-
-    /// Window title label (`.window-title-label`).
-    pub const WINDOW_TITLE_LABEL: &str = "window-title-label";
-
-    /// Window title app icon (`.window-title-app-icon`).
-    pub const WINDOW_TITLE_APP_ICON: &str = "window-title-app-icon";
-
-    // Updates
-    /// Updates widget (`.updates`).
-    pub const UPDATES: &str = "updates";
-
-    /// Updates icon (`.updates-icon`).
-    pub const UPDATES_ICON: &str = "updates-icon";
-
-    /// Updates count label (`.updates-count`).
-    pub const UPDATES_COUNT: &str = "updates-count";
-
-    /// Updates error state (`.updates-error`).
-    pub const UPDATES_ERROR: &str = "updates-error";
-
-    /// Updates checking state (`.updates-checking`).
-    pub const UPDATES_CHECKING: &str = "updates-checking";
-
     // Quick Settings bar widget
     /// Quick Settings bar widget (`.quick-settings`).
     pub const QUICK_SETTINGS: &str = "quick-settings";
-
-    // CPU
-    /// CPU widget (`.cpu`).
-    pub const CPU: &str = "cpu";
-
-    /// CPU icon (`.cpu-icon`).
-    pub const CPU_ICON: &str = "cpu-icon";
-
-    /// CPU label (`.cpu-label`).
-    pub const CPU_LABEL: &str = "cpu-label";
-
-    /// CPU high usage state (`.cpu-high`).
-    pub const CPU_HIGH: &str = "cpu-high";
-
-    // Memory
-    /// Memory widget (`.memory`).
-    pub const MEMORY: &str = "memory";
-
-    /// Memory icon (`.memory-icon`).
-    pub const MEMORY_ICON: &str = "memory-icon";
-
-    /// Memory label (`.memory-label`).
-    pub const MEMORY_LABEL: &str = "memory-label";
-
-    /// Memory high usage state (`.memory-high`).
-    pub const MEMORY_HIGH: &str = "memory-high";
-
-    // GPU
-    /// GPU widget (`.gpu`).
-    pub const GPU: &str = "gpu";
-
-    /// GPU icon (`.gpu-icon`).
-    pub const GPU_ICON: &str = "gpu-icon";
-
-    /// GPU label (`.gpu-label`).
-    pub const GPU_LABEL: &str = "gpu-label";
-
-    /// GPU high usage state (`.gpu-high`).
-    pub const GPU_HIGH: &str = "gpu-high";
-
-    /// GPU suspended/idle state (`.gpu-suspended`).
-    pub const GPU_SUSPENDED: &str = "gpu-suspended";
-
-    // Network Speed
-    /// Network speed widget (`.network-speed`).
-    pub const NETWORK_SPEED: &str = "network-speed";
-
-    /// Network speed icon (`.network-speed-icon`).
-    pub const NETWORK_SPEED_ICON: &str = "network-speed-icon";
-
-    /// Network speed download arrow label (`.network-speed-dl-arrow`).
-    pub const NETWORK_SPEED_DL_ARROW: &str = "network-speed-dl-arrow";
-
-    /// Network speed download speed label (`.network-speed-dl-label`).
-    pub const NETWORK_SPEED_DL_LABEL: &str = "network-speed-dl-label";
-
-    /// Network speed upload arrow label (`.network-speed-ul-arrow`).
-    pub const NETWORK_SPEED_UL_ARROW: &str = "network-speed-ul-arrow";
-
-    /// Network speed upload speed label (`.network-speed-ul-label`).
-    pub const NETWORK_SPEED_UL_LABEL: &str = "network-speed-ul-label";
 
     // Custom
     /// Custom widget prefix (`.custom-<name>`).
@@ -987,36 +893,6 @@ pub mod osd {
     pub const HORIZONTAL: &str = "osd-horizontal";
 }
 
-/// Battery popover classes.
-pub mod battery {
-    /// Section title (`.vp-section-title`).
-    pub const SECTION_TITLE: &str = "vp-section-title";
-
-    /// Battery popover container (`.battery-popover`).
-    pub const POPOVER: &str = "battery-popover";
-
-    /// Battery popover section title (`.battery-popover-section-title`).
-    pub const POPOVER_SECTION_TITLE: &str = "battery-popover-section-title";
-
-    /// Battery percentage (`.battery-popover-percent`).
-    pub const POPOVER_PERCENT: &str = "battery-popover-percent";
-
-    /// Battery state (`.battery-popover-state`).
-    pub const POPOVER_STATE: &str = "battery-popover-state";
-
-    /// Battery time (`.battery-popover-time`).
-    pub const POPOVER_TIME: &str = "battery-popover-time";
-
-    /// Battery power (`.battery-popover-power`).
-    pub const POPOVER_POWER: &str = "battery-popover-power";
-
-    /// Profile button (`.battery-popover-profile-button`).
-    pub const POPOVER_PROFILE_BUTTON: &str = "battery-popover-profile-button";
-
-    /// Popover separator (`.battery-popover-separator`).
-    pub const POPOVER_SEPARATOR: &str = "battery-popover-separator";
-}
-
 /// Calendar popover classes.
 pub mod calendar {
     /// Calendar popover (`.calendar-popover`).
@@ -1047,40 +923,15 @@ pub mod tooltip {
     pub const LABEL: &str = "gnome-topbar-tooltip-label";
 }
 
-/// Media widget classes (MPRIS media player control).
+/// Media control-panel classes (MPRIS media player control).
 pub mod media {
-    // Bar widget
-    /// Media widget container (`.media`).
-    pub const WIDGET: &str = "media";
-
-    /// Media icon (play/pause state indicator) (`.media-icon`).
-    pub const ICON: &str = "media-icon";
-
-    /// Player icon (app icon like Spotify, Firefox) (`.media-player-icon`).
-    pub const PLAYER_ICON: &str = "media-player-icon";
-
-    /// Media text label in bar (`.media-label`).
-    pub const LABEL: &str = "media-label";
-
-    /// Small album art thumbnail in bar (`.media-art-small`).
-    pub const ART_SMALL: &str = "media-art-small";
-
     /// Controls container (`.media-controls`).
     pub const CONTROLS: &str = "media-controls";
 
     /// Control button (`.media-control-btn`).
     pub const CONTROL_BTN: &str = "media-control-btn";
 
-    /// Playing state (`.media-playing`).
-    pub const PLAYING: &str = "media-playing";
-
-    /// Paused state (`.media-paused`).
-    pub const PAUSED: &str = "media-paused";
-
-    /// Stopped state (`.media-stopped`).
-    pub const STOPPED: &str = "media-stopped";
-
-    // Shared popover/window content
+    // Shared control-panel content
     /// Media content container (`.media-content`).
     pub const CONTENT: &str = "media-content";
 
@@ -1120,13 +971,7 @@ pub mod media {
     /// Duration label (`.media-duration`).
     pub const DURATION: &str = "media-duration";
 
-    /// Player selector dropdown (`.media-player-selector`).
-    pub const PLAYER_SELECTOR: &str = "media-player-selector";
-
-    /// Player name label (`.media-player-name`).
-    pub const PLAYER_NAME: &str = "media-player-name";
-
-    // Popover
+    // Control-panel media view
     /// Media popover (`.media-popover`).
     pub const POPOVER: &str = "media-popover";
 
@@ -1152,9 +997,6 @@ pub mod media {
     pub const PLAYER_MENU_CHECK: &str = "media-player-menu-check";
 
     // Empty state
-    /// No player available state (`.media-empty`).
-    pub const EMPTY: &str = "media-empty";
-
     /// Empty state icon (`.media-empty-icon`).
     pub const EMPTY_ICON: &str = "media-empty-icon";
 
@@ -1164,25 +1006,9 @@ pub mod media {
     /// Audio visualizer overlay (`.media-visualizer`).
     pub const VISUALIZER: &str = "media-visualizer";
 
-    /// Bar waveform visualizer underline (`.media-bar-visualizer`).
-    pub const BAR_VISUALIZER: &str = "media-bar-visualizer";
-
-    // Icon names (freedesktop naming convention)
-    // These are used with IconHandle and BaseWidget.add_icon(), which map
-    // freedesktop names to Material Symbols font glyphs internally.
-
     /// Icon for paused/stopped state (shows play button).
     pub const ICON_PLAY: &str = "media-playback-start";
 
     /// Icon for playing state (shows pause button).
     pub const ICON_PAUSE: &str = "media-playback-pause";
-
-    /// Icon for skipping to next track.
-    pub const ICON_NEXT: &str = "media-skip-forward";
-
-    /// Icon for skipping to previous track.
-    pub const ICON_PREVIOUS: &str = "media-skip-backward";
-
-    /// Generic audio/music icon (fallback when player icon unavailable).
-    pub const ICON_AUDIO_GENERIC: &str = "audio-x-generic";
 }

@@ -868,11 +868,6 @@ impl BaseWidget {
     /// * `text` - Initial label text (or None for empty)
     /// * `css_classes` - CSS classes to apply for styling (colors, etc.)
     ///
-    /// # Example
-    /// ```ignore
-    /// use crate::styles::widget;
-    /// let label = base.add_label(Some("100%"), &[widget::BATTERY_PERCENTAGE]);
-    /// ```
     pub fn add_label(&self, text: Option<&str>, css_classes: &[&str]) -> Label {
         let label = Label::new(text);
         for class in css_classes {

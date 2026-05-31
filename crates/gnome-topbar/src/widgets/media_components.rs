@@ -146,7 +146,6 @@ impl MediaViewController {
 
         // Paused and Stopped both decay to a static border rather than
         // hiding, to avoid blink during track switches.
-        // Stop cava entirely only when the bar widget would hide.
         let should_stop = !snapshot.available
             || (snapshot.playback_status == PlaybackStatus::Stopped && !has_metadata);
         if should_stop {
@@ -251,8 +250,8 @@ impl ArtState {
     /// generation is bumped and [`load_art_from_url`] is called with the
     /// supplied `on_success` / `on_failure` callbacks.
     ///
-    /// Both call sites (bar widget and popover/window) delegate here so the
-    /// debounce + generation logic lives in one place.
+    /// The control-panel media view delegates here so debounce + generation
+    /// logic stays separate from UI updates.
     pub fn debounced_load<S, F>(
         art_state: &Rc<RefCell<Self>>,
         url: Option<&str>,
@@ -727,7 +726,7 @@ pub fn update_seek_position(
 ///
 /// Shows placeholder box on failure, hides it on success.
 /// Delegates to [`ArtState::debounced_load`] for the debounce + generation
-/// logic shared with the bar widget.
+/// logic.
 pub fn load_album_art(
     art_url: Option<&str>,
     player_id: Option<&str>,
@@ -759,7 +758,6 @@ pub fn load_album_art(
 
 /// Load album art from URL, calling `on_success` or `on_failure` callbacks.
 ///
-/// This is the shared implementation used by both the bar widget and popover/window.
 /// - `on_success` is called after the picture is set (e.g., to hide placeholder)
 /// - `on_failure` is called when loading fails (e.g., to show placeholder or fallback icon)
 pub fn load_art_from_url<S, F>(

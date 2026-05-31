@@ -317,18 +317,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn popover_kind_system_widgets() {
-        assert_eq!(popover_kind_for("cpu"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("memory"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("gpu"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("network_speed"), PopoverKind::Unmergeable);
-    }
-
-    #[test]
-    fn popover_kind_non_system_widgets() {
+    fn popover_kind_supported_widgets() {
         assert_eq!(popover_kind_for("clock"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("battery"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("media"), PopoverKind::Unmergeable);
+        assert_eq!(popover_kind_for("quick_settings"), PopoverKind::Unmergeable);
+        assert_eq!(popover_kind_for("tray"), PopoverKind::Unmergeable);
         assert_eq!(popover_kind_for("unknown"), PopoverKind::Unmergeable);
     }
 }

@@ -1,11 +1,11 @@
-//! Battery widget CSS.
+//! Quick Settings battery status CSS.
 
 /// Return battery CSS.
 pub fn css() -> &'static str {
     r#"
-/* ===== BATTERY ===== */
+/* ===== QUICK SETTINGS BATTERY STATUS ===== */
 
-/* Battery state classes - applied directly to the backend widget */
+/* Battery state classes - applied to the Quick Settings bar indicator. */
 .battery-icon.battery-charging {
     color: var(--color-accent-primary);
 }
@@ -17,36 +17,6 @@ pub fn css() -> &'static str {
 
 .battery-icon.battery-low {
     color: var(--color-state-urgent);
-}
-
-/* Battery popover */
-.battery-popover-percent {
-    font-size: var(--font-size-lg);
-    font-weight: 700;
-}
-
-.battery-popover-state {
-    font-weight: 500;
-}
-
-.battery-popover-time,
-.battery-popover-power {
-    font-size: var(--font-size-sm);
-}
-
-.battery-popover-profile-button {
-    font-size: var(--font-size-sm);
-    border-radius: var(--radius-widget);
-    min-width: 0;
-    min-height: 32px;
-}
-
-.battery-popover-profile-button label {
-    margin: 0 8px;
-}
-
-.battery-popover-profile-button:hover {
-    background: var(--color-card-overlay-hover);
 }
 "#
 }

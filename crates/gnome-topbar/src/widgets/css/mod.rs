@@ -12,7 +12,7 @@
 //! - `calendar` - Calendar widget styles
 //! - `control_panel` - Combined clock control panel styles
 //! - `quick_settings` - Quick settings panel, cards, rows
-//! - `battery` - Battery indicator helpers
+//! - `battery` - Quick Settings battery status helpers
 //! - `notifications` - Notification rows and toasts
 //! - `osd` - On-screen display overlays
 //! - `media` - Media player control-panel content

@@ -1,4 +1,4 @@
-//! Media widget CSS.
+//! Media control-panel CSS.
 
 /// Return media CSS.
 pub fn css(animations: bool) -> String {
@@ -9,67 +9,7 @@ pub fn css(animations: bool) -> String {
     };
     format!(
         r#"
-/* ===== MEDIA WIDGET ===== */
-
-/* Album art thumbnail - RoundedPicture handles corner clipping via GSK */
-.media-art-small {{
-    /* Size controlled via set_pixel_size() in Rust */
-}}
-
-/* Add spacing after art only when followed by other elements */
-.media-art-small:not(:last-child) {{
-    margin-right: 8px;
-}}
-
-/* Player icon (app icon like Spotify, Firefox) in bar */
-.media-player-icon {{
-    min-width: var(--icon-size);
-    min-height: var(--icon-size);
-}}
-
-/* Add spacing after icons only when followed by other elements */
-.media-player-icon:not(:last-child) {{
-    margin-right: 8px;
-}}
-
-.media-icon:not(:last-child) {{
-    margin-right: 4px;
-}}
-
-/* Inline playback controls in bar */
-.media .media-controls {{
-    margin-left: 4px;
-}}
-
-.media .media-control-btn {{
-    min-width: 28px;
-    min-height: 28px;
-    padding: 0;
-    border-radius: var(--radius-widget);
-    color: var(--color-foreground-primary);
-}}
-
-.media .media-control-btn.media-control-btn-primary {{
-    min-width: 32px;
-    min-height: 32px;
-}}
-
-.media .media-control-btn.media-control-btn-primary .icon-root {{
-    font-size: calc(var(--icon-size) * 1.1);
-}}
-
-.media .media-control-btn:hover {{
-    background: var(--color-card-overlay-hover);
-}}
-
-.media .media-control-btn:disabled {{
-    color: var(--color-foreground-disabled);
-}}
-
-.media-label,
-.media-title {{
-    font-size: var(--font-size);
-}}
+/* ===== MEDIA CONTROL PANEL ===== */
 
 /* Popover styling */
 .media-popover.vp-surface-popover {{
@@ -119,7 +59,7 @@ pub fn css(animations: bool) -> String {
     font-size: 1.15em;
 }}
 
-/* Album art in popover/window */
+/* Album art in control-panel media view */
 .media-art {{
     border-radius: var(--radius-widget);
     background: var(--color-card-overlay);
