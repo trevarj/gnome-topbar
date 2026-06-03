@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gtk4::gio::{self, prelude::*};
 use gtk4::glib::{self, Variant};
@@ -52,6 +52,8 @@ const PROPERTIES_IFACE: &str = "org.freedesktop.DBus.Properties";
 
 /// Debounce interval for mobile info refreshes triggered by ModemManager signals.
 const MOBILE_REFRESH_DEBOUNCE_MS: u64 = 75;
+/// Briefly hold internet-backed polling after resume while routes settle.
+const RESUME_INTERNET_GRACE_SECS: u64 = 10;
 
 /// Create a synchronous D-Bus proxy on the system bus.
 ///
@@ -305,6 +307,7 @@ pub struct NmService {
     pub(super) nm_proxy: RefCell<Option<gio::DBusProxy>>,
     snapshot: RefCell<NmSnapshot>,
     callbacks: Callbacks<NmSnapshot>,
+    internet_paused_until: Cell<Option<Instant>>,
     pub(super) wifi: WifiInternal,
     pub(super) mobile: MobileInternal,
 }
@@ -315,6 +318,7 @@ impl NmService {
             nm_proxy: RefCell::new(None),
             snapshot: RefCell::new(NmSnapshot::unknown()),
             callbacks: Callbacks::new(),
+            internet_paused_until: Cell::new(None),
             wifi: WifiInternal::new(),
             mobile: MobileInternal::new(),
         });
@@ -353,6 +357,22 @@ impl NmService {
 
     pub fn snapshot(&self) -> NmSnapshot {
         self.snapshot.borrow().clone()
+    }
+
+    pub fn internet_available(&self) -> bool {
+        if let Some(paused_until) = self.internet_paused_until.get() {
+            if Instant::now() < paused_until {
+                return false;
+            }
+            self.internet_paused_until.set(None);
+        }
+
+        if let Some(available) = self.nm_reports_internet() {
+            return available;
+        }
+
+        let snapshot = self.snapshot.borrow();
+        snapshot.wifi.connected || snapshot.wired.connected || snapshot.mobile.active
     }
 
     /// Re-emit the current snapshot to all callbacks without any state change.
@@ -676,6 +696,9 @@ impl NmService {
                                 && !preparing
                                 && let Some(this) = this_weak.upgrade()
                             {
+                                this.pause_internet_after_resume();
+                                this.update_nm_flags();
+                                this.refresh_networks_async();
                                 this.queue_mobile_refresh();
                             }
                         }
@@ -777,6 +800,42 @@ impl NmService {
             s.available = available;
             changed
         });
+    }
+
+    fn pause_internet_after_resume(&self) {
+        self.internet_paused_until.set(Some(
+            Instant::now() + Duration::from_secs(RESUME_INTERNET_GRACE_SECS),
+        ));
+        self.re_notify();
+
+        glib::timeout_add_seconds_local_once(RESUME_INTERNET_GRACE_SECS as u32, || {
+            let service = NmService::global();
+            service.internet_paused_until.set(None);
+            service.re_notify();
+        });
+    }
+
+    fn nm_reports_internet(&self) -> Option<bool> {
+        let nm = self.nm_proxy.borrow();
+        let nm = nm.as_ref()?;
+
+        // Prefer NetworkManager's connectivity check when configured:
+        // FULL means internet access; PORTAL/LIMITED/NONE should keep polling
+        // deferred. UNKNOWN falls through to NM state/snapshot fallback.
+        match nm
+            .cached_property("Connectivity")
+            .and_then(|v| v.get::<u32>())
+        {
+            Some(4) => return Some(true),
+            Some(1..=3) => return Some(false),
+            _ => {}
+        }
+
+        // NM_STATE_CONNECTED_GLOBAL is the closest route-level signal to
+        // "internet usable" when connectivity checking is unavailable.
+        nm.cached_property("State")
+            .and_then(|v| v.get::<u32>())
+            .map(|state| state >= 70)
     }
 
     fn set_unavailable(&self) {

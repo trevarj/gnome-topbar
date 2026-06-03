@@ -11,7 +11,9 @@ use gtk4::{Box as GtkBox, GestureClick, Label, gdk};
 use serde::Deserialize;
 use tracing::warn;
 
+use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
+use crate::services::network::{NetworkService, NetworkSnapshot};
 use crate::styles::widget as wgt;
 use crate::widgets::base::BaseWidget;
 use crate::widgets::{WidgetConfig, warn_unknown_options};
@@ -215,12 +217,14 @@ pub(crate) struct WeatherForecastDay {
 pub struct WeatherWidget {
     base: BaseWidget,
     _timer: Rc<RefCell<Option<SourceId>>>,
+    network_callback: Rc<RefCell<Option<CallbackId>>>,
 }
 
 impl WeatherWidget {
     pub fn new(config: WeatherConfig) -> Self {
         let config = Rc::new(RefCell::new(config));
         let refresh_generation = Rc::new(Cell::new(0_u64));
+        let network_callback = Rc::new(RefCell::new(None));
         let base = BaseWidget::new(&[wgt::WEATHER]);
         let label = base.add_label(Some(FALLBACK_ICON), &[wgt::WEATHER]);
         label.set_xalign(0.5);
@@ -246,7 +250,12 @@ impl WeatherWidget {
         {
             let snapshot = config.borrow().clone();
             base.set_tooltip(&snapshot.tooltip);
-            refresh_weather_label(&label, &snapshot, &refresh_generation);
+            refresh_weather_label_when_online(
+                &label,
+                &snapshot,
+                &refresh_generation,
+                &network_callback,
+            );
         }
 
         let interval = config.borrow().interval;
@@ -255,20 +264,28 @@ impl WeatherWidget {
             let label_for_timer = label.clone();
             let config_for_timer = config.clone();
             let generation_for_timer = refresh_generation.clone();
+            let network_callback_for_timer = network_callback.clone();
             let source = glib::timeout_add_seconds_local(interval as u32, move || {
                 let snapshot = config_for_timer.borrow().clone();
-                refresh_weather_label(&label_for_timer, &snapshot, &generation_for_timer);
+                refresh_weather_label_when_online(
+                    &label_for_timer,
+                    &snapshot,
+                    &generation_for_timer,
+                    &network_callback_for_timer,
+                );
                 glib::ControlFlow::Continue
             });
             *timer.borrow_mut() = Some(source);
             Self {
                 base,
                 _timer: timer,
+                network_callback,
             }
         } else {
             Self {
                 base,
                 _timer: Rc::new(RefCell::new(None)),
+                network_callback,
             }
         }
     }
@@ -276,6 +293,38 @@ impl WeatherWidget {
     pub fn widget(&self) -> &GtkBox {
         self.base.widget()
     }
+}
+
+fn refresh_weather_label_when_online(
+    label: &Label,
+    config: &WeatherConfig,
+    generation: &Rc<Cell<u64>>,
+    network_callback: &Rc<RefCell<Option<CallbackId>>>,
+) {
+    if NetworkService::global().internet_available() {
+        refresh_weather_label(label, config, generation);
+        return;
+    }
+
+    if network_callback.borrow().is_some() {
+        return;
+    }
+
+    let label = label.clone();
+    let config = config.clone();
+    let generation = generation.clone();
+    let callback_id_cell = network_callback.clone();
+    let callback_id = NetworkService::global().connect(move |_snapshot: &NetworkSnapshot| {
+        if !NetworkService::global().internet_available() {
+            return;
+        }
+
+        if let Some(callback_id) = callback_id_cell.borrow_mut().take() {
+            NetworkService::global().unsubscribe(callback_id);
+        }
+        refresh_weather_label(&label, &config, &generation);
+    });
+    *network_callback.borrow_mut() = Some(callback_id);
 }
 
 fn refresh_weather_label(label: &Label, config: &WeatherConfig, generation: &Rc<Cell<u64>>) {
@@ -320,6 +369,9 @@ impl Drop for WeatherWidget {
     fn drop(&mut self) {
         if let Some(source_id) = self._timer.borrow_mut().take() {
             source_id.remove();
+        }
+        if let Some(callback_id) = self.network_callback.borrow_mut().take() {
+            NetworkService::global().unsubscribe(callback_id);
         }
     }
 }

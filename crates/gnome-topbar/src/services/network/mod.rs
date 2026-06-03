@@ -348,6 +348,11 @@ impl NetworkService {
         NetworkSnapshot::NetworkManager(self.backend.snapshot())
     }
 
+    /// Whether internet-backed widgets should run now.
+    pub fn internet_available(&self) -> bool {
+        self.backend.internet_available()
+    }
+
     /// Clear the failed state (called when user cancels password dialog).
     pub fn clear_failed_state(&self) {
         self.backend.clear_failed_state();

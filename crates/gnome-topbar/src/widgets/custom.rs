@@ -44,8 +44,10 @@ use gtk4::{Box as GtkBox, GestureClick, Image, Label, Orientation, gdk};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
+use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{IconHandle, has_material_mapping};
+use crate::services::network::{NetworkService, NetworkSnapshot};
 use crate::services::tooltip::TooltipManager;
 use crate::styles::{icon, state, widget as wgt};
 use crate::widgets::base::{BaseWidget, describe_exit_status};
@@ -63,6 +65,7 @@ const KNOWN_OPTIONS: &[&str] = &[
     "tooltip",
     "max_chars",
     "position",
+    "requires_network",
 ];
 
 /// Default exec timeout in seconds.
@@ -158,6 +161,8 @@ pub struct CustomConfig {
     pub tooltip: Option<String>,
     /// Truncate label to N characters with ellipsis.
     pub max_chars: Option<i32>,
+    /// Wait for an active NetworkManager connection before running `exec`.
+    pub requires_network: bool,
 }
 
 impl WidgetConfig for CustomConfig {
@@ -220,6 +225,12 @@ impl WidgetConfig for CustomConfig {
             .and_then(toml::Value::as_integer)
             .map(|v| i32::try_from(v.max(1)).unwrap_or(i32::MAX));
 
+        let requires_network = entry
+            .options
+            .get("requires_network")
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false);
+
         Self {
             icon,
             image,
@@ -230,6 +241,7 @@ impl WidgetConfig for CustomConfig {
             on_click,
             tooltip,
             max_chars,
+            requires_network,
         }
     }
 }
@@ -243,6 +255,8 @@ struct ExecState {
     template: Option<String>,
     custom_id: String,
     widget: gtk4::Box,
+    requires_network: bool,
+    network_callback: Rc<RefCell<Option<CallbackId>>>,
 }
 
 /// Pre-exec show_if gate: when present, the show_if command is evaluated
@@ -250,6 +264,19 @@ struct ExecState {
 #[derive(Clone)]
 struct ShowIfGate {
     cmd: String,
+}
+
+#[derive(Clone, Copy)]
+struct ExecInvocation<'a> {
+    exec_cmd: &'a str,
+    label: Option<&'a Label>,
+    fallback_text: &'a str,
+    template: Option<&'a str>,
+    custom_id: &'a str,
+    widget: &'a gtk4::Box,
+    show_if: Option<&'a ShowIfGate>,
+    requires_network: bool,
+    network_callback: &'a Rc<RefCell<Option<CallbackId>>>,
 }
 
 /// Resolve `file://` URIs and `~/` paths to absolute paths.
@@ -285,6 +312,8 @@ pub struct CustomWidget {
     image_widget: Option<Image>,
     /// Active timer source ID for cancellation on drop.
     timer_source: Rc<RefCell<Option<SourceId>>>,
+    /// Pending one-shot network callback for `requires_network` exec polling.
+    network_callback: Rc<RefCell<Option<CallbackId>>>,
 }
 
 impl CustomWidget {
@@ -421,6 +450,7 @@ impl CustomWidget {
         };
 
         let timer_source = Rc::new(RefCell::new(None));
+        let network_callback = Rc::new(RefCell::new(None));
 
         let exec_show_if = if piggyback {
             show_if_cmd.map(|cmd| ShowIfGate { cmd })
@@ -437,18 +467,22 @@ impl CustomWidget {
                 template: config.template,
                 custom_id: widget_name.to_string(),
                 widget: base.widget().clone(),
+                requires_network: config.requires_network,
+                network_callback: network_callback.clone(),
             };
 
             // Run the exec command once immediately (with show_if gate if piggybacking)
-            run_exec(
-                &state.cmd,
-                state.label.as_ref(),
-                &state.fallback_text,
-                state.template.as_deref(),
-                &state.custom_id,
-                &state.widget,
-                exec_show_if.as_ref(),
-            );
+            run_exec(ExecInvocation {
+                exec_cmd: &state.cmd,
+                label: state.label.as_ref(),
+                fallback_text: &state.fallback_text,
+                template: state.template.as_deref(),
+                custom_id: &state.custom_id,
+                widget: &state.widget,
+                show_if: exec_show_if.as_ref(),
+                requires_network: state.requires_network,
+                network_callback: &state.network_callback,
+            });
 
             if config.interval > 0 {
                 let state_for_timer = state.clone();
@@ -457,15 +491,17 @@ impl CustomWidget {
                 let source_id = glib::timeout_add_seconds_local(
                     u32::try_from(config.interval).unwrap_or(u32::MAX),
                     move || {
-                        run_exec(
-                            &state_for_timer.cmd,
-                            state_for_timer.label.as_ref(),
-                            &state_for_timer.fallback_text,
-                            state_for_timer.template.as_deref(),
-                            &state_for_timer.custom_id,
-                            &state_for_timer.widget,
-                            show_if_for_timer.as_ref(),
-                        );
+                        run_exec(ExecInvocation {
+                            exec_cmd: &state_for_timer.cmd,
+                            label: state_for_timer.label.as_ref(),
+                            fallback_text: &state_for_timer.fallback_text,
+                            template: state_for_timer.template.as_deref(),
+                            custom_id: &state_for_timer.custom_id,
+                            widget: &state_for_timer.widget,
+                            show_if: show_if_for_timer.as_ref(),
+                            requires_network: state_for_timer.requires_network,
+                            network_callback: &state_for_timer.network_callback,
+                        });
                         glib::ControlFlow::Continue
                     },
                 );
@@ -533,15 +569,17 @@ impl CustomWidget {
                     // label reflects the new state immediately.
                     // No show_if gate — the user explicitly clicked.
                     if let Some(ref state) = exec_state {
-                        run_exec(
-                            &state.cmd,
-                            state.label.as_ref(),
-                            &state.fallback_text,
-                            state.template.as_deref(),
-                            &state.custom_id,
-                            &state.widget,
-                            None,
-                        );
+                        run_exec(ExecInvocation {
+                            exec_cmd: &state.cmd,
+                            label: state.label.as_ref(),
+                            fallback_text: &state.fallback_text,
+                            template: state.template.as_deref(),
+                            custom_id: &state.custom_id,
+                            widget: &state.widget,
+                            show_if: None,
+                            requires_network: state.requires_network,
+                            network_callback: &state.network_callback,
+                        });
                     }
                 });
             });
@@ -554,6 +592,7 @@ impl CustomWidget {
             icon_handle,
             image_widget,
             timer_source,
+            network_callback,
         }
     }
 
@@ -571,6 +610,9 @@ impl Drop for CustomWidget {
             source_id.remove();
             debug!("Custom widget timer cancelled on drop");
         }
+        if let Some(callback_id) = self.network_callback.borrow_mut().take() {
+            NetworkService::global().unsubscribe(callback_id);
+        }
     }
 }
 
@@ -584,24 +626,26 @@ impl Drop for CustomWidget {
 ///
 /// When `show_if` is set, the show_if command is evaluated first as a gate:
 /// non-zero exit hides the widget and skips exec entirely.
-fn run_exec(
-    exec_cmd: &str,
-    label: Option<&Label>,
-    fallback_text: &str,
-    template: Option<&str>,
-    custom_id: &str,
-    widget: &gtk4::Box,
-    show_if: Option<&ShowIfGate>,
-) {
-    let Some(label) = label else { return };
+fn run_exec(invocation: ExecInvocation<'_>) {
+    let Some(label) = invocation.label else {
+        return;
+    };
+
+    if invocation.requires_network && !NetworkService::global().internet_available() {
+        queue_exec_when_online(ExecInvocation {
+            label: Some(label),
+            ..invocation
+        });
+        return;
+    }
 
     let label = label.clone();
-    let exec_cmd = exec_cmd.to_string();
-    let fallback_text = fallback_text.to_string();
-    let template = template.map(String::from);
-    let custom_id = custom_id.to_string();
-    let widget = widget.clone();
-    let show_if_cmd = show_if.map(|g| g.cmd.clone());
+    let exec_cmd = invocation.exec_cmd.to_string();
+    let fallback_text = invocation.fallback_text.to_string();
+    let template = invocation.template.map(String::from);
+    let custom_id = invocation.custom_id.to_string();
+    let widget = invocation.widget.clone();
+    let show_if_cmd = invocation.show_if.map(|g| g.cmd.clone());
 
     glib::spawn_future_local(async move {
         // Pre-exec show_if gate: if the command exits non-zero, hide and skip exec.
@@ -727,6 +771,48 @@ fn run_exec(
     });
 }
 
+fn queue_exec_when_online(invocation: ExecInvocation<'_>) {
+    let Some(label) = invocation.label else {
+        return;
+    };
+
+    if invocation.network_callback.borrow().is_some() {
+        return;
+    }
+
+    let exec_cmd = invocation.exec_cmd.to_string();
+    let label = label.clone();
+    let fallback_text = invocation.fallback_text.to_string();
+    let template = invocation.template.map(String::from);
+    let custom_id = invocation.custom_id.to_string();
+    let widget = invocation.widget.clone();
+    let show_if = invocation.show_if.cloned();
+    let callback_id_cell = invocation.network_callback.clone();
+
+    let callback_id = NetworkService::global().connect(move |_snapshot: &NetworkSnapshot| {
+        if !NetworkService::global().internet_available() {
+            return;
+        }
+
+        if let Some(callback_id) = callback_id_cell.borrow_mut().take() {
+            NetworkService::global().unsubscribe(callback_id);
+        }
+
+        run_exec(ExecInvocation {
+            exec_cmd: &exec_cmd,
+            label: Some(&label),
+            fallback_text: &fallback_text,
+            template: template.as_deref(),
+            custom_id: &custom_id,
+            widget: &widget,
+            show_if: show_if.as_ref(),
+            requires_network: true,
+            network_callback: &callback_id_cell,
+        });
+    });
+    *invocation.network_callback.borrow_mut() = Some(callback_id);
+}
+
 fn set_label_if_changed(label: &Label, text: &str) {
     if label.label().as_str() != text {
         label.set_label(text);
@@ -812,6 +898,7 @@ mod tests {
         assert!(config.on_click.is_none());
         assert!(config.tooltip.is_none());
         assert!(config.max_chars.is_none());
+        assert!(!config.requires_network);
     }
 
     #[test]
@@ -834,6 +921,7 @@ mod tests {
             Value::String("Power menu".to_string()),
         );
         options.insert("max_chars".to_string(), Value::Integer(30));
+        options.insert("requires_network".to_string(), Value::Boolean(true));
 
         let entry = make_entry(options);
         let config = CustomConfig::from_entry(&entry);
@@ -846,6 +934,7 @@ mod tests {
         assert_eq!(config.on_click, Some("wlogout".to_string()));
         assert_eq!(config.tooltip, Some("Power menu".to_string()));
         assert_eq!(config.max_chars, Some(30));
+        assert!(config.requires_network);
     }
 
     #[test]
