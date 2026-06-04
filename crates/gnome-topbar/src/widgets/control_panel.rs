@@ -23,8 +23,8 @@ use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
 use crate::widgets::notifications_panel::build_control_panel_content as build_notifications_content;
 use crate::widgets::weather::{
-    WeatherForecastDay, fetch_weather_forecast, forecast_days_from_widget_name,
-    weather_config_from_widget_name,
+    WeatherForecastDay, fetch_weather_display, fetch_weather_forecast,
+    forecast_days_from_widget_name, weather_config_from_widget_name,
 };
 
 const CONTROL_PANEL_LEFT_WIDTH: i32 = 380;
@@ -536,38 +536,46 @@ fn refresh_weather_label(label: &Option<(Label, String)>) {
         .get_widget_option(widget_name, "exec")
         .and_then(|v| v.as_str().map(str::to_string));
 
-    let Some(cmd) = cmd else {
-        return;
-    };
-
     let label = label.clone();
-    glib::spawn_future_local(async move {
-        let result = gio::spawn_blocking(move || {
-            Command::new("sh")
-                .args(["-c", &cmd])
-                .stdin(Stdio::null())
-                .stderr(Stdio::null())
-                .output()
-                .ok()
-                .and_then(|output| {
-                    if output.status.success() {
-                        String::from_utf8(output.stdout).ok()
-                    } else {
-                        None
-                    }
-                })
-                .and_then(|s| format_weather_exec_output(&s))
-        })
-        .await;
+    if let Some(cmd) = cmd {
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || {
+                Command::new("sh")
+                    .args(["-c", &cmd])
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .output()
+                    .ok()
+                    .and_then(|output| {
+                        if output.status.success() {
+                            String::from_utf8(output.stdout).ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .and_then(|s| format_weather_exec_output(&s))
+            })
+            .await;
 
-        if let Ok(Some(text)) = result {
-            set_label_if_changed(&label, &text);
-            set_visible_if_changed(&label, true);
-        } else if result.is_ok() {
-            set_label_if_changed(&label, "");
-            set_visible_if_changed(&label, false);
-        }
-    });
+            if let Ok(Some(text)) = result {
+                set_label_if_changed(&label, &text);
+                set_visible_if_changed(&label, true);
+            } else if result.is_ok() {
+                set_label_if_changed(&label, "");
+                set_visible_if_changed(&label, false);
+            }
+        });
+    } else {
+        let config = weather_config_from_widget_name(widget_name);
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || fetch_weather_display(&config)).await;
+
+            if let Ok(display) = result {
+                set_label_if_changed(&label, &display.text);
+                set_visible_if_changed(&label, true);
+            }
+        });
+    }
 }
 
 fn set_label_if_changed(label: &Label, text: &str) {
