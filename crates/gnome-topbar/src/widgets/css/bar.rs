@@ -325,7 +325,7 @@ overlay.workspace-indicator {{
 .workspace-indicator.active {{
     color: var(--color-foreground-primary);
     background-color: var(--color-foreground-primary);
-    min-width: 24px;
+    min-width: 28px;
 }}
 
 .workspace-indicator.urgent {{
