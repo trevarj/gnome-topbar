@@ -1,4 +1,5 @@
 use crate::services::callbacks::CallbackId;
+use crate::services::vpn::VpnService;
 use gtk4::glib;
 use std::rc::Rc;
 
@@ -279,9 +280,16 @@ pub struct NetworkService {
 
 impl NetworkService {
     fn new() -> Rc<Self> {
-        Rc::new(Self {
-            backend: NmService::global(),
-        })
+        let backend = NmService::global();
+        let service = Rc::new(Self {
+            backend: backend.clone(),
+        });
+
+        VpnService::global().connect(move |_| {
+            backend.re_notify();
+        });
+
+        service
     }
 
     /// Get the global network service singleton.
@@ -350,7 +358,7 @@ impl NetworkService {
 
     /// Whether internet-backed widgets should run now.
     pub fn internet_available(&self) -> bool {
-        self.backend.internet_available()
+        self.backend.internet_available() && !VpnService::global().snapshot().connection_pending()
     }
 
     /// Clear the failed state (called when user cancels password dialog).

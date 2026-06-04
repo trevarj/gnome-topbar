@@ -150,6 +150,17 @@ impl VpnSnapshot {
             })
             .or_else(|| self.connections.first())
     }
+
+    /// Whether a VPN connection is still settling and internet-backed widgets
+    /// should wait before polling.
+    pub fn connection_pending(&self) -> bool {
+        self.auth_request.is_some()
+            || self.legacy_auth_dialog_active
+            || self
+                .connections
+                .iter()
+                .any(|conn| matches!(conn.state, VpnState::Activating | VpnState::Deactivating))
+    }
 }
 
 /// Messages sent from background threads to the main thread.
@@ -1233,6 +1244,39 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn test_connection(state: VpnState) -> VpnConnection {
+        VpnConnection {
+            uuid: "test-vpn".to_string(),
+            name: "Test VPN".to_string(),
+            active: state != VpnState::Deactivated,
+            state,
+            autoconnect: false,
+            vpn_type: "wireguard".to_string(),
+        }
+    }
+
+    #[test]
+    fn connection_pending_tracks_vpn_activation_states() {
+        let mut snapshot = VpnSnapshot::unknown();
+        assert!(!snapshot.connection_pending());
+
+        snapshot.connections = vec![test_connection(VpnState::Activating)];
+        assert!(snapshot.connection_pending());
+
+        snapshot.connections = vec![test_connection(VpnState::Deactivating)];
+        assert!(snapshot.connection_pending());
+
+        snapshot.connections = vec![test_connection(VpnState::Activated)];
+        assert!(!snapshot.connection_pending());
+    }
+
+    #[test]
+    fn connection_pending_tracks_auth_dialogs() {
+        let mut snapshot = VpnSnapshot::unknown();
+        snapshot.legacy_auth_dialog_active = true;
+        assert!(snapshot.connection_pending());
     }
 
     #[test]
