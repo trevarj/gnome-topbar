@@ -44,4 +44,5 @@ pub mod tray;
 pub mod updates;
 pub mod vpn;
 pub mod vpn_secret_agent;
+pub mod weather_runtime_config;
 pub mod workspace;

@@ -7,21 +7,24 @@ use gnome_topbar_core::config::WidgetEntry;
 use gtk4::gio;
 use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, GestureClick, Label, gdk};
+use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, Window, gdk};
 use serde::Deserialize;
 use tracing::warn;
 
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
 use crate::services::network::{NetworkService, NetworkSnapshot};
+use crate::services::weather_runtime_config::{
+    WeatherCoordinates, WeatherLocation, load_weather_location, save_weather_location,
+    valid_coordinates,
+};
 use crate::styles::widget as wgt;
 use crate::widgets::base::BaseWidget;
 use crate::widgets::{WidgetConfig, warn_unknown_options};
 
-const DEFAULT_LATITUDE: f64 = 0.0;
-const DEFAULT_LONGITUDE: f64 = 0.0;
 const DEFAULT_INTERVAL_SECS: u64 = 1800;
 const FALLBACK_ICON: &str = "󰨹";
+const CONFIGURE_LABEL: &str = "Configure...";
 
 const KNOWN_OPTIONS: &[&str] = &[
     "latitude",
@@ -71,8 +74,7 @@ impl WeatherUnit {
 
 #[derive(Debug, Clone)]
 pub struct WeatherConfig {
-    latitude: f64,
-    longitude: f64,
+    coordinates: Option<WeatherCoordinates>,
     unit: WeatherUnit,
     interval: u64,
     tooltip: String,
@@ -82,8 +84,7 @@ pub struct WeatherConfig {
 impl Default for WeatherConfig {
     fn default() -> Self {
         Self {
-            latitude: DEFAULT_LATITUDE,
-            longitude: DEFAULT_LONGITUDE,
+            coordinates: None,
             unit: WeatherUnit::Celsius,
             interval: DEFAULT_INTERVAL_SECS,
             tooltip: "Weather".to_string(),
@@ -96,16 +97,11 @@ impl WidgetConfig for WeatherConfig {
     fn from_entry(entry: &WidgetEntry) -> Self {
         warn_unknown_options("weather", entry, KNOWN_OPTIONS);
         let default = Self::default();
-        let latitude = entry
-            .options
-            .get("latitude")
-            .and_then(|v| v.as_float())
-            .unwrap_or(default.latitude);
-        let longitude = entry
-            .options
-            .get("longitude")
-            .and_then(|v| v.as_float())
-            .unwrap_or(default.longitude);
+        let coordinates = coordinates_from_options(
+            entry.options.get("latitude").and_then(|v| v.as_float()),
+            entry.options.get("longitude").and_then(|v| v.as_float()),
+        )
+        .or_else(|| load_weather_location().map(|location| location.coordinates()));
         let unit = WeatherUnit::from_config(entry.options.get("unit").and_then(|v| v.as_str()));
         let interval = entry
             .options
@@ -129,8 +125,7 @@ impl WidgetConfig for WeatherConfig {
             .map(|v| v as usize);
 
         Self {
-            latitude,
-            longitude,
+            coordinates,
             unit,
             interval,
             tooltip,
@@ -142,14 +137,15 @@ impl WidgetConfig for WeatherConfig {
 pub(crate) fn weather_config_from_widget_name(widget_name: &str) -> WeatherConfig {
     let config = ConfigManager::global();
     let default = WeatherConfig::default();
-    let latitude = config
-        .get_widget_option(widget_name, "latitude")
-        .and_then(|v| v.as_float())
-        .unwrap_or(default.latitude);
-    let longitude = config
-        .get_widget_option(widget_name, "longitude")
-        .and_then(|v| v.as_float())
-        .unwrap_or(default.longitude);
+    let coordinates = coordinates_from_options(
+        config
+            .get_widget_option(widget_name, "latitude")
+            .and_then(|v| v.as_float()),
+        config
+            .get_widget_option(widget_name, "longitude")
+            .and_then(|v| v.as_float()),
+    )
+    .or_else(|| load_weather_location().map(|location| location.coordinates()));
     let unit = WeatherUnit::from_config(
         config
             .get_widget_option(widget_name, "unit")
@@ -174,12 +170,29 @@ pub(crate) fn weather_config_from_widget_name(widget_name: &str) -> WeatherConfi
         .map(|v| v as usize);
 
     WeatherConfig {
-        latitude,
-        longitude,
+        coordinates,
         unit,
         interval,
         tooltip,
         max_chars,
+    }
+}
+
+fn coordinates_from_options(
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+) -> Option<WeatherCoordinates> {
+    let (Some(latitude), Some(longitude)) = (latitude, longitude) else {
+        return None;
+    };
+    if valid_coordinates(latitude, longitude) {
+        Some(WeatherCoordinates {
+            latitude,
+            longitude,
+        })
+    } else {
+        warn!("ignoring invalid weather coordinates from config");
+        None
     }
 }
 
@@ -232,6 +245,20 @@ impl WeatherWidget {
         let on_click_right_cmd = ConfigManager::global().get_click_handlers(wgt::WEATHER).1;
 
         if on_click_right_cmd.is_none() {
+            let click = GestureClick::new();
+            click.set_button(gdk::BUTTON_PRIMARY);
+            let label_for_configure = label.clone();
+            let config_for_configure = config.clone();
+            let generation_for_configure = refresh_generation.clone();
+            click.connect_released(move |_gesture, _n_press, _x, _y| {
+                show_weather_config_window(
+                    &label_for_configure,
+                    &config_for_configure,
+                    &generation_for_configure,
+                );
+            });
+            base.widget().add_controller(click);
+
             let click = GestureClick::new();
             click.set_button(gdk::BUTTON_SECONDARY);
             let label_for_toggle = label.clone();
@@ -293,6 +320,140 @@ impl WeatherWidget {
     pub fn widget(&self) -> &GtkBox {
         self.base.widget()
     }
+}
+
+fn show_weather_config_window(
+    label: &Label,
+    config: &Rc<RefCell<WeatherConfig>>,
+    generation: &Rc<Cell<u64>>,
+) {
+    let window = Window::builder()
+        .title("Weather Location")
+        .default_width(360)
+        .default_height(220)
+        .build();
+    window.add_css_class("weather-config-window");
+
+    let content = GtkBox::new(Orientation::Vertical, 10);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+
+    let city_entry = Entry::new();
+    city_entry.set_placeholder_text(Some("Search city"));
+
+    let search_button = Button::with_label("Search");
+    let search_row = GtkBox::new(Orientation::Horizontal, 8);
+    search_row.append(&city_entry);
+    search_row.append(&search_button);
+
+    let status_label = Label::new(Some("Search for a city or enter coordinates."));
+    status_label.set_xalign(0.0);
+    status_label.set_wrap(true);
+
+    let latitude_entry = Entry::new();
+    latitude_entry.set_placeholder_text(Some("Latitude"));
+    let longitude_entry = Entry::new();
+    longitude_entry.set_placeholder_text(Some("Longitude"));
+    if let Some(coordinates) = config.borrow().coordinates {
+        latitude_entry.set_text(&coordinates.latitude.to_string());
+        longitude_entry.set_text(&coordinates.longitude.to_string());
+    }
+
+    let coordinates_row = GtkBox::new(Orientation::Horizontal, 8);
+    coordinates_row.append(&latitude_entry);
+    coordinates_row.append(&longitude_entry);
+
+    let save_button = Button::with_label("Save");
+
+    content.append(&search_row);
+    content.append(&status_label);
+    content.append(&coordinates_row);
+    content.append(&save_button);
+    window.set_child(Some(&content));
+
+    {
+        let city_entry = city_entry.clone();
+        let latitude_entry = latitude_entry.clone();
+        let longitude_entry = longitude_entry.clone();
+        let status_label = status_label.clone();
+        search_button.connect_clicked(move |_| {
+            let query = city_entry.text().trim().to_string();
+            if query.is_empty() {
+                status_label.set_label("Enter a city to search.");
+                return;
+            }
+
+            status_label.set_label("Searching...");
+            let latitude_entry = latitude_entry.clone();
+            let longitude_entry = longitude_entry.clone();
+            let status_label = status_label.clone();
+            glib::spawn_future_local(async move {
+                let result = gio::spawn_blocking(move || fetch_geocoding_result(&query)).await;
+                match result {
+                    Ok(Some(location)) => {
+                        latitude_entry.set_text(&location.latitude.to_string());
+                        longitude_entry.set_text(&location.longitude.to_string());
+                        let label = location
+                            .label
+                            .as_deref()
+                            .filter(|label| !label.is_empty())
+                            .unwrap_or("selected location");
+                        status_label.set_label(&format!("Selected {label}."));
+                    }
+                    Ok(None) => status_label.set_label("No city found."),
+                    Err(error) => {
+                        warn!("weather geocoding failed: {:?}", error);
+                        status_label.set_label("City search failed.");
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let label = label.clone();
+        let config = config.clone();
+        let generation = generation.clone();
+        let status_label = status_label.clone();
+        let city_entry = city_entry.clone();
+        let latitude_entry = latitude_entry.clone();
+        let longitude_entry = longitude_entry.clone();
+        let window = window.clone();
+        save_button.connect_clicked(move |_| {
+            let latitude = latitude_entry.text().trim().parse::<f64>();
+            let longitude = longitude_entry.text().trim().parse::<f64>();
+            let (Ok(latitude), Ok(longitude)) = (latitude, longitude) else {
+                status_label.set_label("Latitude and longitude must be numbers.");
+                return;
+            };
+            if !valid_coordinates(latitude, longitude) {
+                status_label.set_label("Latitude or longitude is out of range.");
+                return;
+            }
+
+            let label_text = city_entry.text().trim().to_string();
+            let location = WeatherLocation {
+                label: (!label_text.is_empty()).then_some(label_text),
+                latitude,
+                longitude,
+            };
+            if let Err(error) = save_weather_location(&location) {
+                status_label.set_label(&error);
+                return;
+            }
+
+            let mut weather_config = config.borrow_mut();
+            weather_config.coordinates = Some(location.coordinates());
+            let current_config = weather_config.clone();
+            drop(weather_config);
+            refresh_weather_label(&label, &current_config, &generation);
+            window.close();
+        });
+    }
+
+    window.present();
 }
 
 fn refresh_weather_label_when_online(
@@ -377,10 +538,16 @@ impl Drop for WeatherWidget {
 }
 
 pub(crate) fn fetch_weather_display(config: &WeatherConfig) -> WeatherDisplay {
+    let Some(coordinates) = config.coordinates else {
+        return WeatherDisplay {
+            text: CONFIGURE_LABEL.to_string(),
+        };
+    };
+
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current_weather=true&temperature_unit={}",
-        config.latitude,
-        config.longitude,
+        coordinates.latitude,
+        coordinates.longitude,
         config.unit.api_value()
     );
 
@@ -423,11 +590,19 @@ pub(crate) fn fetch_weather_forecast(
     config: &WeatherConfig,
     forecast_days: usize,
 ) -> WeatherForecast {
+    let Some(coordinates) = config.coordinates else {
+        return WeatherForecast {
+            current: CONFIGURE_LABEL.to_string(),
+            summary: "Weather location is not configured.".to_string(),
+            days: Vec::new(),
+        };
+    };
+
     let days = forecast_days.clamp(3, 5);
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit={}&forecast_days={}&timezone=auto",
-        config.latitude,
-        config.longitude,
+        coordinates.latitude,
+        coordinates.longitude,
         config.unit.api_value(),
         days
     );
@@ -444,6 +619,70 @@ pub(crate) fn fetch_weather_forecast(
             summary: "Forecast unavailable".to_string(),
             days: Vec::new(),
         })
+}
+
+fn fetch_geocoding_result(query: &str) -> Option<WeatherLocation> {
+    let url = format!(
+        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=en&format=json",
+        percent_encode_query(query)
+    );
+
+    minreq::get(url)
+        .with_timeout(8)
+        .send()
+        .ok()
+        .and_then(|response| response.as_str().ok().map(str::to_string))
+        .and_then(|body| serde_json::from_str::<OpenMeteoGeocodingResponse>(&body).ok())
+        .and_then(|response| response.results.into_iter().next())
+        .and_then(|result| {
+            if !valid_coordinates(result.latitude, result.longitude) {
+                return None;
+            }
+            let label = geocoding_label(&result);
+            Some(WeatherLocation {
+                label: Some(label),
+                latitude: result.latitude,
+                longitude: result.longitude,
+            })
+        })
+}
+
+fn percent_encode_query(query: &str) -> String {
+    query
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char]
+            }
+            b' ' => vec!['+'],
+            _ => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
+}
+
+fn geocoding_label(result: &OpenMeteoGeocodingResult) -> String {
+    let mut parts = vec![result.name.clone()];
+    if let Some(admin1) = result.admin1.as_ref().filter(|value| !value.is_empty()) {
+        parts.push(admin1.clone());
+    }
+    if let Some(country) = result.country.as_ref().filter(|value| !value.is_empty()) {
+        parts.push(country.clone());
+    }
+    parts.join(", ")
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenMeteoGeocodingResponse {
+    results: Vec<OpenMeteoGeocodingResult>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenMeteoGeocodingResult {
+    name: String,
+    latitude: f64,
+    longitude: f64,
+    country: Option<String>,
+    admin1: Option<String>,
 }
 
 fn build_weather_forecast(

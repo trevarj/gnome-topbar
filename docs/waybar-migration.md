@@ -27,8 +27,8 @@ center = ["weather", "clock"]
 right = ["tray", "headset", "quick_settings"]
 
 [widgets.weather]
-latitude = 0.0
-longitude = 0.0
+# latitude = 0.0
+# longitude = 0.0
 unit = "celsius"
 interval = 1800
 

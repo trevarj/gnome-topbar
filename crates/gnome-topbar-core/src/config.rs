@@ -2335,8 +2335,7 @@ mod tests {
             control_panel = true
 
             [widgets.weather]
-            latitude = 0.0
-            longitude = 0.0
+            interval = 1800
         "#;
 
         let config: Config = toml::from_str(toml).unwrap();
