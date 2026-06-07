@@ -834,6 +834,49 @@ impl ConfigManager {
         self.shutdown_flag.store(true, Ordering::Relaxed);
         debug!("Config watcher stopped");
     }
+
+    /// Reload config and user CSS on demand from the running panel.
+    ///
+    /// This is used by the CLI IPC command. It follows the same validation and
+    /// application path as file-watch reloads, then refreshes user CSS even when
+    /// the config itself is unchanged.
+    pub fn reload_now(self: &Rc<Self>) {
+        info!("Manual reload requested");
+
+        let config_path = self.config_path.borrow().clone();
+        let config_result = match config_path {
+            Some(path) => Config::load(&path).map(|config| (config, Some(path))),
+            None => Config::from_default_toml().map(|config| (config, None)),
+        };
+
+        match config_result {
+            Ok((new_config, path)) => {
+                if let Err(e) = new_config.validate() {
+                    let msg = format!("Config validation failed: {}", e);
+                    warn!("{}", msg);
+                    self.handle_config_message(ConfigMessage::Error(msg));
+                } else {
+                    for warning in new_config.warnings() {
+                        warn!("{}", warning);
+                    }
+                    if let Some(path) = path {
+                        info!("Config reloaded successfully from: {}", path.display());
+                    } else {
+                        info!("Config reloaded successfully from built-in defaults");
+                    }
+                    self.handle_config_message(ConfigMessage::Reloaded(Box::new(new_config)));
+                }
+            }
+            Err(e) => {
+                let msg = format!("Failed to reload config: {}", e);
+                warn!("{}", msg);
+                self.handle_config_message(ConfigMessage::Error(msg));
+            }
+        }
+
+        info!("Reloading user style.css...");
+        crate::bar::replace_user_css();
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]

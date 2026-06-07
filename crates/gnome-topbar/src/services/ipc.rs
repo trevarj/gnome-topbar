@@ -9,6 +9,7 @@
 //! - `volume_unavailable` – show "sink suspended" OSD
 //! - `brightness:<percent>` – show brightness OSD
 //! - `toggle_inhibitor` – toggle idle inhibitor on/off
+//! - `reload` – reload config and CSS in the running panel
 //!
 //! This is best-effort, fire-and-forget IPC. If the bar isn't running or
 //! the socket doesn't exist, the CLI silently continues.
@@ -73,6 +74,8 @@ pub enum IpcMessage {
     Bar { action: BarIpcAction },
     /// Control a popover (open/close/toggle).
     Popover { action: PopoverIpcAction },
+    /// Reload config and CSS in the running panel.
+    Reload,
 }
 
 impl IpcMessage {
@@ -96,6 +99,7 @@ impl IpcMessage {
                 PopoverIpcAction::Hide(Some(name)) => format!("popover:hide:{}", name),
                 PopoverIpcAction::Toggle(name) => format!("popover:toggle:{}", name),
             },
+            IpcMessage::Reload => "reload".to_string(),
         }
     }
 
@@ -107,6 +111,9 @@ impl IpcMessage {
         }
         if s == "toggle_inhibitor" {
             return Some(IpcMessage::ToggleInhibitor);
+        }
+        if s == "reload" {
+            return Some(IpcMessage::Reload);
         }
         if let Some(rest) = s.strip_prefix("volume:") {
             let parts: Vec<&str> = rest.split(':').collect();
@@ -347,6 +354,7 @@ mod tests {
             IpcMessage::VolumeUnavailable,
             IpcMessage::Brightness { percent: 75 },
             IpcMessage::ToggleInhibitor,
+            IpcMessage::Reload,
         ];
 
         for msg in cases {

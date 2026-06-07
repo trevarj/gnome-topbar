@@ -84,6 +84,8 @@ enum Command {
         #[command(subcommand)]
         action: PopoverAction,
     },
+    /// Reload config and CSS in the running panel
+    Reload,
     /// Dump built-in defaults to files
     Dump {
         #[command(subcommand)]
@@ -293,6 +295,7 @@ fn handle_command(command: Command, config_path: Option<&Path>) -> ExitCode {
         Command::Media { action } => handle_media_command(action),
         Command::Bar { action } => handle_bar_command(action),
         Command::Popover { action } => handle_popover_command(action),
+        Command::Reload => handle_reload_command(),
         Command::Dump { action } => handle_dump_command(action),
     }
 }
@@ -639,6 +642,22 @@ fn handle_popover_command(action: PopoverAction) -> ExitCode {
     }
 }
 
+/// Handle reload command via IPC.
+fn handle_reload_command() -> ExitCode {
+    use crate::services::ipc::{IpcMessage, send_ipc_message};
+
+    match send_ipc_message(&IpcMessage::Reload) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!(
+                "Error: could not reach gnome-topbar IPC socket (is the panel running?): {}",
+                e
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// Initialize and run the GTK4 application.
 fn run_gtk_app(config: Config, config_source: Option<PathBuf>) -> ExitCode {
     // Log the config source for diagnostics
@@ -865,6 +884,10 @@ fn run_gtk_app(config: Config, config_source: Option<PathBuf>) -> ExitCode {
                                     registry::dispatch(name, DispatchAction::Toggle);
                                 }
                             }
+                        }
+                        IpcMessage::Reload => {
+                            debug!("IPC: reloading config and CSS");
+                            ConfigManager::global().reload_now();
                         }
                     }
                 });
