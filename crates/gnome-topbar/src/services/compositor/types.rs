@@ -59,28 +59,27 @@ pub struct PerOutputState {
     pub window_counts: HashMap<i32, u32>,
 }
 
-/// Focused window order metadata for a workspace.
+/// Focused column order metadata for a workspace.
 ///
 /// Used to derive active workspace progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkspaceWindowProgress {
-    /// 0-based index of the focused window in layout order.
+    /// 0-based index of the focused column in layout order.
     pub focused_index: u32,
-    /// Total windows on this workspace.
+    /// Total columns on this workspace.
     pub total_windows: u32,
 }
 
 impl WorkspaceWindowProgress {
-    /// Convert the focused window location to a `0.0..=1.0` fraction.
+    /// Convert the focused column location to a `0.0..=1.0` fraction.
     ///
-    /// 0 windows has no progress (`None`).
-    /// A single window is treated as an empty pill (`0.0`).
-    /// For multiple windows, use equal steps so the first window starts at
-    /// `1 / total_windows` (50% with 2 windows) and the last at `1.0`.
+    /// 0 columns has no progress (`None`). Columns use equal steps, so a
+    /// single column is full, the first of 3 columns is 33%, and the last
+    /// column is full.
     pub fn fraction(self) -> Option<f64> {
         match self.total_windows {
             0 => None,
-            1 => Some(0.0),
+            1 => Some(1.0),
             total => Some((self.focused_index.min(total - 1) + 1) as f64 / total as f64),
         }
     }
@@ -457,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_window_progress_first_window_is_empty() {
+    fn test_workspace_window_progress_first_column_has_one_step_fill() {
         let progress = WorkspaceWindowProgress {
             focused_index: 0,
             total_windows: 10,
@@ -466,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_window_progress_last_window_is_full() {
+    fn test_workspace_window_progress_last_column_is_full() {
         let progress = WorkspaceWindowProgress {
             focused_index: 9,
             total_windows: 10,
@@ -475,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_window_progress_middle_window_scales_linearly() {
+    fn test_workspace_window_progress_middle_column_scales_linearly() {
         let progress = WorkspaceWindowProgress {
             focused_index: 4,
             total_windows: 10,
@@ -484,7 +483,7 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_window_progress_two_windows_has_half_fill_for_first() {
+    fn test_workspace_window_progress_two_columns_has_half_fill_for_first() {
         let progress = WorkspaceWindowProgress {
             focused_index: 0,
             total_windows: 2,
@@ -493,12 +492,12 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_window_progress_single_window_is_empty() {
+    fn test_workspace_window_progress_single_column_is_full() {
         let progress = WorkspaceWindowProgress {
             focused_index: 0,
             total_windows: 1,
         };
-        assert_eq!(progress.fraction(), Some(0.0));
+        assert_eq!(progress.fraction(), Some(1.0));
     }
 
     #[test]

@@ -341,7 +341,8 @@ impl NiriBackend {
         let mut snapshot = shared.workspace_snapshot.write();
 
         // Aggregate windows by workspace for progress calculation.
-        // Ordering for progress only uses x to avoid y-based row jitter.
+        // Progress tracks distinct Niri columns by x, not windows, so stacked
+        // windows in one column still produce a full single-column pill.
         let mut workspace_windows: HashMap<i32, Vec<(i32, u64, bool)>> = HashMap::new();
 
         // Reset global counts
@@ -372,12 +373,19 @@ impl NiriBackend {
             }
         }
 
-        // Compute per-workspace counts and progress from sorting order.
+        // Compute per-workspace counts and progress from sorted column order.
         for (stable_id, mut windows) in workspace_windows {
             windows.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
             let total_windows = windows.len() as u32;
-            let focused_index = windows.iter().position(|win| win.2).unwrap_or(0) as u32;
+            let focused_x = windows
+                .iter()
+                .find_map(|(x, _, focused)| focused.then_some(*x))
+                .unwrap_or_else(|| windows.first().map(|(x, _, _)| *x).unwrap_or(i32::MAX));
+            let mut columns: Vec<i32> = windows.iter().map(|(x, _, _)| *x).collect();
+            columns.dedup();
+            let total_columns = columns.len() as u32;
+            let focused_index = columns.iter().position(|x| *x == focused_x).unwrap_or(0) as u32;
 
             *snapshot.window_counts.entry(stable_id).or_insert(0) = total_windows;
 
@@ -385,7 +393,7 @@ impl NiriBackend {
                 stable_id,
                 super::WorkspaceWindowProgress {
                     focused_index,
-                    total_windows,
+                    total_windows: total_columns,
                 },
             );
 
@@ -2110,7 +2118,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, ws2_active);
-        assert_eq!(active_fraction(&shared, 2), Some(0.0));
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
 
         let activate_workspace_1 = json!({
             "WorkspaceActivated": {
@@ -2318,7 +2326,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, ws2_focus);
-        assert_eq!(active_fraction(&shared, 2), Some(0.0));
+        assert_eq!(active_fraction(&shared, 2), Some(1.0));
 
         let activate_workspace_1 = json!({
             "WorkspaceActivated": {
@@ -2412,7 +2420,7 @@ mod tests {
             }
         });
         let _ = event_snapshot_changed(&shared, ws3_focus);
-        assert_eq!(active_fraction(&shared, 3), Some(0.0));
+        assert_eq!(active_fraction(&shared, 3), Some(1.0));
 
         let _ = event_snapshot_changed(&shared, windows_payload_ws3_only());
 
@@ -2615,7 +2623,7 @@ mod tests {
         assert!(workspace_changed);
         assert!(window_changed);
         assert_eq!(shared.windows.read().len(), 1);
-        assert_eq!(active_fraction(&shared, 1), Some(0.0));
+        assert_eq!(active_fraction(&shared, 1), Some(1.0));
         assert_eq!(
             shared
                 .focused_window

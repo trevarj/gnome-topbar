@@ -20,7 +20,7 @@ pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> Stri
     let content_pad_x_half = CONTENT_PADDING_X / 2;
     let content_pad_x_double = 2 * CONTENT_PADDING_X;
     let workspace_transition = if workspace_animations {
-        "transition: min-width 225ms linear, background-color 125ms ease;"
+        "transition: min-width 225ms linear;"
     } else {
         "transition: none;"
     };
@@ -279,32 +279,18 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active.clickable:hover {{
-    background-color: var(--color-foreground-primary);
+    background-color: transparent;
 }}
 
 .workspace-indicator-content {{
     padding: 0;
 }}
 
-.workspace-indicator-progress-track {{
-    min-height: 100%;
-    min-width: 100%;
-    color: #71717a;
-    border-radius: var(--radius-round);
+.workspace-indicator.active .workspace-indicator-content {{
+    color: var(--widget-background-color);
 }}
 
-.workspace-indicator-progress-fill {{
-    min-height: 100%;
-    min-width: 0;
-    color: var(--color-accent-primary);
-    border-radius: var(--radius-round);
-}}
-
-.workspace-indicator.active .workspace-indicator-progress-fill {{
-    color: var(--color-accent-primary);
-}}
-
-.workspace-indicator.active .workspace-indicator-progress-track {{
+.workspace-indicator.active .workspace-indicator-progress {{
     color: var(--color-foreground-primary);
 }}
 
@@ -324,13 +310,13 @@ overlay.workspace-indicator {{
 
 .workspace-indicator.active {{
     color: var(--color-foreground-primary);
-    background-color: var(--color-foreground-primary);
+    background-color: transparent;
     min-width: 28px;
 }}
 
 .workspace-indicator.urgent {{
-    color: #ef4444;
-    background-color: #ef4444;
+    color: var(--color-state-urgent);
+    background-color: var(--color-state-urgent);
 }}
 
 .workspace-indicator-long {{
@@ -342,4 +328,26 @@ overlay.workspace-indicator {{
 
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_css_keeps_active_pill_drawn_by_rust() {
+        let css = css(0, 8, true);
+
+        assert!(css.contains("transition: min-width 225ms linear;"));
+        assert!(!css.contains("background-color 125ms"));
+        assert!(css.contains(".workspace-indicator.active {\n    color: var(--color-foreground-primary);\n    background-color: transparent;\n    min-width: 28px;\n}"));
+    }
+
+    #[test]
+    fn workspace_css_keeps_labels_contrasted_and_urgent_themed() {
+        let css = css(0, 8, true);
+
+        assert!(css.contains(".workspace-indicator.active .workspace-indicator-content {\n    color: var(--widget-background-color);\n}"));
+        assert!(css.contains(".workspace-indicator.urgent {\n    color: var(--color-state-urgent);\n    background-color: var(--color-state-urgent);\n}"));
+    }
 }

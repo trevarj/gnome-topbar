@@ -132,8 +132,8 @@ use crate::widgets::warn_unknown_options;
 struct WorkspaceIndicatorProgressState {
     fraction: Cell<f64>,
     visible: Cell<bool>,
-    track: glib::WeakRef<DrawingArea>,
-    fill: glib::WeakRef<DrawingArea>,
+    area: glib::WeakRef<DrawingArea>,
+    hide_timeout: RefCell<Option<glib::SourceId>>,
 }
 
 impl WorkspaceIndicatorProgressState {
@@ -141,17 +141,50 @@ impl WorkspaceIndicatorProgressState {
         Self {
             fraction: Cell::new(0.0),
             visible: Cell::new(false),
-            track: glib::WeakRef::new(),
-            fill: glib::WeakRef::new(),
+            area: glib::WeakRef::new(),
+            hide_timeout: RefCell::new(None),
         }
     }
 
     fn request_redraw(&self) {
-        if let Some(track) = self.track.upgrade() {
-            track.queue_draw();
+        if let Some(area) = self.area.upgrade() {
+            area.queue_draw();
         }
-        if let Some(fill) = self.fill.upgrade() {
-            fill.queue_draw();
+    }
+
+    fn cancel_hide_timeout(&self) {
+        if let Some(id) = self.hide_timeout.borrow_mut().take() {
+            id.remove();
+        }
+    }
+
+    fn hide_after_transition(self: &Rc<Self>) {
+        if self.hide_timeout.borrow().is_some() {
+            return;
+        }
+
+        let state = Rc::downgrade(self);
+        let source_id = glib::timeout_add_local_once(
+            std::time::Duration::from_micros(INDICATOR_ANIM_DURATION_US as u64),
+            move || {
+                let Some(state) = state.upgrade() else {
+                    return;
+                };
+
+                state.hide_timeout.borrow_mut().take();
+                state.visible.set(false);
+                state.fraction.set(0.0);
+                state.request_redraw();
+            },
+        );
+        self.hide_timeout.borrow_mut().replace(source_id);
+    }
+}
+
+impl Drop for WorkspaceIndicatorProgressState {
+    fn drop(&mut self) {
+        if let Some(id) = self.hide_timeout.borrow_mut().take() {
+            id.remove();
         }
     }
 }
@@ -1103,104 +1136,78 @@ fn create_single_indicator(
 
     let progress_state = Rc::new(WorkspaceIndicatorProgressState::new());
 
-    let progress_track = DrawingArea::new();
-    progress_track.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS_TRACK);
-    progress_track.set_halign(Align::Fill);
-    progress_track.set_valign(Align::Fill);
-    progress_track.set_vexpand(true);
-    progress_track.set_hexpand(true);
-    progress_track.set_can_target(false);
-
-    let fill = DrawingArea::new();
-    fill.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS_FILL);
-    fill.set_halign(Align::Fill);
-    fill.set_valign(Align::Fill);
-    fill.set_vexpand(true);
-    fill.set_hexpand(true);
-    fill.set_can_target(false);
+    let progress_area = DrawingArea::new();
+    progress_area.add_css_class(widget::WORKSPACE_INDICATOR_PROGRESS);
+    progress_area.set_halign(Align::Fill);
+    progress_area.set_valign(Align::Fill);
+    progress_area.set_vexpand(true);
+    progress_area.set_hexpand(true);
+    progress_area.set_can_target(false);
 
     let progress_overlay = Overlay::new();
-    progress_overlay.set_child(Some(&progress_track));
-    progress_overlay.add_overlay(&fill);
+    progress_overlay.set_child(Some(&progress_area));
 
     if label_type != LabelType::None {
         progress_overlay.add_overlay(&content);
     }
 
-    let state_for_track = Rc::clone(&progress_state);
-    progress_track.set_draw_func(move |area, cr, width, height| {
+    let state_for_area = Rc::clone(&progress_state);
+    progress_area.set_draw_func(move |area, cr, width, height| {
         let width = f64::from(width);
         let height = f64::from(height);
         if width <= 0.0 || height <= 0.0 {
             return;
         }
 
-        if !state_for_track.visible.get() {
+        if !state_for_area.visible.get() {
             return;
         }
 
-        let color = area.color();
-        cr.set_source_rgba(
-            f64::from(color.red()),
-            f64::from(color.green()),
-            f64::from(color.blue()),
-            f64::from(color.alpha()),
-        );
-        draw_rounded_rect(
-            cr,
-            0.0,
-            0.0,
-            width,
-            height,
-            (width.min(height) / 2.0).max(0.0),
-        );
-        let _ = cr.fill();
-    });
+        let radius = (width.min(height) / 2.0).max(0.0);
+        let (track_color, fill_color) = workspace_progress_colors(area);
 
-    let state_for_fill = Rc::clone(&progress_state);
-    fill.set_draw_func(move |area, cr, width, height| {
-        let width = f64::from(width);
-        let height = f64::from(height);
-        if width <= 0.0 || height <= 0.0 {
-            return;
-        }
-
-        if !state_for_fill.visible.get() {
-            return;
-        }
-
-        let fraction = state_for_fill.fraction.get().clamp(0.0, 1.0);
-        if fraction <= 0.0 {
-            return;
-        }
-
+        let fraction = state_for_area.fraction.get().clamp(0.0, 1.0);
         let fill_width = (width * fraction).round().clamp(0.0, width);
+
+        let _ = cr.save();
+        draw_rounded_rect(cr, 0.0, 0.0, width, height, radius);
+        cr.clip();
+
         if fill_width <= 0.0 {
+            set_cairo_source_rgba(cr, track_color);
+            cr.paint().unwrap_or(());
+            let _ = cr.restore();
             return;
         }
 
-        let color = area.color();
-        cr.set_source_rgba(
-            f64::from(color.red()),
-            f64::from(color.green()),
-            f64::from(color.blue()),
-            f64::from(color.alpha()),
-        );
-        draw_rounded_rect(
-            cr,
-            0.0,
-            0.0,
-            fill_width,
-            height,
-            (width.min(height) / 2.0).max(0.0).min(fill_width / 2.0),
-        );
+        if fill_width >= width {
+            set_cairo_source_rgba(cr, track_color);
+            cr.paint().unwrap_or(());
+            let _ = cr.restore();
+            return;
+        }
+
+        // Paint the fill as the base layer, then punch the track out of it.
+        // This keeps the left rounded fill edge from antialiasing over the
+        // white active track while still giving the inner fill edge a rounded
+        // cap against the remaining track.
+        set_cairo_source_rgba(cr, fill_color);
+        cr.paint().unwrap_or(());
+
+        let fill_radius = radius.min(fill_width / 2.0);
+        set_cairo_source_rgba(cr, track_color);
+        cr.set_fill_rule(gtk4::cairo::FillRule::EvenOdd);
+        draw_rounded_rect(cr, 0.0, 0.0, width, height, radius);
+        draw_rounded_rect(cr, 0.0, 0.0, fill_width, height, fill_radius);
         let _ = cr.fill();
+        cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+
+        let _ = cr.restore();
     });
 
     let (overlay, ripple_handle) = wrap_with_ripple(&progress_overlay);
 
-    progress_state.track.set(Some(&progress_track));
-    progress_state.fill.set(Some(&fill));
+    progress_state.area.set(Some(&progress_area));
     progress_states
         .borrow_mut()
         .insert(workspace_id, Rc::clone(&progress_state));
@@ -1267,6 +1274,42 @@ fn draw_rounded_rect(
     cr.close_path();
 }
 
+fn set_cairo_source_rgba(cr: &gtk4::cairo::Context, color: gtk4::gdk::RGBA) {
+    cr.set_source_rgba(
+        f64::from(color.red()),
+        f64::from(color.green()),
+        f64::from(color.blue()),
+        f64::from(color.alpha()),
+    );
+}
+
+fn workspace_progress_colors(area: &DrawingArea) -> (gtk4::gdk::RGBA, gtk4::gdk::RGBA) {
+    let palette = ConfigManager::global().palette();
+    let fallback = area.color();
+    let track = resolve_workspace_progress_color(area, &palette.foreground_primary, fallback);
+    let fill = gtk4::gdk::RGBA::parse("#71717a").unwrap_or(track);
+    (track, fill)
+}
+
+fn resolve_workspace_progress_color(
+    area: &DrawingArea,
+    color: &str,
+    fallback: gtk4::gdk::RGBA,
+) -> gtk4::gdk::RGBA {
+    gtk4::gdk::RGBA::parse(color).unwrap_or_else(|_| {
+        if let Some(name) = color.strip_prefix('@') {
+            // GTK4 has no non-deprecated replacement for resolving runtime
+            // theme color tokens from a widget style context.
+            #[allow(deprecated)]
+            if let Some(rgba) = area.style_context().lookup_color(name) {
+                return rgba;
+            }
+        }
+
+        fallback
+    })
+}
+
 fn workspace_indicator_label(indicator: &Widget) -> Option<Label> {
     let overlay = indicator.downcast_ref::<Overlay>()?;
     let content_overlay = overlay.child()?.downcast::<Overlay>().ok()?;
@@ -1302,11 +1345,26 @@ fn workspace_indicator_progress(
         return;
     };
 
-    let (visible, fraction) = match workspace.active_window_progress {
-        Some(progress) if workspace.active => (true, progress.clamp(0.0, 1.0)),
-        _ => (false, 0.0),
-    };
-    state.visible.set(visible);
+    if !workspace.active {
+        // The CSS min-width transition still shrinks the old active pill.
+        // Keep its Rust-drawn surface alive until that transition finishes so
+        // switching workspaces does not snap to the inactive background first.
+        if state.visible.get() {
+            state.hide_after_transition();
+        }
+        state.request_redraw();
+        return;
+    }
+
+    let fraction = workspace
+        .active_window_progress
+        .map(|progress| progress.clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+
+    // Rust draws the active pill surface even when there is no progress. That
+    // keeps the progress fill from compositing over a separate CSS background.
+    state.cancel_hide_timeout();
+    state.visible.set(true);
     state.fraction.set(fraction);
     state.request_redraw();
 }
