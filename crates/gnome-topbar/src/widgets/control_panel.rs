@@ -18,13 +18,15 @@ use tracing::warn;
 use crate::services::config_manager::ConfigManager;
 use crate::services::media::MediaService;
 use crate::styles::surface;
+use crate::widgets::base::vp_button_from_icon_name;
 use crate::widgets::calendar_popover::build_clock_calendar_popover;
 use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
 use crate::widgets::notifications_panel::build_control_panel_content as build_notifications_content;
 use crate::widgets::weather::{
     WeatherForecastDay, fetch_weather_display, fetch_weather_forecast,
-    forecast_days_from_widget_name, weather_config_from_widget_name,
+    forecast_days_from_widget_name, show_weather_config_window_for_widget,
+    weather_config_from_widget_name, weather_location_label_from_widget_name,
 };
 
 const CONTROL_PANEL_LEFT_WIDTH: i32 = 380;
@@ -126,9 +128,9 @@ pub fn build_clock_control_panel(
     calendar_widget.set_valign(Align::Start);
     right_col.append(&calendar_widget);
 
-    let forecast_card = weather_widget_name
-        .as_ref()
-        .map(|widget_name| build_weather_forecast_card(widget_name));
+    let forecast_card = weather_widget_name.as_ref().map(|widget_name| {
+        build_weather_forecast_card(widget_name, time_card.weather_label.clone())
+    });
     if let Some(forecast_card) = &forecast_card {
         forecast_card
             .container
@@ -195,6 +197,7 @@ struct WeatherForecastCard {
     widget_name: String,
     container: GtkBox,
     current_label: Label,
+    location_label: Label,
     summary_label: Label,
     rows: Vec<WeatherForecastRow>,
 }
@@ -216,16 +219,30 @@ struct WorldClockRow {
     date_label: Label,
 }
 
-fn build_weather_forecast_card(widget_name: &str) -> WeatherForecastCard {
+fn build_weather_forecast_card(
+    widget_name: &str,
+    weather_label: Option<(Label, String)>,
+) -> WeatherForecastCard {
     let container = GtkBox::new(Orientation::Vertical, 8);
     container.add_css_class("control-panel-card");
     container.add_css_class("control-panel-forecast");
 
-    let header = GtkBox::new(Orientation::Vertical, 2);
+    let header = GtkBox::new(Orientation::Horizontal, 8);
+    header.set_halign(Align::Fill);
+
+    let header_labels = GtkBox::new(Orientation::Vertical, 2);
+    header_labels.set_hexpand(true);
+    header_labels.set_halign(Align::Fill);
+
     let title_label = Label::new(Some("Weather"));
     title_label.add_css_class(surface::POPOVER_TITLE);
     title_label.add_css_class("control-panel-forecast-title");
     title_label.set_xalign(0.0);
+
+    let location_label = Label::new(Some(&weather_location_label_from_widget_name(widget_name)));
+    location_label.add_css_class("control-panel-forecast-location");
+    location_label.set_xalign(0.0);
+    location_label.set_wrap(true);
 
     let current_label = Label::new(Some("Loading forecast"));
     current_label.add_css_class("control-panel-forecast-current");
@@ -237,9 +254,17 @@ fn build_weather_forecast_card(widget_name: &str) -> WeatherForecastCard {
     summary_label.set_xalign(0.0);
     summary_label.set_wrap(true);
 
-    header.append(&title_label);
-    header.append(&current_label);
-    header.append(&summary_label);
+    header_labels.append(&title_label);
+    header_labels.append(&location_label);
+    header_labels.append(&current_label);
+    header_labels.append(&summary_label);
+    header.append(&header_labels);
+
+    let configure_button = vp_button_from_icon_name("preferences-system-symbolic");
+    configure_button.add_css_class("control-panel-weather-config-button");
+    configure_button.set_tooltip_text(Some("Configure weather location"));
+    configure_button.set_valign(Align::Start);
+    header.append(&configure_button);
     container.append(&header);
 
     let rows_box = GtkBox::new(Orientation::Vertical, 4);
@@ -294,13 +319,30 @@ fn build_weather_forecast_card(widget_name: &str) -> WeatherForecastCard {
 
     container.append(&rows_box);
 
-    WeatherForecastCard {
+    let card = WeatherForecastCard {
         widget_name: widget_name.to_string(),
         container,
         current_label,
+        location_label,
         summary_label,
         rows,
+    };
+
+    {
+        let widget_name = widget_name.to_string();
+        let card_for_saved = card.clone();
+        let weather_label_for_saved = weather_label.clone();
+        configure_button.connect_clicked(move |_| {
+            let card_for_saved = card_for_saved.clone();
+            let weather_label_for_saved = weather_label_for_saved.clone();
+            show_weather_config_window_for_widget(&widget_name, move || {
+                refresh_weather_label(&weather_label_for_saved);
+                refresh_weather_forecast_card(&card_for_saved);
+            });
+        });
     }
+
+    card
 }
 
 fn refresh_weather_forecast_card(card: &WeatherForecastCard) {
@@ -314,6 +356,7 @@ fn refresh_weather_forecast_card(card: &WeatherForecastCard) {
         match result {
             Ok(forecast) => {
                 set_label_if_changed(&card.current_label, &forecast.current);
+                set_label_if_changed(&card.location_label, &forecast.location);
                 set_label_if_changed(&card.summary_label, &forecast.summary);
                 set_visible_if_changed(&card.container, true);
                 for (row, day) in card.rows.iter().zip(forecast.days.iter()) {

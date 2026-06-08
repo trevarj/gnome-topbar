@@ -37,6 +37,25 @@ pub fn css() -> &'static str {
     font-weight: 700;
 }
 
+.control-panel-forecast-location {
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    color: var(--color-foreground-muted);
+}
+
+.control-panel-weather-config-button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    color: var(--color-foreground-muted);
+}
+
+.control-panel-weather-config-button:hover {
+    color: var(--color-foreground);
+    background-color: var(--color-card-overlay-hover);
+}
+
 .control-panel-forecast-current {
     font-size: var(--font-size-base);
     font-weight: 600;

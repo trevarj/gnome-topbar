@@ -205,6 +205,43 @@ pub(crate) fn forecast_days_from_widget_name(widget_name: &str) -> usize {
         .unwrap_or(5)
 }
 
+pub(crate) fn show_weather_config_window_for_widget(
+    widget_name: &str,
+    on_saved: impl Fn() + 'static,
+) {
+    let label = Label::new(None);
+    let config = Rc::new(RefCell::new(weather_config_from_widget_name(widget_name)));
+    let generation = Rc::new(Cell::new(0_u64));
+    show_weather_config_window_with_callback(&label, &config, &generation, Some(on_saved));
+}
+
+pub(crate) fn weather_location_label_from_widget_name(widget_name: &str) -> String {
+    let config = weather_config_from_widget_name(widget_name);
+    weather_location_label(&config)
+}
+
+fn weather_location_label(config: &WeatherConfig) -> String {
+    let Some(coordinates) = config.coordinates else {
+        return "No location configured".to_string();
+    };
+
+    if let Some(location) = load_weather_location() {
+        let saved_coordinates = location.coordinates();
+        if coordinates_match(coordinates, saved_coordinates)
+            && let Some(label) = location.label.as_deref().filter(|label| !label.is_empty())
+        {
+            return label.to_string();
+        }
+    }
+
+    format!("{:.4}, {:.4}", coordinates.latitude, coordinates.longitude)
+}
+
+fn coordinates_match(left: WeatherCoordinates, right: WeatherCoordinates) -> bool {
+    (left.latitude - right.latitude).abs() < 0.0001
+        && (left.longitude - right.longitude).abs() < 0.0001
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WeatherDisplay {
     pub(crate) text: String,
@@ -213,6 +250,7 @@ pub(crate) struct WeatherDisplay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WeatherForecast {
     pub(crate) current: String,
+    pub(crate) location: String,
     pub(crate) summary: String,
     pub(crate) days: Vec<WeatherForecastDay>,
 }
@@ -245,20 +283,6 @@ impl WeatherWidget {
         let on_click_right_cmd = ConfigManager::global().get_click_handlers(wgt::WEATHER).1;
 
         if on_click_right_cmd.is_none() {
-            let click = GestureClick::new();
-            click.set_button(gdk::BUTTON_PRIMARY);
-            let label_for_configure = label.clone();
-            let config_for_configure = config.clone();
-            let generation_for_configure = refresh_generation.clone();
-            click.connect_released(move |_gesture, _n_press, _x, _y| {
-                show_weather_config_window(
-                    &label_for_configure,
-                    &config_for_configure,
-                    &generation_for_configure,
-                );
-            });
-            base.widget().add_controller(click);
-
             let click = GestureClick::new();
             click.set_button(gdk::BUTTON_SECONDARY);
             let label_for_toggle = label.clone();
@@ -322,11 +346,14 @@ impl WeatherWidget {
     }
 }
 
-fn show_weather_config_window(
+pub(crate) fn show_weather_config_window_with_callback<F>(
     label: &Label,
     config: &Rc<RefCell<WeatherConfig>>,
     generation: &Rc<Cell<u64>>,
-) {
+    on_saved: Option<F>,
+) where
+    F: Fn() + 'static,
+{
     let window = Window::builder()
         .title("Weather Location")
         .default_width(360)
@@ -421,6 +448,7 @@ fn show_weather_config_window(
         let latitude_entry = latitude_entry.clone();
         let longitude_entry = longitude_entry.clone();
         let window = window.clone();
+        let on_saved = Rc::new(on_saved);
         save_button.connect_clicked(move |_| {
             let latitude = latitude_entry.text().trim().parse::<f64>();
             let longitude = longitude_entry.text().trim().parse::<f64>();
@@ -449,6 +477,9 @@ fn show_weather_config_window(
             let current_config = weather_config.clone();
             drop(weather_config);
             refresh_weather_label(&label, &current_config, &generation);
+            if let Some(on_saved) = on_saved.as_ref() {
+                on_saved();
+            }
             window.close();
         });
     }
@@ -593,6 +624,7 @@ pub(crate) fn fetch_weather_forecast(
     let Some(coordinates) = config.coordinates else {
         return WeatherForecast {
             current: CONFIGURE_LABEL.to_string(),
+            location: "No location configured".to_string(),
             summary: "Weather location is not configured.".to_string(),
             days: Vec::new(),
         };
@@ -613,9 +645,10 @@ pub(crate) fn fetch_weather_forecast(
         .ok()
         .and_then(|response| response.as_str().ok().map(str::to_string))
         .and_then(|body| serde_json::from_str::<OpenMeteoForecastResponse>(&body).ok())
-        .map(|response| build_weather_forecast(response, config.unit))
+        .map(|response| build_weather_forecast(response, config))
         .unwrap_or_else(|| WeatherForecast {
             current: FALLBACK_ICON.to_string(),
+            location: weather_location_label(config),
             summary: "Forecast unavailable".to_string(),
             days: Vec::new(),
         })
@@ -687,8 +720,9 @@ struct OpenMeteoGeocodingResult {
 
 fn build_weather_forecast(
     response: OpenMeteoForecastResponse,
-    unit: WeatherUnit,
+    config: &WeatherConfig,
 ) -> WeatherForecast {
+    let unit = config.unit;
     let current_temp = response.current.temperature_2m.round() as i64;
     let current_condition = weather_condition(response.current.weather_code);
     let current = format!(
@@ -747,6 +781,7 @@ fn build_weather_forecast(
 
     WeatherForecast {
         current,
+        location: weather_location_label(config),
         summary,
         days,
     }
@@ -889,9 +924,20 @@ mod tests {
             },
         };
 
-        let forecast = build_weather_forecast(response, WeatherUnit::Celsius);
+        let config = WeatherConfig {
+            coordinates: Some(WeatherCoordinates {
+                latitude: 12.3456,
+                longitude: 65.4321,
+            }),
+            unit: WeatherUnit::Celsius,
+            interval: DEFAULT_INTERVAL_SECS,
+            tooltip: "Weather".to_string(),
+            max_chars: None,
+        };
+        let forecast = build_weather_forecast(response, &config);
 
         assert_eq!(forecast.current, "󰖕 21°C, Partly cloudy");
+        assert_eq!(forecast.location, "12.3456, 65.4321");
         assert_eq!(
             forecast.summary,
             "Today: Rain, high 24°C, low 18°C, 70% precipitation"
