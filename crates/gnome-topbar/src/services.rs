@@ -36,6 +36,7 @@ pub mod media;
 pub mod media_ipc;
 pub mod network;
 pub mod notification;
+pub mod privacy;
 pub mod resource_monitor;
 pub mod state;
 pub mod surfaces;

@@ -25,6 +25,7 @@ use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
 use crate::services::icons::IconHandle;
 use crate::services::network::{NetworkService, NetworkSnapshot};
+use crate::services::privacy::{PrivacyService, PrivacySnapshot};
 use crate::services::tooltip::TooltipManager;
 use crate::services::vpn::{VpnService, VpnSnapshot};
 use crate::styles::{icon, qs, state, widget};
@@ -283,6 +284,7 @@ pub struct QuickSettingsWidget {
     network_wifi_callback_id: Option<CallbackId>,
     network_mobile_callback_id: Option<CallbackId>,
     vpn_callback_id: Option<CallbackId>,
+    privacy_callback_id: Option<CallbackId>,
 }
 
 impl QuickSettingsWidget {
@@ -301,6 +303,7 @@ impl QuickSettingsWidget {
         let mut network_wifi_callback_id = None;
         let mut network_mobile_callback_id = None;
         let mut vpn_callback_id = None;
+        let mut privacy_callback_id = None;
 
         // Build icons only for enabled cards (order: network, VPN, mobile, audio, battery, Bluetooth)
         // Network icon (Wi-Fi / Ethernet).
@@ -516,11 +519,43 @@ impl QuickSettingsWidget {
             let audio_icon = base.add_icon(audio_icon_name_initial, &[icon::ICON, icon::TEXT]);
             audio_icon.widget().add_css_class(qs::VOLUME);
 
+            let mic_recording_icon = base.add_icon(
+                "audio-input-microphone-symbolic",
+                &[
+                    icon::ICON,
+                    icon::TEXT,
+                    qs::PRIVACY_INDICATOR,
+                    qs::INPUT_RECORDING,
+                ],
+            );
+            set_visible_if_changed!(mic_recording_icon.widget(), audio_snapshot.input_recording);
+            TooltipManager::global()
+                .set_styled_tooltip(&mic_recording_icon.widget(), "Microphone is in use");
+
+            let privacy_snapshot = PrivacyService::global().snapshot();
+            let screen_share_icon = base.add_icon(
+                "screen-shared-symbolic",
+                &[
+                    icon::ICON,
+                    icon::TEXT,
+                    qs::PRIVACY_INDICATOR,
+                    qs::SCREEN_SHARING,
+                ],
+            );
+            set_visible_if_changed!(screen_share_icon.widget(), privacy_snapshot.screen_sharing);
+            TooltipManager::global()
+                .set_styled_tooltip(&screen_share_icon.widget(), "Screen is being shared");
+
             // Subscribe to AudioService updates
             let audio_icon_handle = audio_icon.clone();
+            let mic_recording_icon_handle = mic_recording_icon.clone();
             audio_callback_id = Some(AudioService::global().connect(
                 move |snapshot: &AudioSnapshot| {
                     let widget = audio_icon_handle.widget();
+                    set_visible_if_changed!(
+                        mic_recording_icon_handle.widget(),
+                        snapshot.input_recording
+                    );
 
                     if !snapshot.available {
                         widget.add_css_class(state::SERVICE_UNAVAILABLE);
@@ -558,6 +593,16 @@ impl QuickSettingsWidget {
                 &audio_icon.widget(),
                 volume_scroll_step,
             );
+
+            let screen_share_icon_handle = screen_share_icon.clone();
+            privacy_callback_id = Some(PrivacyService::global().connect(
+                move |snapshot: &PrivacySnapshot| {
+                    set_visible_if_changed!(
+                        screen_share_icon_handle.widget(),
+                        snapshot.screen_sharing
+                    );
+                },
+            ));
         }
 
         // Battery icon - part of the aggregate status area, but does not create
@@ -714,6 +759,7 @@ impl QuickSettingsWidget {
             network_wifi_callback_id,
             network_mobile_callback_id,
             vpn_callback_id,
+            privacy_callback_id,
         }
     }
 
@@ -744,6 +790,9 @@ impl Drop for QuickSettingsWidget {
         }
         if let Some(id) = self.vpn_callback_id.take() {
             VpnService::global().disconnect(id);
+        }
+        if let Some(id) = self.privacy_callback_id.take() {
+            PrivacyService::global().disconnect(id);
         }
     }
 }

@@ -33,6 +33,12 @@ pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> Stri
     background: transparent;
 }}
 
+@keyframes qs-screen-sharing-pulse {{
+    0% {{ opacity: 1; }}
+    50% {{ opacity: 0.72; }}
+    100% {{ opacity: 1; }}
+}}
+
 /* Shell containers transparent */
 .bar-shell,
 .bar-shell-inner,
@@ -247,6 +253,14 @@ sectioned-bar.bar {{
 .quick-settings > overlay > .content {{
     padding-left: calc(var(--spacing-widget-edge) * 0.85);
     padding-right: calc(var(--spacing-widget-edge) * 0.85);
+}}
+
+.quick-settings .qs-privacy-indicator {{
+    color: var(--color-state-urgent);
+}}
+
+.quick-settings .qs-screen-sharing {{
+    animation: qs-screen-sharing-pulse 3300ms ease-in-out infinite;
 }}
 
 /* Section widget spacing via margins. */

@@ -392,6 +392,15 @@ pub mod qs {
     /// Audio details container (`.qs-audio-details`).
     pub const AUDIO_DETAILS: &str = "qs-audio-details";
 
+    /// Privacy activity indicator in the Quick Settings bar aggregate (`.qs-privacy-indicator`).
+    pub const PRIVACY_INDICATOR: &str = "qs-privacy-indicator";
+
+    /// Active input recording indicator (`.qs-input-recording`).
+    pub const INPUT_RECORDING: &str = "qs-input-recording";
+
+    /// Active screen sharing indicator (`.qs-screen-sharing`).
+    pub const SCREEN_SHARING: &str = "qs-screen-sharing";
+
     /// Section header (`.qs-section-header`).
     pub const SECTION_HEADER: &str = "qs-section-header";
 

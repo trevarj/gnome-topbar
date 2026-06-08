@@ -17,6 +17,7 @@
 //! - Volume/mute commands are sent to the background thread via `std::sync::mpsc`
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -104,6 +105,8 @@ pub struct AudioSnapshot {
     pub control_available: bool,
     /// Whether mic volume/mute controls are currently functional.
     pub mic_control_available: bool,
+    /// Whether at least one client is actively recording from an input source.
+    pub input_recording: bool,
 }
 
 impl Default for AudioSnapshot {
@@ -120,6 +123,7 @@ impl Default for AudioSnapshot {
             available: false,
             control_available: true, // Optimistic default; updated when sink info arrives
             mic_control_available: true,
+            input_recording: false,
         }
     }
 }
@@ -297,6 +301,7 @@ struct AudioStateUpdate {
     available: bool,
     control_available: bool,
     mic_control_available: bool,
+    input_recording: bool,
 }
 
 /// Shared, process-wide audio service.
@@ -524,6 +529,7 @@ impl AudioService {
             available: update.available,
             control_available: update.control_available,
             mic_control_available: update.mic_control_available,
+            input_recording: update.input_recording,
         };
 
         if *self.current.borrow() == new_snapshot {
@@ -636,6 +642,9 @@ struct PulseWorkerState {
     /// they're not useful as microphone inputs for most users.
     sources: Vec<SourceInfoSnapshot>,
 
+    /// PulseAudio indexes for non-monitor input sources.
+    input_source_indices: HashSet<u32>,
+
     /// The PulseAudio name of the current default audio input source.
     ///
     /// Used to identify the active microphone device.
@@ -656,6 +665,12 @@ struct PulseWorkerState {
     ///
     /// Similar to `control_available` but for the default source.
     mic_control_available: bool,
+
+    /// Active source-output indexes reported by PulseAudio/PipeWire.
+    ///
+    /// Source outputs are recording clients. Corked or muted streams are
+    /// ignored when this set is rebuilt.
+    active_source_outputs: HashSet<u32>,
 
     // ===== Connection State =====
     /// Whether we have an active connection to the PulseAudio server.
@@ -843,7 +858,7 @@ fn setup_subscriptions(
         let Some(facility) = facility else { return };
         let Some(op) = op else { return };
 
-        // We care about sink, source, and server changes.
+        // We care about sink, source, source-output, and server changes.
         // Note: We're inside a callback, so the mainloop is already locked.
         // We must NOT call mainloop.lock() or ml.lock() here.
         match facility {
@@ -880,12 +895,26 @@ fn setup_subscriptions(
                     Arc::clone(&state_for_cb),
                 );
             }
+            Facility::SourceOutput => {
+                if matches!(
+                    op,
+                    SubscribeOp::Changed | SubscribeOp::New | SubscribeOp::Removed
+                ) {
+                    fetch_source_outputs_inner(
+                        Arc::clone(&context_for_cb),
+                        Arc::clone(&state_for_cb),
+                    );
+                }
+            }
             _ => {}
         }
     })));
 
-    // Subscribe to sink, source, and server events.
-    let mask = InterestMaskSet::SINK | InterestMaskSet::SOURCE | InterestMaskSet::SERVER;
+    // Subscribe to sink, source, source-output, and server events.
+    let mask = InterestMaskSet::SINK
+        | InterestMaskSet::SOURCE
+        | InterestMaskSet::SOURCE_OUTPUT
+        | InterestMaskSet::SERVER;
     ctx.subscribe(mask, |_success| {});
 
     ml.unlock();
@@ -1055,6 +1084,8 @@ fn fetch_full_state(
                 Arc::clone(&state_for_cb),
             );
         }
+
+        fetch_source_outputs_inner(Arc::clone(&context_for_cb), Arc::clone(&state_for_cb));
     });
 
     ml.unlock();
@@ -1115,6 +1146,8 @@ fn fetch_full_state_from_callback(
                 Arc::clone(&state_for_cb),
             );
         }
+
+        fetch_source_outputs_inner(Arc::clone(&context_for_cb), Arc::clone(&state_for_cb));
     });
 }
 
@@ -1315,8 +1348,11 @@ fn fetch_sources_inner(context: Arc<Mutex<Context>>, state: Arc<Mutex<PulseWorke
 
     // Collect sources in a temporary Vec.
     let collected_sources = Arc::new(Mutex::new(Vec::new()));
+    let collected_indices = Arc::new(Mutex::new(HashSet::new()));
     let collected_for_cb = Arc::clone(&collected_sources);
+    let indices_for_cb = Arc::clone(&collected_indices);
     let state_for_cb = Arc::clone(&state);
+    let context_for_outputs = Arc::clone(&context);
 
     introspect.get_source_info_list(move |result| {
         match result {
@@ -1325,6 +1361,7 @@ fn fetch_sources_inner(context: Arc<Mutex<Context>>, state: Arc<Mutex<PulseWorke
                 if info.monitor_of_sink.is_some() {
                     return;
                 }
+                indices_for_cb.lock().insert(info.index);
 
                 let name = info
                     .name
@@ -1356,14 +1393,56 @@ fn fetch_sources_inner(context: Arc<Mutex<Context>>, state: Arc<Mutex<PulseWorke
             ListResult::End => {
                 // All sources collected; update state.
                 let sources = std::mem::take(&mut *collected_for_cb.lock());
+                let input_source_indices = std::mem::take(&mut *indices_for_cb.lock());
                 {
                     let mut st = state_for_cb.lock();
                     st.sources = sources;
+                    st.input_source_indices = input_source_indices;
                 }
+                fetch_source_outputs_inner(
+                    Arc::clone(&context_for_outputs),
+                    Arc::clone(&state_for_cb),
+                );
                 send_state_update(&state_for_cb.lock());
             }
             ListResult::Error => {
                 warn!("AudioService: error fetching source list");
+            }
+        }
+    });
+}
+
+/// Inner version called from within a callback (mainloop already locked).
+fn fetch_source_outputs_inner(context: Arc<Mutex<Context>>, state: Arc<Mutex<PulseWorkerState>>) {
+    let ctx = context.lock();
+    let introspect = ctx.introspect();
+
+    let active_outputs = Arc::new(Mutex::new(HashSet::new()));
+    let active_for_cb = Arc::clone(&active_outputs);
+    let state_for_cb = Arc::clone(&state);
+
+    introspect.get_source_output_info_list(move |result| {
+        match result {
+            ListResult::Item(info) => {
+                // Corked or muted streams exist but are not actively recording.
+                let is_input_source = state_for_cb
+                    .lock()
+                    .input_source_indices
+                    .contains(&info.source);
+                if is_input_source && !info.corked && !info.mute {
+                    active_for_cb.lock().insert(info.index);
+                }
+            }
+            ListResult::End => {
+                let outputs = std::mem::take(&mut *active_for_cb.lock());
+                {
+                    let mut st = state_for_cb.lock();
+                    st.active_source_outputs = outputs;
+                }
+                send_state_update(&state_for_cb.lock());
+            }
+            ListResult::Error => {
+                warn!("AudioService: error fetching source-output list");
             }
         }
     });
@@ -1775,6 +1854,7 @@ fn build_state_update(state: &PulseWorkerState) -> AudioStateUpdate {
         available: state.available,
         control_available: state.control_available,
         mic_control_available: state.mic_control_available,
+        input_recording: !state.active_source_outputs.is_empty(),
     }
 }
 
