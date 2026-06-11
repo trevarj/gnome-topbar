@@ -617,13 +617,12 @@ impl ThemePalette {
 :root {{
     /* ===== Widget Styling (Base values, can be overridden per-widget) ===== */
     /* These are combined via color-mix() in widget/popover CSS rules.
-     * --widget-background-opacity is a percentage with % suffix (e.g., "80%").
-     * To override in user CSS, use: --widget-background-opacity: 50%; */
+     * --widget-background-opacity is a percentage with % suffix (e.g., "80%"). */
     --widget-background-color: {widget_bg_color};
     --widget-background-opacity: {widget_bg_opacity}%;
     --popover-background-opacity: {popover_bg_opacity}%;
     --widget-hover-tint: {widget_hover_tint};
-    /* Semantic hover backgrounds for user CSS overrides. */
+    /* Semantic hover backgrounds. */
     --color-widget-hover-bg: {widget_hover_bg_value};
     --color-workspace-indicator-hover-default-bg: var(--color-card-overlay-hover);
     --color-workspace-indicator-active-hover-bg: var(--color-accent-hover-bg);
@@ -641,7 +640,7 @@ impl ThemePalette {
     /* ===== Accent Colors ===== */
     --color-accent-primary: {accent_primary};
     --color-accent-subtle: {accent_subtle};
-    /* Slider accent - alias for user CSS overrides */
+    /* Slider accent - alias of the primary accent */
     --color-accent-slider: var(--color-accent-primary);
     --color-accent-text: {accent_text};
     --color-accent-hover-bg: {accent_hover_bg};

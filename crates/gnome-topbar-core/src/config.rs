@@ -21,8 +21,8 @@ const VALID_THEME_MODES: &[&str] = &["auto", "dark", "light", "gtk"];
 
 /// Light or dark polarity for the Material You color scheme.
 ///
-/// Used as `theme.scheme` in config — omit to auto-derive from wallpaper luminance
-/// when `mode = "auto"`.
+/// Used as `theme.scheme` in config — omit to derive from the luminance of the
+/// configured `theme.wallpaper` image when `mode = "auto"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SchemePolarity {
@@ -48,8 +48,7 @@ const VALID_OUTLINE_COLOR_SYMBOLS: &[&str] = &["subtle", "accent", "foreground"]
 
 /// Maximum outline width in pixels.
 ///
-/// Outlines are intended for visual edge definition (1px is the typical case);
-/// thicker decorative borders should be done via user CSS.
+/// Outlines are intended for visual edge definition (1px is the typical case).
 const MAX_OUTLINE_WIDTH: u32 = 4;
 
 /// Public widget names supported by the GNOME-like top-bar surface.
@@ -62,21 +61,6 @@ const SUPPORTED_WIDGETS: &[&str] = &[
     "tray",
     "weather",
     "workspaces",
-];
-
-/// Widget names kept only long enough to warn users about the reduced surface.
-const REMOVED_WIDGETS: &[&str] = &[
-    "battery",
-    "cpu",
-    "gpu",
-    "media",
-    "memory",
-    "network_speed",
-    "spacer",
-    "system_monitor",
-    "taskbar",
-    "updates",
-    "window_title",
 ];
 
 /// Validate an outline color value against the symbolic + hex contract.
@@ -101,9 +85,6 @@ fn widget_support_status(name: &str) -> WidgetSupportStatus<'_> {
     if base_name.starts_with("custom-") {
         return WidgetSupportStatus::Supported;
     }
-    if REMOVED_WIDGETS.contains(&base_name) {
-        return WidgetSupportStatus::Removed(base_name);
-    }
     if SUPPORTED_WIDGETS.contains(&base_name) {
         return WidgetSupportStatus::Supported;
     }
@@ -112,7 +93,6 @@ fn widget_support_status(name: &str) -> WidgetSupportStatus<'_> {
 
 enum WidgetSupportStatus<'a> {
     Supported,
-    Removed(&'a str),
     Unknown(&'a str),
 }
 
@@ -533,10 +513,6 @@ impl Config {
                 for name in placement.widget_names() {
                     match widget_support_status(name) {
                         WidgetSupportStatus::Supported => {}
-                        WidgetSupportStatus::Removed(base_name) => warnings.push(format!(
-                            "widgets.{}: widget \"{}\" has been removed from the supported GNOME Topbar surface and will be skipped",
-                            section_name, base_name
-                        )),
                         WidgetSupportStatus::Unknown(base_name) => warnings.push(format!(
                             "widgets.{}: unknown widget \"{}\" will be skipped",
                             section_name, base_name
@@ -928,7 +904,7 @@ impl WidgetsConfig {
     }
 
     /// Resolve a single widget name to a WidgetEntry, applying options from config.
-    /// Returns None if the widget is disabled, unknown, or removed.
+    /// Returns None if the widget is disabled or unknown.
     fn resolve_widget(&self, name: &str) -> Option<WidgetEntry> {
         let (base_name, _inline_arg) = Self::parse_inline_arg(name);
 
@@ -1337,8 +1313,9 @@ impl Default for ThemeIconsConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeConfig {
     /// Theme mode: "auto", "dark", "light", "gtk".
-    /// - "auto": wallpaper-adaptive Material You theming
-    ///   (detects from hyprpaper, awww/swww, wpaperd, or waypaper)
+    /// - "auto": wallpaper-adaptive Material You theming, derived from the image
+    ///   configured in `theme.wallpaper`. With no wallpaper configured, falls
+    ///   back to dark/light defaults based on `theme.scheme`.
     /// - "dark": forces dark mode (light text on dark backgrounds)
     /// - "light": forces light mode (dark text on light backgrounds)
     /// - "gtk": derive colors from GTK theme where possible
@@ -1346,18 +1323,21 @@ pub struct ThemeConfig {
 
     /// Material You color scheme polarity: "dark" or "light".
     ///
-    /// Only meaningful when `mode = "auto"`. When omitted, the polarity is
-    /// automatically derived from the wallpaper's average WCAG relative
-    /// luminance, using the perceptual midpoint (CIELAB L*=50, linear ≈ 0.184)
-    /// as the threshold: bright wallpaper → light scheme, dark wallpaper →
-    /// dark scheme. Set explicitly to override.
+    /// Only meaningful when `mode = "auto"`. When omitted and a `theme.wallpaper`
+    /// is configured, the polarity is derived from that image's average WCAG
+    /// relative luminance, using the perceptual midpoint (CIELAB L*=50, linear
+    /// ≈ 0.184) as the threshold: bright wallpaper → light scheme, dark
+    /// wallpaper → dark scheme. With no wallpaper configured, defaults to dark.
+    /// Set explicitly to override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheme: Option<SchemePolarity>,
 
-    /// Explicit wallpaper image path for auto mode.
+    /// Wallpaper image path for auto mode.
     ///
-    /// Only meaningful when `mode = "auto"`. When set, uses this image instead
-    /// of auto-detecting from wallpaper daemons. Supports PNG and JPEG.
+    /// Only meaningful when `mode = "auto"`. When set, the Material You palette
+    /// is extracted from this image. There is no automatic wallpaper detection;
+    /// without this path, auto mode falls back to dark/light defaults. Supports
+    /// PNG and JPEG.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallpaper: Option<String>,
 
@@ -2673,42 +2653,6 @@ mod tests {
             "expected unknown widget warning, got: {:?}",
             warnings
         );
-    }
-
-    #[test]
-    fn test_warning_removed_widget_in_section() {
-        let toml = r#"
-            [widgets]
-            right = ["battery"]
-        "#;
-
-        let config: Config = toml::from_str(toml).unwrap();
-        let warnings = config.warnings();
-        assert!(
-            warnings
-                .iter()
-                .any(|w| w.contains("widget \"battery\" has been removed")),
-            "expected removed widget warning, got: {:?}",
-            warnings
-        );
-    }
-
-    #[test]
-    fn test_removed_widget_in_section_does_not_resolve() {
-        let toml = r#"
-            [widgets]
-            right = ["battery", "clock"]
-        "#;
-
-        let config: Config = toml::from_str(toml).unwrap();
-        let names: Vec<_> = config
-            .widgets
-            .resolved_right()
-            .iter()
-            .flat_map(WidgetOrGroup::display_names)
-            .collect();
-
-        assert_eq!(names, vec!["clock"]);
     }
 
     #[test]

@@ -85,11 +85,11 @@ background_opacity = 0.0
 
 [theme]
 mode = "dark" # "auto", "dark", "light", "gtk"
-#               "auto" = wallpaper-adaptive theming
-#               (detects from hyprpaper, awww/swww, wpaperd, waypaper)
+#               "auto" = wallpaper-adaptive Material You theming from theme.wallpaper
+#               (no wallpaper detection; falls back to dark/light defaults if unset)
 #scheme = "dark"         # Material You polarity: "dark" or "light" (auto mode only)
-#               Omit to auto-derive from wallpaper luminance (bright → light, dark → dark)
-#wallpaper = "/path/to/image.png"  # Explicit wallpaper for auto mode (default: auto-detect)
+#               Omit to derive from theme.wallpaper luminance (bright → light, dark → dark)
+#wallpaper = "/path/to/image.png"  # Image for auto-mode palette extraction (required for adaptive theming)
 accent = "#3584e4" # GNOME blue; use "gtk", "none", or a hex color
 #animations = true  # Enable/disable all CSS transitions and animations
 #ripple = true      # Enable/disable Material Design ripple effect on click
@@ -142,6 +142,3 @@ check_interval = 3600
 
 [advanced]
 # compositor = "auto"  # "auto" or "niri"
-
-# Custom CSS: place style.css in same directory as this file.
-# See documentation for available CSS variables and classes.
