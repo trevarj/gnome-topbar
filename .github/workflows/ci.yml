@@ -31,4 +31,4 @@ jobs:
       - name: Font subset manifest
         run: guix shell -m manifest.scm -- ./scripts/subset-font.sh --check
       - name: Guix package dry run
-        run: guix build -f guix/gnome-panel.scm --dry-run
+        run: guix build -f guix/gnome-topbar.scm --dry-run
