@@ -2,7 +2,7 @@
 
 ## Current State
 
-- Branch: `trev/gnome-topbar`.
+- Branch: `master`.
 - The project has been renamed to GNOME Topbar in code, docs, package metadata, and the default config.
 - The default config is a GNOME Shell-style continuous top panel with Adwaita icons, bold panel text, left-side workspaces, centered clock, a required tray, and one right-side quick settings aggregate.
 - Guix is the only supported packaging path for now. The in-repo package definition lives in `guix/gnome-topbar.scm` and reads Cargo inputs from `Cargo.lock`.
@@ -18,6 +18,8 @@
 - Keep `custom-*` as a narrow escape hatch for small status scripts, not as a path toward Waybar-style module parity.
 - Keep Quick Settings separate from the clock control panel; it remains its own system panel entry point.
 - Remove or simplify features whose main value is configurability, theme breadth, or standalone status-module coverage.
+- No user CSS: `config.toml` is the only theming surface. Rust-generated CSS remains an internal rendering detail; user `style.css` loading was removed.
+- All animations are Rust-driven through the shared frame-clock helper in `widgets/animation.rs`; no CSS transitions or keyframes.
 - Use idiomatic Rust: typed config boundaries, serde for structured parsing, small service APIs, GTK work on the main thread, and tests with every feature or behavior change.
 
 ## Working Rules
