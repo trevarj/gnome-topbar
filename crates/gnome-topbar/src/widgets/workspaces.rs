@@ -331,6 +331,11 @@ struct IndicatorWidth {
     container: glib::WeakRef<WorkspaceContainer>,
     /// Current interpolated width in pixels (f64 for smooth interpolation).
     current: Rc<Cell<f64>>,
+    /// Last integer width actually pushed via `set_size_request`. Frames whose
+    /// rounded width matches this are skipped, so we don't force a full-bar
+    /// relayout for a visually-identical frame (common on the eased tail and
+    /// for long/named pills whose sub-pixel width barely moves per frame).
+    applied: Rc<Cell<i32>>,
     /// Current animation target in pixels.
     target: Cell<i32>,
 }
@@ -349,6 +354,7 @@ impl IndicatorWidth {
             indicator: ind_weak,
             container: container_weak,
             current: Rc::new(Cell::new(initial as f64)),
+            applied: Rc::new(Cell::new(initial)),
             target: Cell::new(initial),
         }
     }
@@ -369,6 +375,7 @@ impl IndicatorWidth {
         let end = target as f64;
 
         let current = Rc::clone(&self.current);
+        let applied = Rc::clone(&self.applied);
         let indicator = self.indicator.clone();
         let container = self.container.clone();
 
@@ -377,8 +384,13 @@ impl IndicatorWidth {
             Box::new(move |eased| {
                 let w = start + (end - start) * eased;
                 current.set(w);
+                let wi = w.round() as i32;
+                if applied.get() == wi {
+                    return;
+                }
+                applied.set(wi);
                 if let Some(ind) = indicator.upgrade() {
-                    ind.set_size_request(w.round() as i32, -1);
+                    ind.set_size_request(wi, -1);
                 }
                 if let Some(c) = container.upgrade() {
                     c.queue_resize();
@@ -398,6 +410,7 @@ impl IndicatorWidth {
         self.target.set(0);
         let start = self.current.get();
         let current = Rc::clone(&self.current);
+        let applied = Rc::clone(&self.applied);
         let indicator = self.indicator.clone();
         let container = self.container.clone();
         // Clone the animation handle so we can drive start() without borrowing
@@ -408,8 +421,13 @@ impl IndicatorWidth {
             Box::new(move |eased| {
                 let w = start * (1.0 - eased);
                 current.set(w);
+                let wi = w.round() as i32;
+                if applied.get() == wi {
+                    return;
+                }
+                applied.set(wi);
                 if let Some(ind) = indicator.upgrade() {
-                    ind.set_size_request(w.round() as i32, -1);
+                    ind.set_size_request(wi, -1);
                 }
                 if let Some(c) = container.upgrade() {
                     c.queue_resize();
@@ -429,6 +447,7 @@ impl IndicatorWidth {
     fn snap(&self, value: i32) {
         self.anim.cancel();
         self.current.set(value as f64);
+        self.applied.set(value);
         self.target.set(value);
         if let Some(ind) = self.indicator.upgrade() {
             ind.set_size_request(value, -1);
@@ -861,6 +880,14 @@ fn create_single_indicator(
     }
 
     let state_for_area = Rc::clone(&progress_state);
+    // Cache resolved colors keyed on the area's CSS `color`. The active pill is
+    // redrawn every frame while its width animates, but the resolved colors are
+    // constant for the life of the theme, so resolving them (palette lookup,
+    // RGBA parse, style-context color resolution) once per color value instead
+    // of once per frame keeps the animation's per-frame work minimal. The key
+    // changes — and the cache refreshes — when the theme/CSS changes.
+    let cached_colors: Cell<Option<(gtk4::gdk::RGBA, (gtk4::gdk::RGBA, gtk4::gdk::RGBA))>> =
+        Cell::new(None);
     progress_area.set_draw_func(move |area, cr, width, height| {
         let width = f64::from(width);
         let height = f64::from(height);
@@ -873,7 +900,15 @@ fn create_single_indicator(
         }
 
         let radius = (width.min(height) / 2.0).max(0.0);
-        let (track_color, fill_color) = workspace_progress_colors(area);
+        let color_key = area.color();
+        let (track_color, fill_color) = match cached_colors.get() {
+            Some((key, colors)) if key == color_key => colors,
+            _ => {
+                let colors = workspace_progress_colors(area);
+                cached_colors.set(Some((color_key, colors)));
+                colors
+            }
+        };
 
         let fraction = state_for_area.fraction.get().clamp(0.0, 1.0);
         let fill_width = (width * fraction).round().clamp(0.0, width);
