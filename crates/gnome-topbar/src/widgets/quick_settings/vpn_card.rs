@@ -17,7 +17,8 @@ use tracing::debug;
 use super::components::ListRow;
 use super::ui_helpers::{
     ExpandableCard, ExpandableCardBase, add_placeholder_row, build_accent_subtitle, clear_list_box,
-    create_qs_list_box, create_row_action_label, set_icon_active, set_subtitle_active,
+    create_qs_list_box, create_row_action_label, set_chevron_expanded, set_icon_active,
+    set_subtitle_active,
 };
 use super::window::QuickSettingsWindow;
 use crate::services::icons::IconsService;
@@ -789,7 +790,7 @@ fn show_vpn_auth_dialog(state: &Rc<VpnCardState>, request: &VpnAuthRequest) {
         revealer.set_reveal_child(true);
     }
     if let Some(arrow) = state.base.arrow.borrow().as_ref() {
-        arrow.set_icon("pan-up-symbolic");
+        set_chevron_expanded(arrow, true);
     }
 
     // Repopulate list to position the auth box under the correct connection

@@ -7,7 +7,7 @@
 //! while hidden. UI state is reset on close so it opens fresh.
 
 use gtk4::gdk::{self, Monitor};
-use gtk4::glib::{self, ControlFlow};
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, EventControllerKey, Label, Orientation,
@@ -30,8 +30,9 @@ use crate::services::surfaces::SurfaceStyleManager;
 use crate::services::updates::UpdatesService;
 use crate::services::vpn::VpnService;
 use crate::styles::{qs, state, surface};
+use crate::widgets::animation::{Animation, AnimationParams, Easing};
 use crate::widgets::layer_shell_popover::{
-    ANIM_SCALE_FROM, AnimDirection, AnimState, Dismissible, calculate_bar_exclusive_zone,
+    ANIM_DURATION_MS, ANIM_SCALE_FROM, AnimDirection, Dismissible, calculate_bar_exclusive_zone,
     calculate_bar_exclusive_zone_from_values, calculate_popover_bar_margin,
     calculate_popover_right_margin, create_click_catcher, is_keynav_key, popover_bar_edge,
     popover_keyboard_mode, setup_esc_handler, snap_anim_shell,
@@ -56,7 +57,7 @@ use super::power_card::{self, PowerCardBuildResult, PowerCardExpanderState};
 use super::resource_overview_card::{ResourceOverviewCardState, build_resource_overview_card};
 use super::ui_helpers::{
     AUDIO_REVEALER_DURATION_MS, AccordionManager, CARD_REVEALER_DURATION_MS, ExpandableCard,
-    build_slide_down_revealer, collapse_revealer_instant,
+    build_slide_down_revealer, collapse_revealer_instant, set_chevron_expanded,
 };
 use super::updates_card::{self, UpdatesCardState, build_updates_card};
 use super::vpn_card::{self, VpnCardState, build_vpn_details, vpn_icon_name};
@@ -156,10 +157,15 @@ pub struct QuickSettingsWindow {
     /// Used by toggle_at() and Dismissible so clicks during close animation
     /// re-open the panel instead of being silently swallowed.
     logically_open: Cell<bool>,
-    /// Shared animation state driven by the tick callback.
-    anim_state: Rc<RefCell<AnimState>>,
+    /// Shared frame-clock animation driving the open/close fade + scale on the
+    /// `anim_shell`. The shell's live opacity is the current visual progress, so
+    /// mid-flight reversals glide from where they are.
+    anim: Animation,
+    /// Direction of the most recently started open/close animation. Used to
+    /// detect "was closing" so a re-open reverses instead of restarting.
+    anim_direction: Cell<AnimDirection>,
     /// Generation counter incremented on every show/hide to cancel stale
-    /// tick callbacks and idle callbacks.
+    /// idle callbacks scheduled from `show_panel()`.
     anim_generation: Rc<Cell<u32>>,
     cards_config: QuickSettingsCardsConfig,
     audio_scroll_percentage: i32,
@@ -236,6 +242,7 @@ impl QuickSettingsWindow {
         let anim_shell = ScaleBox::new();
         anim_shell.set_opacity(0.0);
         anim_shell.set_scale(ANIM_SCALE_FROM);
+        let anim = Animation::new(&anim_shell);
 
         // Margin wrapper sits between window and anim_shell, providing
         // transparent padding so the ScaleBox clip animation is visible.
@@ -258,7 +265,8 @@ impl QuickSettingsWindow {
             has_been_mapped: Cell::new(false),
             is_animating_out: Cell::new(false),
             logically_open: Cell::new(false),
-            anim_state: Rc::new(RefCell::new(AnimState::new_idle())),
+            anim,
+            anim_direction: Cell::new(AnimDirection::Opening),
             anim_generation: Rc::new(Cell::new(0)),
             cards_config: config.cards,
             audio_scroll_percentage: config.audio_scroll_percentage,
@@ -1097,11 +1105,7 @@ impl QuickSettingsWindow {
             audio_widgets.expander_button.connect_clicked(move |_| {
                 let expanding = !revealer.reveals_child();
                 revealer.set_reveal_child(expanding);
-                if expanding {
-                    arrow.widget().add_css_class(state::EXPANDED);
-                } else {
-                    arrow.widget().remove_css_class(state::EXPANDED);
-                }
+                set_chevron_expanded(&arrow, expanding);
             });
         }
 
@@ -1193,11 +1197,7 @@ impl QuickSettingsWindow {
             mic_widgets.expander_button.connect_clicked(move |_| {
                 let expanding = !revealer.reveals_child();
                 revealer.set_reveal_child(expanding);
-                if expanding {
-                    arrow.widget().add_css_class(state::EXPANDED);
-                } else {
-                    arrow.widget().remove_css_class(state::EXPANDED);
-                }
+                set_chevron_expanded(&arrow, expanding);
             });
         }
 
@@ -1299,7 +1299,7 @@ impl QuickSettingsWindow {
                 collapse_revealer_instant(revealer);
             }
             if let Some(arrow) = base.arrow.borrow().as_ref() {
-                arrow.widget().remove_css_class(state::EXPANDED);
+                set_chevron_expanded(arrow, false);
             }
         };
 
@@ -1325,14 +1325,14 @@ impl QuickSettingsWindow {
             collapse_revealer_instant(revealer);
         }
         if let Some(arrow) = self.audio.arrow.borrow().as_ref() {
-            arrow.widget().remove_css_class(state::EXPANDED);
+            set_chevron_expanded(arrow, false);
         }
 
         if let Some(revealer) = self.mic.revealer.borrow().as_ref() {
             collapse_revealer_instant(revealer);
         }
         if let Some(arrow) = self.mic.arrow.borrow().as_ref() {
-            arrow.widget().remove_css_class(state::EXPANDED);
+            set_chevron_expanded(arrow, false);
         }
 
         // --- Hide auth dialogs ---
@@ -1451,10 +1451,8 @@ impl QuickSettingsWindow {
         // even if a close animation is still in flight.
         self.logically_open.set(true);
 
-        let was_closing = {
-            let state = self.anim_state.borrow();
-            state.active && state.direction == AnimDirection::Closing
-        };
+        let was_closing =
+            self.anim.is_running() && self.anim_direction.get() == AnimDirection::Closing;
 
         self.is_animating_out.set(false);
 
@@ -1495,7 +1493,7 @@ impl QuickSettingsWindow {
             self.prepare_keyboard_nav();
 
             if ConfigManager::global().animations_enabled() {
-                self.start_animation(AnimDirection::Opening, generation);
+                self.start_animation(AnimDirection::Opening);
             } else {
                 snap_anim_shell(&self.anim_shell, QUICK_SETTINGS_WIDGET, 1.0, 1.0);
             }
@@ -1531,7 +1529,7 @@ impl QuickSettingsWindow {
                     && let Some(qs) = get_qs_window_data(&window)
                 {
                     if ConfigManager::global().animations_enabled() {
-                        qs.start_animation(AnimDirection::Opening, generation);
+                        qs.start_animation(AnimDirection::Opening);
                     } else {
                         snap_anim_shell(&qs.anim_shell, QUICK_SETTINGS_WIDGET, 1.0, 1.0);
                     }
@@ -1563,7 +1561,7 @@ impl QuickSettingsWindow {
                     qs.window.set_opacity(1.0);
 
                     if ConfigManager::global().animations_enabled() {
-                        qs.start_animation(AnimDirection::Opening, generation);
+                        qs.start_animation(AnimDirection::Opening);
                     } else {
                         snap_anim_shell(&qs.anim_shell, QUICK_SETTINGS_WIDGET, 1.0, 1.0);
                     }
@@ -1719,7 +1717,7 @@ impl QuickSettingsWindow {
         }
 
         // Start (or reverse into) the close animation.
-        self.start_animation(AnimDirection::Closing, generation);
+        self.start_animation(AnimDirection::Closing);
     }
 
     /// Ensure the persistent click-catcher exists, creating it lazily.
@@ -1750,71 +1748,51 @@ impl QuickSettingsWindow {
         catcher
     }
 
-    /// Start or reverse the open/close animation via a tick callback.
+    /// Start or reverse the open/close animation via the shared [`Animation`]
+    /// helper.
     ///
-    /// If an animation is already in flight (e.g., opening and user clicks to
-    /// close), the current progress is captured and the animation reverses from
-    /// that point with proportional timing — no snapping.
-    fn start_animation(&self, direction: AnimDirection, generation: u32) {
-        let start_time_us = self
-            .anim_shell
-            .frame_clock()
-            .map(|fc| fc.frame_time())
-            .unwrap_or(0);
-
-        let need_tick = self.anim_state.borrow_mut().prepare(
-            direction,
-            generation,
-            start_time_us,
-            self.anim_shell.opacity(),
-        );
-
-        // Prepare first so reversal paths can reuse the existing tick callback;
-        // then ensure the current child has animation-outline styling even if no
-        // new callback is needed.
+    /// If an animation is already in flight (e.g., opening and the user clicks
+    /// to close), the shell's live opacity is the current visual progress (the
+    /// per-frame callback writes it), so the reversal starts from there. The
+    /// segment duration is proportional to the remaining distance, so a
+    /// half-open panel that reverses takes proportionally less time — no
+    /// snapping.
+    fn start_animation(&self, direction: AnimDirection) {
+        // Outline styling for the in-flight (and reversal) shell.
         SurfaceStyleManager::global().apply_animated_surface_outline(
             &self.anim_shell,
             QUICK_SETTINGS_WIDGET,
             true,
         );
 
-        if !need_tick {
-            return;
-        }
+        self.anim_direction.set(direction);
 
-        let anim_state = Rc::clone(&self.anim_state);
-        let anim_gen = Rc::clone(&self.anim_generation);
+        let target = match direction {
+            AnimDirection::Opening => 1.0,
+            AnimDirection::Closing => 0.0,
+        };
+        // The shell opacity tracks current progress, so a reversal starts from
+        // the present position rather than snapping.
+        let start = self.anim_shell.opacity();
+        let distance = (target - start).abs();
+
         let window_weak = self.window.downgrade();
-        let shell_clone = self.anim_shell.clone();
         let blur = if ConfigManager::global().blur_enabled() {
             crate::services::background_effect::BackgroundEffectManager::global()
         } else {
             None
         };
 
-        self.anim_shell
-            .add_tick_callback(move |shell, frame_clock| {
-                if anim_gen.get() != generation {
-                    return ControlFlow::Break;
-                }
-
-                let now_us = frame_clock.frame_time();
-                let (progress, complete, direction) = {
-                    let state = anim_state.borrow();
-                    if !state.active {
-                        return ControlFlow::Break;
-                    }
-                    (
-                        state.current_progress(now_us),
-                        state.is_complete(now_us),
-                        state.direction,
-                    )
-                };
-
-                // Apply visual state — opacity and scale, no CSS involvement.
+        let on_frame = {
+            let shell = self.anim_shell.clone();
+            let window_weak = window_weak.clone();
+            let blur = blur.clone();
+            move |eased: f64| {
+                let progress = start + (target - start) * eased;
                 shell.set_opacity(progress);
+                // Interpolate scale: ANIM_SCALE_FROM at progress=0 → 1.0 at 1.
                 let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
-                shell_clone.set_scale(scale);
+                shell.set_scale(scale);
 
                 if direction == AnimDirection::Opening
                     && let Some(blur) = blur.as_ref()
@@ -1824,30 +1802,49 @@ impl QuickSettingsWindow {
                         &window,
                         QUICK_SETTINGS_OUTER_MARGIN,
                         scale,
-                        complete,
+                        false,
                     );
                 }
+            }
+        };
 
-                if complete {
-                    anim_state.borrow_mut().active = false;
-
-                    if direction == AnimDirection::Closing {
-                        snap_anim_shell(&shell_clone, QUICK_SETTINGS_WIDGET, 0.0, ANIM_SCALE_FROM);
-                        if let Some(window) = window_weak.upgrade()
-                            && let Some(qs) = get_qs_window_data(&window)
-                        {
-                            qs.is_animating_out.set(false);
-                            qs.reset_ui_state();
-                            qs.window.set_visible(false);
-                        }
-                    } else {
-                        snap_anim_shell(&shell_clone, QUICK_SETTINGS_WIDGET, 1.0, 1.0);
+        let on_done = {
+            let shell = self.anim_shell.clone();
+            move || {
+                if direction == AnimDirection::Closing {
+                    // Close complete — snap fully hidden, reset UI, hide window.
+                    snap_anim_shell(&shell, QUICK_SETTINGS_WIDGET, 0.0, ANIM_SCALE_FROM);
+                    if let Some(window) = window_weak.upgrade()
+                        && let Some(qs) = get_qs_window_data(&window)
+                    {
+                        qs.is_animating_out.set(false);
+                        qs.reset_ui_state();
+                        qs.window.set_visible(false);
                     }
-                    return ControlFlow::Break;
+                } else {
+                    // Open complete — ensure we're at exactly 1.0 and lay down
+                    // the final (non-scaled) blur region.
+                    snap_anim_shell(&shell, QUICK_SETTINGS_WIDGET, 1.0, 1.0);
+                    if let Some(blur) = blur.as_ref()
+                        && let Some(window) = window_weak.upgrade()
+                    {
+                        blur.apply_open_animation_blur(
+                            &window,
+                            QUICK_SETTINGS_OUTER_MARGIN,
+                            1.0,
+                            true,
+                        );
+                    }
                 }
+            }
+        };
 
-                ControlFlow::Continue
-            });
+        let duration_ms = (ANIM_DURATION_MS * distance).round() as u64;
+        self.anim.start(
+            AnimationParams::new(duration_ms).with_easing(Easing::EaseOutQuintic),
+            Box::new(on_frame),
+            Some(Box::new(on_done)),
+        );
     }
 
     /// Temporarily release exclusive keyboard grab to allow external dialogs

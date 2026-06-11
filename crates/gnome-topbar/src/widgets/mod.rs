@@ -33,6 +33,7 @@ mod notifications_toast;
 mod os_logo;
 mod osd;
 pub(crate) mod ripple;
+pub(crate) mod rotate_box;
 mod rounded_picture;
 pub(crate) mod scale_box;
 mod tray;
@@ -63,24 +64,6 @@ use gtk4::Widget;
 use gtk4::prelude::*;
 use std::any::Any;
 use tracing::warn;
-
-/// The kind of shared popover a widget opens when clicked.
-///
-/// Used by merge-group logic to identify adjacent widgets that can be
-/// visually merged into a single button with shared hover/ripple/popover.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PopoverKind {
-    #[allow(dead_code)]
-    System,
-    /// Widget has no popover or its popover is not mergeable.
-    Unmergeable,
-}
-
-/// Return the popover kind for a given widget name.
-pub(crate) fn popover_kind_for(widget_name: &str) -> PopoverKind {
-    let _ = widget_name;
-    PopoverKind::Unmergeable
-}
 
 /// Trait for widget configuration types.
 ///
@@ -309,18 +292,5 @@ impl BarState {
 impl Default for BarState {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn popover_kind_supported_widgets() {
-        assert_eq!(popover_kind_for("clock"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("quick_settings"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("tray"), PopoverKind::Unmergeable);
-        assert_eq!(popover_kind_for("unknown"), PopoverKind::Unmergeable);
     }
 }

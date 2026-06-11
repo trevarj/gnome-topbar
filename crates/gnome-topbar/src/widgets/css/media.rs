@@ -2,11 +2,17 @@
 
 /// Return media CSS.
 pub fn css(animations: bool) -> String {
-    let slider_transition = if animations {
-        "transition: transform 100ms ease-out;"
-    } else {
-        "transition: none;"
-    };
+    // The seek-slider thumb's press cue (`transform: scale(1.15)` on :active)
+    // formerly eased over 100ms via a CSS transition. All animation in this
+    // crate is now frame-clock driven from Rust (see animation.rs), but the
+    // thumb scale lives on GtkScale's internal `slider` CSS node, which has no
+    // public widget handle (same situation as the removed shared slider cue —
+    // see css/base.rs). Driving it per-frame from Rust would mean intercepting
+    // the scale's snapshot/transform for a sub-node, which is disproportionate
+    // for a 100ms press cue. The transition is removed; the scale-up still
+    // applies on :active, just instantly. `animations` is no longer read here.
+    let _ = animations;
+    let slider_transition = "transition: none;";
     format!(
         r#"
 /* ===== MEDIA CONTROL PANEL ===== */

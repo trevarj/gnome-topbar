@@ -1,7 +1,5 @@
 //! Notification widget CSS.
 
-use super::DISMISS_ANIMATION_MS;
-
 const NOTIFICATION_CARD_RADIUS: &str = "var(--radius-pill)";
 const NOTIFICATION_ROW_PADDING: i32 = 6;
 const NOTIFICATION_ACTION_GAP: i32 = 6;
@@ -9,14 +7,12 @@ const NOTIFICATION_CONTENT_INSET: i32 = 16;
 
 /// Return notifications CSS.
 pub fn css(animations: bool) -> String {
-    let row_transition = if animations {
-        format!(
-            "transition: opacity {ms}ms ease;",
-            ms = DISMISS_ANIMATION_MS,
-        )
-    } else {
-        "transition: none;".to_string()
-    };
+    // The dismiss fade-out (`.notification-row-dismissing { opacity: 0 }`) is now
+    // frame-clock driven from Rust via the shared Animation helper (see
+    // notifications_panel.rs `fade_out_dismissing`); the Revealer still handles
+    // the height collapse. The former `transition: opacity {ms}ms ease` rule is
+    // removed and `animations` is no longer read here.
+    let _ = animations;
     let action_gap = NOTIFICATION_ACTION_GAP;
     let card_radius = NOTIFICATION_CARD_RADIUS;
     let content_inset = NOTIFICATION_CONTENT_INSET;
@@ -240,14 +236,10 @@ button.notification-group-clear:hover {{
 .notification-row {{
     padding: {row_padding}px;
     border-radius: {card_radius};
-    {row_transition}
 }}
 
-/* Dismiss animation: fade out (height collapse handled by Revealer) */
-.notification-row.notification-row-dismissing,
-.notification-app-group.notification-row-dismissing {{
-    opacity: 0;
-}}
+/* Dismiss fade-out opacity is Rust-driven (see notifications_panel.rs); height
+   collapse is handled by the Revealer. No CSS opacity transition here. */
 
 .notification-timestamp {{
     font-size: var(--font-size-sm);

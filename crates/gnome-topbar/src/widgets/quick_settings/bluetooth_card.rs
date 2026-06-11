@@ -20,14 +20,15 @@ use super::components::ListRow;
 use super::ui_helpers::{
     ExpandableCard, ExpandableCardBase, ScanButton, add_disabled_placeholder, add_placeholder_row,
     build_accent_subtitle, clear_list_box, create_qs_list_box, create_row_action_label,
-    create_row_menu_action, create_row_menu_button, set_icon_active, set_subtitle_active,
+    create_row_menu_action, create_row_menu_button, set_chevron_expanded, set_icon_active,
+    set_subtitle_active,
 };
 use crate::services::bluetooth::{
     BluetoothAuthRequest, BluetoothDevice, BluetoothService, BluetoothSnapshot,
 };
 use crate::services::icons::IconsService;
 use crate::services::surfaces::SurfaceStyleManager;
-use crate::styles::{button, color, icon, qs, row, state, surface};
+use crate::styles::{button, color, icon, qs, row, surface};
 use crate::widgets::base::configure_popover;
 
 /// Identity of an auth request for cache invalidation.
@@ -342,7 +343,6 @@ fn create_bluetooth_action_widget(dev: &BluetoothDevice, is_pairing: bool) -> gt
 
     let path_for_menu = path.clone();
 
-    let menu_icon_widget = menu_icon.widget();
     menu_btn.connect_clicked(move |btn| {
         // Query fresh snapshot at click time to get current connected state
         let bt = BluetoothService::global();
@@ -397,10 +397,10 @@ fn create_bluetooth_action_widget(dev: &BluetoothDevice, is_pairing: bool) -> gt
         popover.set_child(Some(&panel));
         popover.set_parent(btn);
 
-        menu_icon_widget.add_css_class(state::EXPANDED);
-        let icon_for_close = menu_icon_widget.clone();
+        set_chevron_expanded(&menu_icon, true);
+        let icon_for_close = menu_icon.clone();
         popover.connect_closed(move |p| {
-            icon_for_close.remove_css_class(state::EXPANDED);
+            set_chevron_expanded(&icon_for_close, false);
             p.unparent();
         });
 

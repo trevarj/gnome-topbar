@@ -44,7 +44,6 @@ Dump the built-in defaults:
 
 ```sh
 gnome-topbar dump default-config ~/.config/gnome-topbar/config.toml
-gnome-topbar dump default-css ~/.config/gnome-topbar/style.css
 ```
 
 The shipped default is a GNOME Shell-style top bar:

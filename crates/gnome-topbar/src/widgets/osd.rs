@@ -31,7 +31,9 @@ use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::icons::{IconHandle, IconsService};
 use crate::services::ipc::IpcMessage;
 use crate::services::surfaces::SurfaceStyleManager;
-use crate::widgets::layer_shell_popover::{ANIM_SCALE_FROM, AnimDirection, AnimState};
+use crate::widgets::animation::{Animation, AnimationParams, Easing};
+use crate::widgets::css::POPOVER_ANIMATION_MS;
+use crate::widgets::layer_shell_popover::{ANIM_SCALE_FROM, AnimDirection};
 use crate::widgets::scale_box::ScaleBox;
 
 /// Valid OSD positions for anchoring.
@@ -228,8 +230,8 @@ pub struct OsdOverlay {
     osd_widget: OsdWidget,
     timeout_ms: u32,
     hide_source: RefCell<Option<glib::SourceId>>,
-    anim_state: Rc<RefCell<AnimState>>,
-    anim_generation: Rc<Cell<u32>>,
+    /// Frame-clock animation driving the entrance/exit opacity + scale fade.
+    anim: Animation,
 
     // Brightness state tracking.
     brightness_baseline_seen: Cell<bool>,
@@ -317,14 +319,15 @@ impl OsdOverlay {
             },
         );
 
+        let anim = Animation::new(&anim_shell);
+
         let overlay = Rc::new(Self {
             window,
             anim_shell,
             osd_widget,
             timeout_ms,
             hide_source: RefCell::new(None),
-            anim_state: Rc::new(RefCell::new(AnimState::new_idle())),
-            anim_generation: Rc::new(Cell::new(0)),
+            anim,
             brightness_baseline_seen: Cell::new(false),
             last_brightness: Cell::new(0),
             audio_baseline_seen: Cell::new(false),
@@ -455,15 +458,12 @@ impl OsdOverlay {
     }
 
     fn show_window(self: &Rc<Self>) {
-        let generation = self.anim_generation.get().wrapping_add(1);
-        self.anim_generation.set(generation);
-
         let was_visible = self.window.is_visible();
         self.window.set_visible(true);
         self.window.present();
 
         if !ConfigManager::global().animations_enabled() {
-            self.anim_state.borrow_mut().active = false;
+            self.anim.cancel();
             self.anim_shell.set_opacity(1.0);
             self.anim_shell.set_scale(1.0);
             return;
@@ -472,7 +472,7 @@ impl OsdOverlay {
         // Do not replay the entrance animation on repeated volume/brightness
         // updates while the OSD is already fully visible.
         let already_open = was_visible
-            && !self.anim_state.borrow().active
+            && !self.anim.is_running()
             && self.anim_shell.opacity() >= 1.0 - f64::EPSILON;
         if already_open {
             self.anim_shell.set_opacity(1.0);
@@ -480,91 +480,61 @@ impl OsdOverlay {
             return;
         }
 
-        self.start_animation(AnimDirection::Opening, generation);
+        self.start_animation(AnimDirection::Opening);
     }
 
     fn hide_window(self: &Rc<Self>) {
-        let generation = self.anim_generation.get().wrapping_add(1);
-        self.anim_generation.set(generation);
         if let Some(blur) = BackgroundEffectManager::global() {
             blur.remove_blur_region(&self.window);
         }
 
         if !ConfigManager::global().animations_enabled() {
-            self.anim_state.borrow_mut().active = false;
+            self.anim.cancel();
             self.anim_shell.set_opacity(0.0);
             self.anim_shell.set_scale(ANIM_SCALE_FROM);
             self.window.set_visible(false);
             return;
         }
 
-        self.start_animation(AnimDirection::Closing, generation);
+        self.start_animation(AnimDirection::Closing);
     }
 
-    fn start_animation(self: &Rc<Self>, direction: AnimDirection, generation: u32) {
-        let start_time_us = self
-            .anim_shell
-            .frame_clock()
-            .map(|fc| fc.frame_time())
-            .unwrap_or(0);
+    /// Drive the opacity + scale fade toward `direction`'s target.
+    ///
+    /// The shell's live opacity is the current visual progress (the per-frame
+    /// callback writes it), so a mid-flight reversal starts from there. The
+    /// segment duration is proportional to the remaining distance, matching the
+    /// popover so a half-open OSD that reverses takes proportionally less time.
+    fn start_animation(self: &Rc<Self>, direction: AnimDirection) {
+        let target = match direction {
+            AnimDirection::Opening => 1.0,
+            AnimDirection::Closing => 0.0,
+        };
+        let start = self.anim_shell.opacity();
+        let distance = (target - start).abs();
 
-        let need_tick = self.anim_state.borrow_mut().prepare(
-            direction,
-            generation,
-            start_time_us,
-            self.anim_shell.opacity(),
-        );
-
-        if !need_tick {
-            return;
-        }
-
-        let anim_state = Rc::clone(&self.anim_state);
-        let anim_generation = Rc::clone(&self.anim_generation);
         let anim_shell = self.anim_shell.clone();
+        let apply = move |progress: f64| {
+            anim_shell.set_opacity(progress);
+            let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
+            anim_shell.set_scale(scale);
+        };
+
         let window = self.window.clone();
+        let on_done = move || {
+            if direction == AnimDirection::Closing {
+                window.set_visible(false);
+            }
+        };
 
-        self.anim_shell
-            .add_tick_callback(move |shell, frame_clock| {
-                if anim_generation.get() != generation {
-                    return glib::ControlFlow::Break;
-                }
+        let on_frame = move |eased: f64| apply(start + (target - start) * eased);
 
-                let now_us = frame_clock.frame_time();
-                let (progress, complete, direction) = {
-                    let state = anim_state.borrow();
-                    if !state.active {
-                        return glib::ControlFlow::Break;
-                    }
-                    (
-                        state.current_progress(now_us),
-                        state.is_complete(now_us),
-                        state.direction,
-                    )
-                };
-
-                shell.set_opacity(progress);
-                let scale = ANIM_SCALE_FROM + (1.0 - ANIM_SCALE_FROM) * progress;
-                anim_shell.set_scale(scale);
-
-                if complete {
-                    anim_state.borrow_mut().active = false;
-                    match direction {
-                        AnimDirection::Opening => {
-                            shell.set_opacity(1.0);
-                            anim_shell.set_scale(1.0);
-                        }
-                        AnimDirection::Closing => {
-                            shell.set_opacity(0.0);
-                            anim_shell.set_scale(ANIM_SCALE_FROM);
-                            window.set_visible(false);
-                        }
-                    }
-                    return glib::ControlFlow::Break;
-                }
-
-                glib::ControlFlow::Continue
-            });
+        let duration_ms = (POPOVER_ANIMATION_MS as f64 * distance).round() as u64;
+        self.anim.start(
+            AnimationParams::new(duration_ms).with_easing(Easing::EaseOutQuintic),
+            Box::new(on_frame),
+            Some(Box::new(on_done)),
+        );
     }
 
     // Internal: brightness integration

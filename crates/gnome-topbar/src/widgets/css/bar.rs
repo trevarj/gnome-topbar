@@ -8,22 +8,17 @@ use crate::widgets::workspaces::LONG_INDICATOR_HPAD;
 
 /// Return bar CSS with config values interpolated.
 ///
-/// `workspace_animations` is the resolved per-widget animation flag: it
-/// equals the explicit `[widgets.workspaces] animate` value when set,
-/// otherwise falls back to the global `theme.animations` setting.  This
-/// lets `workspaces.animate = true` keep workspace indicator CSS transitions
-/// alive even when `theme.animations = false`.
-pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> String {
+/// Workspace indicator widths — resting and animated — are owned entirely by
+/// Rust (see `widgets::workspaces::IndicatorWidth` and
+/// `indicator_target_width`). The CSS deliberately declares no `min-width`:
+/// GTK measures `max(css min-width, size_request)`, so a CSS minimum would
+/// floor the Rust-animated value and snap the grow animation.
+pub fn css(screen_margin: u32, spacing: u32) -> String {
     let widget_bg = WIDGET_BG_WITH_OPACITY;
     let long_hpad = LONG_INDICATOR_HPAD;
     let content_pad_x = CONTENT_PADDING_X;
     let content_pad_x_half = CONTENT_PADDING_X / 2;
     let content_pad_x_double = 2 * CONTENT_PADDING_X;
-    let workspace_transition = if workspace_animations {
-        "transition: min-width 225ms linear;"
-    } else {
-        "transition: none;"
-    };
     format!(
         r#"
 /* ===== BAR ===== */
@@ -31,12 +26,6 @@ pub fn css(screen_margin: u32, spacing: u32, workspace_animations: bool) -> Stri
 /* Window must be transparent so bar background shows */
 .bar-window {{
     background: transparent;
-}}
-
-@keyframes qs-screen-sharing-pulse {{
-    0% {{ opacity: 1; }}
-    50% {{ opacity: 0.72; }}
-    100% {{ opacity: 1; }}
 }}
 
 /* Shell containers transparent */
@@ -259,9 +248,8 @@ sectioned-bar.bar {{
     color: var(--color-state-urgent);
 }}
 
-.quick-settings .qs-screen-sharing {{
-    animation: qs-screen-sharing-pulse 3300ms ease-in-out infinite;
-}}
+/* The screen-sharing opacity pulse is driven from Rust (animation.rs) so it
+   stays in sync with the frame clock and honors theme.animations. */
 
 /* Section widget spacing via margins. */
 .bar-section--left > *:not(:last-child),
@@ -273,13 +261,13 @@ sectioned-bar.bar {{
 
 .workspace-indicator {{
     padding: 0;
-    min-width: 6px;
     min-height: 6px;
     border-radius: var(--radius-round);
     color: #71717a;
     background-color: #71717a;
-    {workspace_transition}
-    /* min-width duration must match INDICATOR_ANIM_DURATION_US in workspaces.rs */
+    /* Width is owned entirely by Rust (set_size_request, both resting and
+       per-frame animated); CSS must not declare min-width or GTK's
+       max(css-min, size_request) floors the animated value. */
 }}
 
 /* Override ripple overlay fallback radius (overlay.vp-ripple-wrap uses --radius-widget) */
@@ -325,7 +313,6 @@ overlay.workspace-indicator {{
 .workspace-indicator.active {{
     color: var(--color-foreground-primary);
     background-color: transparent;
-    min-width: 28px;
 }}
 
 .workspace-indicator.urgent {{
@@ -336,10 +323,6 @@ overlay.workspace-indicator {{
 .workspace-indicator-long {{
     padding: 0 {long_hpad}px;
 }}
-
-/* Grow-in: forces zero width + no transition so container animation handles it.
-   Loaded at USER+200 priority by load_transient_css() so user CSS can't defeat it. */
-
 "#
     )
 }
@@ -349,17 +332,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workspace_css_keeps_active_pill_drawn_by_rust() {
-        let css = css(0, 8, true);
+    fn workspace_css_has_no_min_width_transition() {
+        // Width is Rust-owned now; the CSS must not drive a min-width transition.
+        let css = css(0, 8);
 
-        assert!(css.contains("transition: min-width 225ms linear;"));
+        assert!(!css.contains("transition: min-width"));
         assert!(!css.contains("background-color 125ms"));
-        assert!(css.contains(".workspace-indicator.active {\n    color: var(--color-foreground-primary);\n    background-color: transparent;\n    min-width: 28px;\n}"));
+    }
+
+    #[test]
+    fn workspace_css_declares_no_min_width() {
+        // Width is owned entirely by Rust via set_size_request; a CSS
+        // min-width on the indicator would floor the animated value
+        // (GTK measures max(css-min, size_request)) and snap the grow.
+        let css = css(0, 8);
+
+        assert!(!css.contains("min-width: "));
     }
 
     #[test]
     fn workspace_css_keeps_labels_contrasted_and_urgent_themed() {
-        let css = css(0, 8, true);
+        let css = css(0, 8);
 
         assert!(css.contains(".workspace-indicator.active .workspace-indicator-content {\n    color: var(--widget-background-color);\n}"));
         assert!(css.contains(".workspace-indicator.urgent {\n    color: var(--color-state-urgent);\n    background-color: var(--color-state-urgent);\n}"));

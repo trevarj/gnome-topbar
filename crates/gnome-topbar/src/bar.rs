@@ -4,19 +4,16 @@ use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 use gnome_topbar_core::config::{WidgetEntry, WidgetOrGroup};
 use gnome_topbar_core::{Config, ThemePalette};
 
 use crate::sectioned_bar::SectionedBar;
 use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
-use crate::styles::{class, widget as style_widget};
-use crate::widgets::{
-    self, BarState, PopoverKind, QuickSettingsConfig, WidgetConfig, WidgetFactory, popover_kind_for,
-};
+use crate::styles::class;
+use crate::widgets::{self, BarState, QuickSettingsConfig, WidgetConfig, WidgetFactory};
 
 /// Create and configure the bar window with layer-shell.
 ///
@@ -457,10 +454,9 @@ fn build_widget_or_group(
             let surface = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
             surface.add_css_class(class::WIDGET);
             surface.add_css_class(class::WIDGET_GROUP);
-            // First real widget's per-widget style (outline_color, background_color)
+            // First widget's per-widget style (outline_color, background_color)
             // applies to the group surface so the shared border uses the right color.
-            // Skip spacers — they carry no per-widget styling.
-            if let Some(first) = group.iter().find(|e| e.name != "spacer") {
+            if let Some(first) = group.first() {
                 surface.add_css_class(&first.name.replace('_', "-"));
             }
             surface.set_overflow(gtk4::Overflow::Hidden);
@@ -470,86 +466,21 @@ fn build_widget_or_group(
             surface.append(&content);
             island.append(&surface);
 
-            // Partition into runs of same-popover widgets for merge grouping.
-            // Widgets with custom click handlers stay unmergeable so their
-            // on_click_right / on_click_middle commands aren't silently lost.
-            // Spacers are tracked as MergeKind::Spacer so they can be absorbed
-            // into adjacent runs rather than breaking merges.
-            let kinds: Vec<MergeKind> = group
-                .iter()
-                .map(|e| {
-                    if e.name == "spacer" {
-                        MergeKind::Spacer
-                    } else {
-                        let (left, right, middle) =
-                            ConfigManager::global().get_click_handlers(&e.name);
-                        if left.is_some() || right.is_some() || middle.is_some() {
-                            MergeKind::Popover(PopoverKind::Unmergeable)
-                        } else {
-                            MergeKind::Popover(popover_kind_for(&e.name))
-                        }
-                    }
-                })
-                .collect();
-            let runs = compute_merge_runs(&kinds);
-
-            let mut count = 0;
-
-            // Build entries individually (used for singletons and merge fallback).
             // Each child paints its own background; the group surface is transparent.
-            let build_individually =
-                |entries: &[WidgetEntry], content: &gtk4::Box, state: &mut BarState| -> usize {
-                    let mut n = 0;
-                    for entry in entries {
-                        if let Some(built) = WidgetFactory::build(entry, Some(qs_handle), output_id)
-                        {
-                            // Strip the standalone wrapper class so the wrapper-hover
-                            // rule doesn't fire — per-item hover is handled by a
-                            // group-scoped rule that paints on the .widget-item.
-                            built.widget.remove_css_class(class::WIDGET_WRAPPER);
-                            built.widget.add_css_class(&entry.name.replace('_', "-"));
-                            // Grouped hover uses a large box-shadow spread to refill
-                            // the cell around the pill; this clips it to item bounds.
-                            built.widget.set_overflow(gtk4::Overflow::Hidden);
-                            // Spacers don't use BaseWidget, so they lack the
-                            // .widget-item class that provides the grouped background.
-                            // Add it so spacers inside groups inherit the background
-                            // colour instead of showing a transparent gap.
-                            if entry.name == "spacer" {
-                                built.widget.add_css_class(class::WIDGET_ITEM);
-                            }
-                            content.append(&built.widget);
-                            state.add_handle(built.handle);
-                            n += 1;
-                        }
-                    }
-                    n
-                };
-
-            // Spacers don't affect the merge decision. Only create a
-            // merge group when the run contains ≥2 real widgets of the
-            // same kind, or when the entire group has exactly one real
-            // widget (per the explicit [cpu, spacer] single-button rule).
-            let total_real = group.iter().filter(|e| e.name != "spacer").count();
-
-            for (kind, start, end) in &runs {
-                let run_entries = &group[*start..*end];
-                let run_len = end - start;
-                let real_in_run = run_entries.iter().filter(|e| e.name != "spacer").count();
-
-                if run_len >= 2
-                    && *kind != PopoverKind::Unmergeable
-                    && (real_in_run >= 2 || total_real == 1)
-                {
-                    let merged = build_merge_group(run_entries, *kind, &content, state);
-                    if merged > 0 {
-                        count += merged;
-                    } else {
-                        // Merge unsupported for this kind — fall back
-                        count += build_individually(run_entries, &content, state);
-                    }
-                } else {
-                    count += build_individually(run_entries, &content, state);
+            let mut count = 0;
+            for entry in group {
+                if let Some(built) = WidgetFactory::build(entry, Some(qs_handle), output_id) {
+                    // Strip the standalone wrapper class so the wrapper-hover
+                    // rule doesn't fire — per-item hover is handled by a
+                    // group-scoped rule that paints on the .widget-item.
+                    built.widget.remove_css_class(class::WIDGET_WRAPPER);
+                    built.widget.add_css_class(&entry.name.replace('_', "-"));
+                    // Grouped hover uses a large box-shadow spread to refill
+                    // the cell around the pill; this clips it to item bounds.
+                    built.widget.set_overflow(gtk4::Overflow::Hidden);
+                    content.append(&built.widget);
+                    state.add_handle(built.handle);
+                    count += 1;
                 }
             }
 
@@ -562,109 +493,6 @@ fn build_widget_or_group(
             count
         }
     }
-}
-
-/// Merge-kind used by the group builder: either a real widget with a popover
-/// kind, or a transparent spacer that should be absorbed into adjacent runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MergeKind {
-    Popover(PopoverKind),
-    Spacer,
-}
-
-/// Partition `MergeKind` values into runs of adjacent equal popover kinds.
-///
-/// Spacers are transparently absorbed:
-///   * Leading spacers join the first real run.
-///   * Trailing spacers join the last real run.
-///   * Spacers between two widgets of the same mergeable kind are swallowed
-///     into that run so e.g. `[cpu, spacer, memory]` still merges.
-///   * Spacers between different kinds (or next to `Unmergeable`) attach to
-///     the left-hand run.
-///   * `Unmergeable` entries are never grouped — each becomes its own singleton
-///     run (any neighbouring spacers are absorbed into it).
-fn compute_merge_runs(kinds: &[MergeKind]) -> Vec<(PopoverKind, usize, usize)> {
-    let mut runs: Vec<(PopoverKind, usize, usize)> = Vec::new();
-    if kinds.is_empty() {
-        return runs;
-    }
-
-    let mut start = 0;
-    while start < kinds.len() {
-        match kinds[start] {
-            MergeKind::Spacer => {
-                // Absorb into the previous run if one exists, otherwise skip
-                // and let the trailing-spacer fix-up attach it to the first run.
-                if let Some(last) = runs.last_mut() {
-                    last.2 = start + 1;
-                }
-                start += 1;
-            }
-            MergeKind::Popover(kind) => {
-                if kind == PopoverKind::Unmergeable {
-                    runs.push((kind, start, start + 1));
-                    start += 1;
-                } else {
-                    let mut end = start + 1;
-                    while end < kinds.len() {
-                        match kinds[end] {
-                            MergeKind::Spacer => {
-                                // Look ahead past consecutive spacers to see
-                                // whether the next real widget matches our kind.
-                                let mut lookahead = end + 1;
-                                while lookahead < kinds.len()
-                                    && kinds[lookahead] == MergeKind::Spacer
-                                {
-                                    lookahead += 1;
-                                }
-                                if lookahead < kinds.len()
-                                    && let MergeKind::Popover(k) = kinds[lookahead]
-                                    && k == kind
-                                {
-                                    // Spacer bridges same-kind widgets — absorb it.
-                                    end = lookahead + 1;
-                                    continue;
-                                }
-                                // Spacer precedes a different kind or EOF — stop.
-                                break;
-                            }
-                            MergeKind::Popover(k) => {
-                                if k == kind {
-                                    end += 1;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    runs.push((kind, start, end));
-                    start = end;
-                }
-            }
-        }
-    }
-
-    // Leading spacers: if the first real run starts after index 0, extend it
-    // backward so those spacers are still built as part of the group.
-    if let Some(first) = runs.first_mut()
-        && first.1 > 0
-    {
-        first.1 = 0;
-    }
-
-    runs
-}
-
-/// Build a merge-group wrapper for adjacent same-popover widgets.
-/// Returns the number of widgets successfully built (0 if unsupported kind).
-fn build_merge_group(
-    entries: &[WidgetEntry],
-    kind: PopoverKind,
-    parent_content: &gtk4::Box,
-    state: &mut BarState,
-) -> usize {
-    let _ = (entries, kind, parent_content, state);
-    0
 }
 
 fn create_section(
@@ -774,233 +602,14 @@ pub fn load_css(config: &Config) {
             "CSS loaded and applied (dark_mode={})",
             palette.is_dark_mode
         );
-
-        // Register transient CSS (grow-in rules) at priority above user CSS
-        load_transient_css(&display);
-
-        // Load user's custom style.css if it exists
-        replace_user_css();
     } else {
         warn!("No default display available, CSS styling not applied");
     }
 }
 
-/// Generate the complete built-in CSS for a config without runtime service state.
-/// Used by the CLI dump command.
-pub(crate) fn generate_builtin_css(config: &Config) -> String {
-    let palette = ThemePalette::from_config(config, None, None);
-    let popover_palette = ThemePalette::popover_palette(config, None, None);
-    generate_css(config, &palette, popover_palette.as_ref())
-}
-
-/// Priority for user CSS - higher than everything else to ensure overrides work.
-/// USER = 800, we use 900 to be above all internal styles (which use USER + 10 max).
-const USER_CSS_PRIORITY: u32 = gtk4::STYLE_PROVIDER_PRIORITY_USER + 100;
-
-/// Priority for transient/internal CSS that must override even user CSS.
-/// Used for `.workspace-grow-in` which forces `min-width: 0; transition: none;`
-/// so the container animation system stays in control during grow-in sequences.
-const TRANSIENT_CSS_PRIORITY: u32 = gtk4::STYLE_PROVIDER_PRIORITY_USER + 200;
-
 // Thread-local storage for the theme CSS provider so we can replace it on reload
 thread_local! {
     static THEME_CSS_PROVIDER: RefCell<Option<gtk4::CssProvider>> = const { RefCell::new(None) };
-}
-
-struct UserCssState {
-    provider: gtk4::CssProvider,
-    path: PathBuf,
-    css: String,
-}
-
-// Thread-local storage for the user CSS provider so we can replace it on reload.
-// Keeps the last path/content too, so theme reloads can avoid re-registering an
-// unchanged provider and forcing another display-wide style recalculation.
-thread_local! {
-    static USER_CSS_STATE: RefCell<Option<UserCssState>> = const { RefCell::new(None) };
-}
-
-// Thread-local storage for the transient CSS provider (grow-in rules).
-// Stored to keep the provider alive for the process lifetime without
-// using std::mem::forget.
-thread_local! {
-    static TRANSIENT_CSS_PROVIDER: RefCell<Option<gtk4::CssProvider>> = const { RefCell::new(None) };
-}
-
-/// Search paths for user style.css.
-///
-/// If `config_dir` is provided (the parent directory of the active config file),
-/// it takes highest priority — this ensures `--config /custom/path/config.toml`
-/// also picks up `/custom/path/style.css`. For the normal XDG case this is a
-/// harmless duplicate that gets deduplicated.
-///
-/// Search order:
-/// 1. `<config_dir>/style.css` (next to active config file, if known)
-/// 2. `$XDG_CONFIG_HOME/gnome-topbar/style.css`
-/// 3. `~/.config/gnome-topbar/style.css`
-/// 4. `./style.css` (current working directory)
-fn user_css_search_paths_from_env(
-    config_dir: Option<&Path>,
-    xdg_config_home: Option<&Path>,
-    home_dir: Option<&Path>,
-) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    let mut push_unique = |p: PathBuf| {
-        if seen.insert(p.clone()) {
-            paths.push(p);
-        }
-    };
-
-    // 1. Next to the active config file (highest priority)
-    if let Some(dir) = config_dir {
-        push_unique(dir.join("style.css"));
-    }
-
-    // 2. $XDG_CONFIG_HOME/gnome-topbar/style.css
-    if let Some(xdg_config) = xdg_config_home {
-        push_unique(xdg_config.join("gnome-topbar/style.css"));
-    }
-
-    // 3. ~/.config/gnome-topbar/style.css
-    if let Some(home) = home_dir {
-        push_unique(home.join(".config/gnome-topbar/style.css"));
-    }
-
-    // 4. ./style.css (current working directory)
-    push_unique(PathBuf::from("style.css"));
-
-    paths
-}
-
-pub(crate) fn user_css_search_paths(config_dir: Option<&Path>) -> Vec<PathBuf> {
-    let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
-    let home_dir = std::env::var_os("HOME").map(PathBuf::from);
-    user_css_search_paths_from_env(config_dir, xdg_config_home.as_deref(), home_dir.as_deref())
-}
-
-/// Find user's style.css file if it exists.
-///
-/// Searches the unified path list (config-adjacent first, then XDG/HOME/CWD)
-/// and returns the first path that exists on disk.
-pub(crate) fn find_user_css(config_dir: Option<&Path>) -> Option<PathBuf> {
-    user_css_search_paths(config_dir)
-        .into_iter()
-        .find(|path| path.exists())
-}
-
-/// Load transient CSS rules at high priority (above user CSS).
-///
-/// These rules exist to keep the container animation system in control
-/// during workspace indicator grow-in/removal sequences. The `.workspace-grow-in`
-/// class forces `min-width: 0` and `transition: none` so that:
-/// - The indicator starts at zero width (container animates it in)
-/// - CSS transitions don't fight the container's tick-driven animation
-///
-/// Registered once per display; survives CSS reloads (intentionally).
-fn load_transient_css(display: &gtk4::gdk::Display) {
-    TRANSIENT_CSS_PROVIDER.with(|cell| {
-        if cell.borrow().is_some() {
-            return;
-        }
-
-        let provider = gtk4::CssProvider::new();
-        provider.load_from_string(&format!(
-            ".{} {{ min-width: 0; }} .{} {{ transition: none; }}",
-            style_widget::WORKSPACE_GROW_IN,
-            style_widget::WORKSPACE_GROW_IN_NOTRANS
-        ));
-
-        gtk4::style_context_add_provider_for_display(display, &provider, TRANSIENT_CSS_PRIORITY);
-
-        *cell.borrow_mut() = Some(provider);
-        debug!(
-            "Transient CSS registered (priority={})",
-            TRANSIENT_CSS_PRIORITY
-        );
-    });
-}
-
-/// Replace user's custom CSS provider (fail-safe).
-///
-/// This is the single function for both initial load and hot-reload of user
-/// `style.css`. It reads and builds the new provider *before* removing the old
-/// one, so a read failure keeps the current CSS intact rather than leaving the
-/// bar un-styled.
-///
-/// Called from:
-/// - `load_css()` after theme CSS is applied
-/// - `handle_config_message(StyleCssChanged)` when the file watcher detects a change
-pub(crate) fn replace_user_css() {
-    let Some(display) = gtk4::gdk::Display::default() else {
-        warn!("No default display available for CSS reload");
-        return;
-    };
-
-    let config_dir = ConfigManager::global().config_dir();
-    let Some(path) = find_user_css(config_dir.as_deref()) else {
-        // No style.css found anywhere — remove old provider if any
-        USER_CSS_STATE.with(|cell| {
-            if let Some(old) = cell.borrow_mut().take() {
-                gtk4::style_context_remove_provider_for_display(&display, &old.provider);
-                debug!("Removed user CSS provider (no style.css found)");
-            }
-        });
-        return;
-    };
-
-    match std::fs::read_to_string(&path) {
-        Ok(css) => {
-            if USER_CSS_STATE.with(|cell| {
-                let state = cell.borrow();
-                state.as_ref().is_some_and(|state| {
-                    user_css_is_unchanged(&state.path, &state.css, &path, &css)
-                })
-            }) {
-                trace!("User CSS unchanged, keeping existing provider");
-                return;
-            }
-
-            let provider = gtk4::CssProvider::new();
-            provider.load_from_string(&css);
-
-            // Success — swap: remove old provider first, then add new
-            USER_CSS_STATE.with(|cell| {
-                if let Some(old) = cell.borrow_mut().take() {
-                    gtk4::style_context_remove_provider_for_display(&display, &old.provider);
-                }
-            });
-
-            gtk4::style_context_add_provider_for_display(&display, &provider, USER_CSS_PRIORITY);
-
-            USER_CSS_STATE.with(|cell| {
-                *cell.borrow_mut() = Some(UserCssState {
-                    provider,
-                    path: path.clone(),
-                    css,
-                });
-            });
-
-            info!(
-                "Loaded user CSS from: {} (priority={})",
-                path.display(),
-                USER_CSS_PRIORITY
-            );
-        }
-        Err(e) => {
-            // Read failed — keep the old provider intact
-            warn!(
-                "Failed to read user CSS from {}: {} — keeping current CSS",
-                path.display(),
-                e
-            );
-        }
-    }
-}
-
-fn user_css_is_unchanged(old_path: &Path, old_css: &str, new_path: &Path, new_css: &str) -> bool {
-    old_path == new_path && old_css == new_css
 }
 
 /// Generate CSS string from configuration and theme palette.
@@ -1035,271 +644,16 @@ fn generate_css(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widgets::PopoverKind::{System, Unmergeable};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct TestDir(PathBuf);
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = format!(
-                "{}_{}_{}",
-                name,
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            );
-            let path = std::env::temp_dir().join(unique);
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
     #[test]
-    fn generate_builtin_css_uses_default_theme_tokens() {
+    fn generate_css_uses_default_theme_tokens() {
         let config = Config::from_default_toml().expect("default config parses");
-        let css = super::generate_builtin_css(&config);
+        let palette = ThemePalette::from_config(&config, None, None);
+        let popover_palette = ThemePalette::popover_palette(&config, None, None);
+        let css = generate_css(&config, &palette, popover_palette.as_ref());
 
         assert!(css.contains(":root"));
         assert!(css.contains(".bar"));
         assert!(css.contains("window.quick-settings-window"));
         assert!(css.contains(".media-popover"));
-    }
-
-    #[test]
-    fn merge_runs_empty() {
-        assert_eq!(compute_merge_runs(&[]), vec![]);
-    }
-
-    #[test]
-    fn merge_runs_unmergeable_never_grouped() {
-        let runs = compute_merge_runs(&[
-            MergeKind::Popover(Unmergeable),
-            MergeKind::Popover(Unmergeable),
-            MergeKind::Popover(Unmergeable),
-        ]);
-        assert_eq!(
-            runs,
-            vec![
-                (Unmergeable, 0, 1),
-                (Unmergeable, 1, 2),
-                (Unmergeable, 2, 3),
-            ]
-        );
-    }
-
-    #[test]
-    fn merge_runs_system_grouping() {
-        // Consecutive System entries merge into one run
-        assert_eq!(
-            compute_merge_runs(&[
-                MergeKind::Popover(System),
-                MergeKind::Popover(System),
-                MergeKind::Popover(System),
-            ]),
-            vec![(System, 0, 3)]
-        );
-        // Unmergeable breaks a System run; singleton System stays singleton
-        assert_eq!(
-            compute_merge_runs(&[
-                MergeKind::Popover(System),
-                MergeKind::Popover(System),
-                MergeKind::Popover(Unmergeable),
-                MergeKind::Popover(System),
-            ]),
-            vec![(System, 0, 2), (Unmergeable, 2, 3), (System, 3, 4)],
-        );
-        // Single System is its own run
-        assert_eq!(
-            compute_merge_runs(&[MergeKind::Popover(System)]),
-            vec![(System, 0, 1)]
-        );
-    }
-
-    #[test]
-    fn merge_runs_spacer_absorbed_between_same_kind() {
-        // cpu, spacer, memory → still merges into one System run
-        assert_eq!(
-            compute_merge_runs(&[
-                MergeKind::Popover(System),
-                MergeKind::Spacer,
-                MergeKind::Popover(System),
-            ]),
-            vec![(System, 0, 3)]
-        );
-    }
-
-    #[test]
-    fn merge_runs_spacer_absorbed_into_left_run() {
-        // System, spacer, Unmergeable → spacer attaches to System run
-        assert_eq!(
-            compute_merge_runs(&[
-                MergeKind::Popover(System),
-                MergeKind::Spacer,
-                MergeKind::Popover(Unmergeable),
-            ]),
-            vec![(System, 0, 2), (Unmergeable, 2, 3)]
-        );
-    }
-
-    #[test]
-    fn merge_runs_leading_spacer_absorbed() {
-        // spacer, System, System → leading spacer joins first run
-        assert_eq!(
-            compute_merge_runs(&[
-                MergeKind::Spacer,
-                MergeKind::Popover(System),
-                MergeKind::Popover(System),
-            ]),
-            vec![(System, 0, 3)]
-        );
-    }
-
-    #[test]
-    fn merge_runs_trailing_spacer_absorbed() {
-        // System, spacer → trailing spacer joins the System run
-        assert_eq!(
-            compute_merge_runs(&[MergeKind::Popover(System), MergeKind::Spacer]),
-            vec![(System, 0, 2)]
-        );
-    }
-
-    #[test]
-    fn merge_runs_all_spacers_get_no_runs() {
-        // Spacers only exist to join painted groups; alone they build nothing.
-        assert_eq!(
-            compute_merge_runs(&[MergeKind::Spacer, MergeKind::Spacer]),
-            Vec::new()
-        );
-    }
-
-    #[test]
-    fn user_css_search_paths_config_dir_first() {
-        let dir = std::path::Path::new("/custom/config/dir");
-        let paths = user_css_search_paths_from_env(
-            Some(dir),
-            Some(Path::new("/xdg-home")),
-            Some(Path::new("/home/test")),
-        );
-        assert_eq!(
-            paths,
-            vec![
-                dir.join("style.css"),
-                PathBuf::from("/xdg-home/gnome-topbar/style.css"),
-                PathBuf::from("/home/test/.config/gnome-topbar/style.css"),
-                PathBuf::from("style.css"),
-            ]
-        );
-    }
-
-    #[test]
-    fn user_css_search_paths_deduplicates() {
-        let paths = user_css_search_paths_from_env(
-            Some(Path::new("/home/test/.config/gnome-topbar")),
-            Some(Path::new("/home/test/.config")),
-            Some(Path::new("/home/test")),
-        );
-        assert_eq!(
-            paths,
-            vec![
-                PathBuf::from("/home/test/.config/gnome-topbar/style.css"),
-                PathBuf::from("style.css"),
-            ]
-        );
-    }
-
-    #[test]
-    fn user_css_search_paths_none_config_dir_still_has_entries() {
-        let paths = user_css_search_paths_from_env(None, None, None);
-        assert_eq!(
-            paths,
-            vec![PathBuf::from("style.css")],
-            "without config/XDG/HOME, only the CWD fallback remains"
-        );
-    }
-
-    #[test]
-    fn user_css_search_paths_xdg_dedup_with_home() {
-        let paths = user_css_search_paths_from_env(
-            None,
-            Some(Path::new("/home/test/.config")),
-            Some(Path::new("/home/test")),
-        );
-        assert_eq!(
-            paths,
-            vec![
-                PathBuf::from("/home/test/.config/gnome-topbar/style.css"),
-                PathBuf::from("style.css"),
-            ]
-        );
-    }
-
-    #[test]
-    fn find_user_css_returns_none_when_no_file_exists() {
-        // Pass a config_dir that does not contain style.css; without HOME/XDG
-        // overrides the CWD fallback is unlikely to exist either, but we use an
-        // empty tmp dir as config_dir so that slot is definitely absent.
-        let tmp = TestDir::new("gnome-topbar_test_missing_css");
-        // An empty directory: none of the candidate paths will exist.
-        let result =
-            user_css_search_paths_from_env(Some(tmp.path()), Some(tmp.path()), Some(tmp.path()))
-                .into_iter()
-                .find(|p| p.exists());
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn find_user_css_finds_existing_file() {
-        // Create a real style.css in a temp directory and point config_dir at
-        // it so find_user_css returns the config-adjacent path (highest priority).
-        let tmp = TestDir::new("gnome-topbar_test_css");
-        let style_path = tmp.path().join("style.css");
-        std::fs::write(&style_path, "/* test */").unwrap();
-
-        // Use the injected-env helper so we don't depend on real HOME/XDG.
-        let found =
-            user_css_search_paths_from_env(Some(tmp.path()), Some(tmp.path()), Some(tmp.path()))
-                .into_iter()
-                .find(|p| p.exists());
-
-        assert_eq!(found, Some(style_path));
-    }
-
-    #[test]
-    fn user_css_unchanged_requires_same_path_and_content() {
-        let old_path = PathBuf::from("/tmp/gnome-topbar/style.css");
-        let same_path = PathBuf::from("/tmp/gnome-topbar/style.css");
-        let other_path = PathBuf::from("/tmp/gnome-topbar/other-style.css");
-
-        assert!(user_css_is_unchanged(
-            &old_path,
-            ".bar { color: red; }",
-            &same_path,
-            ".bar { color: red; }"
-        ));
-        assert!(!user_css_is_unchanged(
-            &old_path,
-            ".bar { color: red; }",
-            &same_path,
-            ".bar { color: blue; }"
-        ));
-        assert!(!user_css_is_unchanged(
-            &old_path,
-            ".bar { color: red; }",
-            &other_path,
-            ".bar { color: red; }"
-        ));
     }
 }

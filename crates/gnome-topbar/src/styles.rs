@@ -34,7 +34,7 @@ pub mod class {
     pub const WIDGET_WRAPPER: &str = "widget-wrapper";
 
     /// Widget visual surface (`.widget`).
-    /// Carries background and border-radius; the class users target in custom CSS.
+    /// Carries background and border-radius.
     pub const WIDGET: &str = "widget";
 
     /// Widget item class (`.widget-item`).
@@ -549,16 +549,6 @@ pub mod widget {
     /// Workspace indicator content overlay (`.workspace-indicator-content`).
     pub const WORKSPACE_INDICATOR_CONTENT: &str = "workspace-indicator-content";
 
-    /// Workspace indicator grow-in: forces zero width (`.workspace-grow-in`).
-    /// Registered at transient CSS priority (above user CSS) to ensure
-    /// user style.css cannot accidentally defeat the min-width: 0 reset.
-    pub const WORKSPACE_GROW_IN: &str = "workspace-grow-in";
-
-    /// Workspace indicator grow-in: suppresses CSS transitions
-    /// (`.workspace-grow-in-notrans`). Removed one frame before
-    /// `WORKSPACE_GROW_IN` so the `min-width` transition can fire.
-    pub const WORKSPACE_GROW_IN_NOTRANS: &str = "workspace-grow-in-notrans";
-
     /// Workspace separator (`.workspace-separator`).
     pub const WORKSPACE_SEPARATOR: &str = "workspace-separator";
 
@@ -794,9 +784,6 @@ pub mod notification {
 
     /// Dismiss icon (`.notification-dismiss-icon`).
     pub const DISMISS_ICON: &str = "notification-dismiss-icon";
-
-    /// Row dismissing animation state (`.notification-row-dismissing`).
-    pub const ROW_DISMISSING: &str = "notification-row-dismissing";
 
     /// Grouped app notification card (`.notification-app-group`).
     pub const APP_GROUP: &str = "notification-app-group";

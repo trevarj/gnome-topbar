@@ -202,11 +202,6 @@ enum DumpAction {
         /// Output path, or "-" for stdout
         output: PathBuf,
     },
-    /// Write the complete built-in CSS generated from the default config to a file
-    DefaultCss {
-        /// Output path, or "-" for stdout
-        output: PathBuf,
-    },
 }
 
 fn main() -> ExitCode {
@@ -307,17 +302,6 @@ fn handle_dump_command(action: DumpAction) -> ExitCode {
             gnome_topbar_core::config::DEFAULT_CONFIG_TOML,
             "default config",
         ),
-        DumpAction::DefaultCss { output } => {
-            let config = match Config::from_default_toml() {
-                Ok(config) => config,
-                Err(e) => {
-                    eprintln!("Error: built-in default config is invalid: {}", e);
-                    return ExitCode::FAILURE;
-                }
-            };
-            let css = bar::generate_builtin_css(&config);
-            write_dump(&output, &css, "default CSS")
-        }
     };
 
     match result {

@@ -2,11 +2,17 @@
 
 /// Return system tray CSS.
 pub fn css(animations: bool) -> String {
-    let tray_transition = if animations {
-        "transition: transform 100ms ease-out;"
-    } else {
-        "transition: none;"
-    };
+    // The tray item's press cue (`transform: scale()` on :hover/:active)
+    // formerly eased over 100ms via a CSS transition. All animation in this
+    // crate is now frame-clock driven from Rust (see animation.rs), but the
+    // scale applies to internal CSS sub-nodes of the tray item that have no
+    // public widget handle (same situation as the removed slider cue — see
+    // css/base.rs). Driving it per-frame from Rust would mean intercepting a
+    // sub-node's transform, which is disproportionate for a 100ms press cue.
+    // The transition is removed; the scale still applies, just instantly.
+    // `animations` is no longer read here.
+    let _ = animations;
+    let tray_transition = "transition: none;";
     format!(
         r#"
 /* ===== SYSTEM TRAY ===== */

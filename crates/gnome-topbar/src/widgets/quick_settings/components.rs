@@ -270,11 +270,15 @@ impl ExpanderButton {
             &[crate::styles::qs::TOGGLE_MORE_ICON, color::PRIMARY],
         );
 
-        // Center the icon within the button's hover area
-        let icon_widget = icon_handle.widget();
-        icon_widget.set_halign(gtk4::Align::Center);
-        icon_widget.set_valign(gtk4::Align::Center);
-        button.set_child(Some(&icon_widget));
+        // Wrap in a RotateBox so the expand rotation is Rust-driven. Center the
+        // wrapper within the button's hover area.
+        let rotator = super::ui_helpers::wrap_chevron_icon(
+            &icon_handle,
+            super::ui_helpers::CHEVRON_EXPANDED_ANGLE,
+        );
+        rotator.set_halign(gtk4::Align::Center);
+        rotator.set_valign(gtk4::Align::Center);
+        button.set_child(Some(&rotator));
 
         ExpanderButtonResult {
             button,

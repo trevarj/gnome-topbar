@@ -23,6 +23,7 @@ use crate::services::notification::{
 };
 use crate::services::tooltip::TooltipManager;
 use crate::styles::{button, card, color, notification as notif, surface};
+use crate::widgets::animation::{Animation, AnimationParams, Easing};
 
 use super::css::DISMISS_ANIMATION_MS;
 use super::layer_shell_popover::{
@@ -506,8 +507,30 @@ fn remove_all_children(list: &GtkBox) {
 
 fn mark_revealer_child_dismissing(revealer: &Revealer) {
     if let Some(child) = revealer.child() {
-        child.add_css_class(notif::ROW_DISMISSING);
+        fade_out_dismissing(&child);
     }
+}
+
+/// Fade a dismissing notification card/group to transparent.
+///
+/// Replaces the former CSS `transition: opacity {ms}ms ease` that animated the
+/// `.notification-row-dismissing { opacity: 0 }` end state. The opacity is now
+/// driven per-frame from the shared [`Animation`] helper (height collapse is
+/// still handled by the surrounding [`Revealer`]). The helper honors the global
+/// `theme.animations` toggle: when disabled it jumps straight to opacity 0,
+/// matching the instant collapse used everywhere else in the dismiss path.
+///
+/// The `Animation` is bound to `widget` weakly and self-terminates if the
+/// widget is removed mid-fade (the dismiss timeout removes the row), so no tick
+/// callback leaks even on rapid re-dismiss.
+fn fade_out_dismissing(widget: &impl IsA<gtk4::Widget>) {
+    let widget = widget.as_ref().clone();
+    let anim = Animation::new(&widget);
+    anim.start(
+        AnimationParams::new(DISMISS_ANIMATION_MS).with_easing(Easing::EaseOutCubic),
+        Box::new(move |t| widget.set_opacity(1.0 - t)),
+        None,
+    );
 }
 
 fn dismiss_duration() -> Duration {
@@ -664,7 +687,7 @@ fn build_notification_group(
             NotificationService::global().close(*notification_id);
         }
 
-        card_for_clear.add_css_class(notif::ROW_DISMISSING);
+        fade_out_dismissing(&card_for_clear);
         group_revealer_for_clear.set_reveal_child(false);
 
         let outer_list = outer_list_for_clear.clone();
@@ -1074,7 +1097,7 @@ fn schedule_notification_row_removal(
     suppress_rebuild.set(true);
 
     // Fade out the row content and collapse height via the Revealer.
-    card.add_css_class(notif::ROW_DISMISSING);
+    fade_out_dismissing(card);
     revealer.set_reveal_child(false);
 
     let revealer = revealer.clone();

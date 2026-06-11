@@ -8,6 +8,7 @@ use std::rc::Rc;
 use crate::services::config_manager::ConfigManager;
 use crate::services::icons::{CairoSpinner, IconHandle, IconsService};
 use crate::styles::{button, color, qs, row, state};
+use crate::widgets::rotate_box::RotateBox;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Revealer, SelectionMode,
@@ -41,6 +42,41 @@ pub struct ExpandableCardBase {
 impl ExpandableCardBase {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+/// Expanded-state rotation for the expander chevron (180°, flips pan-down up).
+pub const CHEVRON_EXPANDED_ANGLE: f32 = 180.0;
+/// Expanded-state rotation for the row hamburger-menu icon (90°).
+pub const MENU_ICON_EXPANDED_ANGLE: f32 = 90.0;
+
+/// Wrap an icon's root widget in a [`RotateBox`] so its expand/collapse
+/// rotation can be driven from Rust (replacing the former CSS
+/// `transform: rotate()` + transition).
+///
+/// Returns the `RotateBox` to parent in place of `icon.widget()`. Use
+/// [`set_chevron_expanded`] on the same `IconHandle` to drive the rotation.
+pub fn wrap_chevron_icon(icon: &IconHandle, expanded_angle: f32) -> RotateBox {
+    let rotator = RotateBox::with_expanded_angle(expanded_angle);
+    rotator.set_child(&icon.widget());
+    rotator
+}
+
+/// Drive the rotation animation for a chevron/menu icon previously wrapped via
+/// [`wrap_chevron_icon`], and keep the `.expanded` CSS class in sync (the class
+/// still controls the chevron's static `margin-top` shift).
+///
+/// Safe to call on an icon that was never wrapped — the rotation is simply
+/// skipped, while the class toggle still applies.
+pub fn set_chevron_expanded(icon: &IconHandle, expanded: bool) {
+    let icon_widget = icon.widget();
+    if expanded {
+        icon_widget.add_css_class(state::EXPANDED);
+    } else {
+        icon_widget.remove_css_class(state::EXPANDED);
+    }
+    if let Some(rotator) = icon_widget.parent().and_downcast::<RotateBox>() {
+        rotator.set_expanded(expanded);
     }
 }
 
@@ -196,7 +232,7 @@ impl AccordionManager {
                 if revealer.reveals_child() {
                     collapse_revealer_instant(revealer);
                     if let Some(arrow) = base.arrow.borrow().as_ref() {
-                        arrow.widget().remove_css_class(state::EXPANDED);
+                        set_chevron_expanded(arrow, false);
                     }
                 }
             }
@@ -254,11 +290,7 @@ impl AccordionManager {
             revealer.set_reveal_child(expanding);
 
             if let Some(ref arrow) = arrow {
-                if expanding {
-                    arrow.widget().add_css_class(state::EXPANDED);
-                } else {
-                    arrow.widget().remove_css_class(state::EXPANDED);
-                }
+                set_chevron_expanded(arrow, expanding);
             }
 
             // Invoke custom callback if provided
@@ -308,11 +340,12 @@ pub fn create_row_menu_button() -> (Button, IconHandle) {
     let icons = IconsService::global();
     let icon_handle = icons.create_icon("open-menu-symbolic", &[row::QS_MENU_ICON, color::PRIMARY]);
 
-    // Center the icon within the button's hover area
-    let icon_widget = icon_handle.widget();
-    icon_widget.set_halign(gtk4::Align::Center);
-    icon_widget.set_valign(gtk4::Align::Center);
-    menu_btn.set_child(Some(&icon_widget));
+    // Wrap in a RotateBox so the expand rotation is Rust-driven. Center the
+    // wrapper within the button's hover area.
+    let rotator = wrap_chevron_icon(&icon_handle, MENU_ICON_EXPANDED_ANGLE);
+    rotator.set_halign(gtk4::Align::Center);
+    rotator.set_valign(gtk4::Align::Center);
+    menu_btn.set_child(Some(&rotator));
 
     (menu_btn, icon_handle)
 }

@@ -69,17 +69,13 @@ pub fn widget_css(config: &Config) -> String {
     let spacing = config.bar.spacing;
     let animations = config.theme.animations;
 
-    // Resolve per-widget workspace animation flag: explicit `animate` in
-    // [widgets.workspaces] overrides the global `theme.animations` default.
-    let workspace_animations = config
-        .widgets
-        .get_options("workspaces")
-        .and_then(|opts| opts.options.get("animate"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(animations);
+    // Workspace indicator widths are Rust-owned (frame-by-frame), so bar CSS no
+    // longer needs the per-widget workspace animation flag; the
+    // `[widgets.workspaces] animate` / `theme.animations` resolution happens in
+    // `workspaces.rs` and the shared `animation::Animation` helper.
 
     // Collect all CSS from submodules
-    let bar_css = bar::css(screen_margin, spacing, workspace_animations);
+    let bar_css = bar::css(screen_margin, spacing);
     let tray_css = tray::css(animations);
     let buttons_css = buttons::css();
     let calendar_css = calendar::css();

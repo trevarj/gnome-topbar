@@ -28,7 +28,6 @@ use std::time::{Duration, Instant};
 
 use gtk4::{glib, prelude::*};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::HashSet;
 use tracing::{debug, error, info, warn};
 
 use gnome_topbar_core::theme::{BORDER_OPACITY_DARK, BORDER_OPACITY_GTK, BORDER_OPACITY_LIGHT};
@@ -54,19 +53,6 @@ pub enum ConfigMessage {
     Reloaded(Box<Config>),
     /// Config file changed but failed to load/validate.
     Error(String),
-    /// User style.css file changed and should be reloaded.
-    StyleCssChanged,
-}
-
-/// Make a path absolute by joining it with the current working directory if needed.
-fn make_absolute(path: &std::path::Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map(|cwd| cwd.join(path))
-            .unwrap_or_else(|_| path.to_path_buf())
-    }
 }
 
 /// Send a config message to the main thread via glib::idle_add_once.
@@ -74,20 +60,6 @@ fn send_config_message(msg: ConfigMessage) {
     glib::idle_add_once(move || {
         ConfigManager::global().handle_config_message(msg);
     });
-}
-
-/// Return true when an event path should trigger user CSS reload.
-///
-/// Matches `style.css` by name (for direct writes to the logical path), or an
-/// exact match against the full canonical symlink target path (to avoid false
-/// positives when another watched directory coincidentally contains a file with
-/// the same basename).
-fn is_style_change_path(
-    path: &std::path::Path,
-    symlink_canonical_target: Option<&std::path::Path>,
-) -> bool {
-    path.file_name() == Some(std::ffi::OsStr::new("style.css"))
-        || symlink_canonical_target.is_some_and(|target| path == target)
 }
 
 /// Manages configuration state and live reload.
@@ -230,7 +202,7 @@ impl ConfigManager {
     /// so this mirrors the supported `outline_color` symbolic values with the
     /// already-computed palette colors. Per-widget overrides from
     /// `[widgets.<name>]` take precedence over the global `theme.outline_color`.
-    /// This mirrors config/palette-driven outlines, not arbitrary user CSS overrides.
+    /// This mirrors config/palette-driven outlines only.
     pub fn surface_outline_rgba_for_widget(
         &self,
         widget_name: &str,
@@ -393,17 +365,6 @@ impl ConfigManager {
         self.config.borrow().theme.ripple
     }
 
-    /// Get the parent directory of the active config file, if any.
-    ///
-    /// Used by the unified CSS resolver to search for `style.css` next to the
-    /// config file before falling back to XDG/HOME/CWD.
-    pub(crate) fn config_dir(&self) -> Option<PathBuf> {
-        self.config_path
-            .borrow()
-            .as_ref()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-    }
-
     /// Check if compositor background blur is enabled.
     ///
     /// When true, gnome-topbar sends ext-background-effect-v1 blur region hints
@@ -503,73 +464,21 @@ impl ConfigManager {
 
         // Clone path for the watcher thread
         let watch_path = path.clone();
-        let config_dir = path.parent().map(|p| p.to_path_buf());
         let shutdown_flag = self.shutdown_flag.clone();
 
         // Spawn file watcher thread
         thread::spawn(move || {
-            Self::run_file_watcher(watch_path, config_dir, shutdown_flag);
+            Self::run_file_watcher(watch_path, shutdown_flag);
         });
-    }
-
-    /// Compute the set of directories to watch for `style.css` changes, and
-    /// (if the active `style.css` is a symlink) the full canonical path of the
-    /// symlink target.
-    ///
-    /// `search_paths` and `style_css_logical` are passed in so the function
-    /// can be unit-tested without touching global env vars.
-    ///
-    /// `config_watch_dir` is excluded from the returned set because it is
-    /// already covered by the config file watcher.
-    fn compute_style_watch_info(
-        search_paths: Vec<PathBuf>,
-        style_css_logical: Option<PathBuf>,
-        config_watch_dir: &std::path::Path,
-    ) -> (HashSet<PathBuf>, Option<PathBuf>) {
-        let mut watch_dirs: HashSet<PathBuf> = search_paths
-            .into_iter()
-            .map(|path| make_absolute(&path))
-            .filter_map(|path| path.parent().map(|dir| dir.to_path_buf()))
-            .collect();
-        watch_dirs.remove(config_watch_dir);
-
-        let mut symlink_canonical_target: Option<PathBuf> = None;
-
-        if let Some(logical) = style_css_logical
-            && let Ok(meta) = std::fs::symlink_metadata(&logical)
-            && meta.file_type().is_symlink()
-            && let Ok(canonical) = logical.canonicalize()
-            && let Some(target_dir) = canonical.parent()
-        {
-            info!(
-                "style.css is a symlink: {} -> {}",
-                logical.display(),
-                canonical.display()
-            );
-            watch_dirs.insert(target_dir.to_path_buf());
-            symlink_canonical_target = Some(canonical);
-        }
-
-        (watch_dirs, symlink_canonical_target)
     }
 
     /// Run the file watcher loop (called on a background thread).
     ///
-    /// Watches `config.toml` and user `style.css`, including the symlink target's
-    /// parent directory so direct writes (e.g. Matugen) are detected.
+    /// Watches `config.toml` (via its parent directory) for changes.
     ///
-    /// **Limitation:** watch directories are resolved once at startup. Changes
-    /// within already-watched directories (including a new higher-priority
-    /// `style.css` appearing there) are detected normally. Writes will be
-    /// missed until restart in two cases: if `style.css` becomes a symlink
-    /// after startup (or an existing symlink is re-pointed to a directory not
-    /// already watched), or if a candidate directory that did not exist at
-    /// startup is created later.
-    fn run_file_watcher(
-        config_path: PathBuf,
-        config_dir: Option<PathBuf>,
-        shutdown_flag: Arc<AtomicBool>,
-    ) {
+    /// **Limitation:** the watch directory is resolved once at startup. Changes
+    /// within the already-watched directory are detected normally.
+    fn run_file_watcher(config_path: PathBuf, shutdown_flag: Arc<AtomicBool>) {
         // Debounce events to avoid multiple reloads for a single save
         let debounce_duration = Duration::from_millis(FILE_CHANGE_DEBOUNCE_MS);
 
@@ -587,20 +496,6 @@ impl ConfigManager {
             .parent()
             .unwrap_or(&config_canonical)
             .to_path_buf();
-
-        let (style_watch_dirs, symlink_canonical_target) = Self::compute_style_watch_info(
-            crate::bar::user_css_search_paths(config_dir.as_deref()),
-            crate::bar::find_user_css(config_dir.as_deref()),
-            &config_watch_dir,
-        );
-
-        debug!(
-            "Style CSS watch directories: {:?}",
-            style_watch_dirs
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-        );
 
         let (tx, rx) = channel();
         let mut watcher = match RecommendedWatcher::new(tx, notify::Config::default()) {
@@ -621,43 +516,13 @@ impl ConfigManager {
             config_watch_dir.display()
         );
 
-        for watch_dir in style_watch_dirs {
-            if !watch_dir.is_dir() {
-                debug!(
-                    "Skipping style.css watch for non-directory path: {}",
-                    watch_dir.display()
-                );
-                continue;
-            }
-
-            if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::NonRecursive) {
-                warn!(
-                    "Failed to watch style.css directory {}: {}",
-                    watch_dir.display(),
-                    e
-                );
-            } else {
-                info!("Also watching style.css directory: {}", watch_dir.display());
-            }
-        }
-
         let mut pending_config = false;
-        let mut pending_style = false;
         let mut last_event_at: Option<Instant> = None;
 
         while !shutdown_flag.load(Ordering::Relaxed) {
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Ok(event)) => {
-                    let WatchedChange {
-                        config_changed,
-                        style_changed,
-                    } = classify_watched_event(
-                        &event,
-                        &config_canonical,
-                        symlink_canonical_target.as_deref(),
-                    );
-                    pending_config |= config_changed;
-                    pending_style |= style_changed;
+                    pending_config |= classify_watched_event(&event, &config_canonical);
                     last_event_at = Some(Instant::now());
                 }
                 Ok(Err(err)) => {
@@ -682,13 +547,7 @@ impl ConfigManager {
                 Self::reload_and_send(&config_canonical);
             }
 
-            if pending_style {
-                debug!("User style.css change detected");
-                send_config_message(ConfigMessage::StyleCssChanged);
-            }
-
             pending_config = false;
-            pending_style = false;
             last_event_at = None;
         }
 
@@ -733,11 +592,6 @@ impl ConfigManager {
             ConfigMessage::Error(err) => {
                 // Just log the error - keep using the old config
                 error!("Config reload error: {}", err);
-            }
-            ConfigMessage::StyleCssChanged => {
-                // Reload user CSS
-                info!("Reloading user style.css...");
-                crate::bar::replace_user_css();
             }
         }
     }
@@ -835,11 +689,10 @@ impl ConfigManager {
         debug!("Config watcher stopped");
     }
 
-    /// Reload config and user CSS on demand from the running panel.
+    /// Reload config on demand from the running panel.
     ///
     /// This is used by the CLI IPC command. It follows the same validation and
-    /// application path as file-watch reloads, then refreshes user CSS even when
-    /// the config itself is unchanged.
+    /// application path as file-watch reloads.
     pub fn reload_now(self: &Rc<Self>) {
         info!("Manual reload requested");
 
@@ -873,31 +726,12 @@ impl ConfigManager {
                 self.handle_config_message(ConfigMessage::Error(msg));
             }
         }
-
-        info!("Reloading user style.css...");
-        crate::bar::replace_user_css();
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
-struct WatchedChange {
-    config_changed: bool,
-    style_changed: bool,
-}
-
-fn classify_watched_event(
-    event: &Event,
-    config_canonical: &std::path::Path,
-    symlink_canonical_target: Option<&std::path::Path>,
-) -> WatchedChange {
-    event
-        .paths
-        .iter()
-        .fold(WatchedChange::default(), |mut acc, path| {
-            acc.config_changed |= path == config_canonical;
-            acc.style_changed |= is_style_change_path(path, symlink_canonical_target);
-            acc
-        })
+/// Return true when an event touches the watched config file.
+fn classify_watched_event(event: &Event, config_canonical: &std::path::Path) -> bool {
+    event.paths.iter().any(|path| path == config_canonical)
 }
 
 /// Drop guard that disconnects a theme callback when dropped.
@@ -1061,134 +895,15 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_make_absolute_passthrough_for_absolute_path() {
-        let absolute = Path::new("/tmp/gnome-topbar-style.css");
-        assert_eq!(make_absolute(absolute), absolute.to_path_buf());
-    }
+    fn test_classify_watched_event_tracks_config() {
+        let config = Path::new("/tmp/gnome-topbar/config.toml");
 
-    #[test]
-    fn test_make_absolute_joins_current_dir_for_relative_path() {
-        let relative = Path::new("style.css");
-        let expected = std::env::current_dir().unwrap().join(relative);
-        assert_eq!(make_absolute(relative), expected);
-    }
+        let matching = Event::new(notify::EventKind::Any).add_path(config.to_path_buf());
+        assert!(classify_watched_event(&matching, config));
 
-    #[test]
-    fn test_is_style_change_path_matches_style_css() {
-        assert!(is_style_change_path(Path::new("/tmp/style.css"), None));
-    }
-
-    #[test]
-    fn test_is_style_change_path_matches_exact_canonical_target() {
-        // Only the exact canonical path triggers a reload — not a same-named
-        // file in a different directory.
-        let target = Path::new("/run/matugen/colors.css");
-        assert!(is_style_change_path(target, Some(target)));
-    }
-
-    #[test]
-    fn test_is_style_change_path_rejects_same_name_different_dir() {
-        // A file named "colors.css" in a different directory must NOT match,
-        // unlike the old basename-only comparison which would have fired.
-        let target = Path::new("/run/matugen/colors.css");
-        let unrelated = Path::new("/home/user/.cache/colors.css");
-        assert!(!is_style_change_path(unrelated, Some(target)));
-    }
-
-    #[test]
-    fn test_is_style_change_path_target_name_none() {
-        assert!(!is_style_change_path(Path::new("/tmp/colors.css"), None));
-    }
-
-    #[test]
-    fn test_classify_watched_event_tracks_config_and_style() {
-        let event = Event::new(notify::EventKind::Any)
-            .add_path(Path::new("/tmp/gnome-topbar/config.toml").to_path_buf())
-            .add_path(Path::new("/tmp/gnome-topbar/style.css").to_path_buf());
-
-        let change = classify_watched_event(
-            &event,
-            Path::new("/tmp/gnome-topbar/config.toml"),
-            Some(Path::new("/tmp/theme/colors.css")),
-        );
-
-        assert_eq!(
-            change,
-            WatchedChange {
-                config_changed: true,
-                style_changed: true,
-            }
-        );
-    }
-
-    #[test]
-    fn test_classify_watched_event_tracks_symlink_target() {
-        let event = Event::new(notify::EventKind::Any)
-            .add_path(Path::new("/tmp/theme/colors.css").to_path_buf());
-
-        let change = classify_watched_event(
-            &event,
-            Path::new("/tmp/gnome-topbar/config.toml"),
-            Some(Path::new("/tmp/theme/colors.css")),
-        );
-
-        assert_eq!(
-            change,
-            WatchedChange {
-                config_changed: false,
-                style_changed: true,
-            }
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_compute_style_watch_info_adds_symlink_target_dir() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        // Create two temp dirs: one for the "config" dir (where style.css lives
-        // as a symlink) and one for the "target" dir (where the real file lives).
-        let unique = format!(
-            "gnome-topbar_test_symlink_{}_{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let config_dir = std::env::temp_dir().join(format!("{}_config", unique));
-        let target_dir = std::env::temp_dir().join(format!("{}_target", unique));
-        std::fs::create_dir_all(&config_dir).unwrap();
-        std::fs::create_dir_all(&target_dir).unwrap();
-
-        let target_file = target_dir.join("colors.css");
-        std::fs::write(&target_file, "/* target */").unwrap();
-
-        let symlink_path = config_dir.join("style.css");
-        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
-
-        let canonical_target = target_file.canonicalize().unwrap();
-
-        let search_paths = vec![symlink_path.clone()];
-        let (watch_dirs, symlink_canonical_target) = ConfigManager::compute_style_watch_info(
-            search_paths,
-            Some(symlink_path),
-            // Exclude config_dir to mirror the real usage.
-            &config_dir,
-        );
-
-        // The symlink target's parent directory must be added for direct-write detection.
-        assert!(
-            watch_dirs.contains(&target_dir),
-            "expected target_dir {:?} in watch_dirs {:?}",
-            target_dir,
-            watch_dirs,
-        );
-        // The returned canonical target must be the exact target file path.
-        assert_eq!(symlink_canonical_target, Some(canonical_target));
-
-        let _ = std::fs::remove_dir_all(&config_dir);
-        let _ = std::fs::remove_dir_all(&target_dir);
+        let unrelated = Event::new(notify::EventKind::Any)
+            .add_path(Path::new("/tmp/gnome-topbar/other.toml").to_path_buf());
+        assert!(!classify_watched_event(&unrelated, config));
     }
 
     #[test]

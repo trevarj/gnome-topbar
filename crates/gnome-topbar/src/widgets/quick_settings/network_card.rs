@@ -22,7 +22,8 @@ use super::components::ListRow;
 use super::ui_helpers::{
     ExpandableCard, ExpandableCardBase, ScanButton, add_disabled_placeholder, add_placeholder_row,
     build_accent_subtitle, build_error_subtitle, clear_list_box, create_qs_list_box,
-    create_row_action_label, create_row_menu_action, create_row_menu_button, set_icon_active,
+    create_row_action_label, create_row_menu_action, create_row_menu_button, set_chevron_expanded,
+    set_icon_active,
 };
 use super::window::current_quick_settings_window;
 use crate::services::icons::{IconHandle, IconsService};
@@ -1330,7 +1331,6 @@ fn create_network_action_widget(net: &WifiNetwork) -> gtk4::Widget {
     let is_known_clone = is_known;
     let ssid_for_actions = ssid.clone();
 
-    let menu_icon_widget = menu_icon.widget();
     menu_btn.connect_clicked(move |btn| {
         let popover = Popover::new();
         configure_popover(&popover);
@@ -1397,10 +1397,10 @@ fn create_network_action_widget(net: &WifiNetwork) -> gtk4::Widget {
         popover.set_child(Some(&panel));
         popover.set_parent(btn);
 
-        menu_icon_widget.add_css_class(state::EXPANDED);
-        let icon_for_close = menu_icon_widget.clone();
+        set_chevron_expanded(&menu_icon, true);
+        let icon_for_close = menu_icon.clone();
         popover.connect_closed(move |p| {
-            icon_for_close.remove_css_class(state::EXPANDED);
+            set_chevron_expanded(&icon_for_close, false);
             p.unparent();
         });
 

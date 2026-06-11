@@ -31,6 +31,7 @@ use crate::services::vpn::{VpnService, VpnSnapshot};
 use crate::styles::{icon, qs, state, widget};
 use crate::widgets::BaseWidget;
 use crate::widgets::WidgetConfig;
+use crate::widgets::animation::{Animation, AnimationParams, Easing};
 use crate::widgets::base::trigger_ripple_from_gesture;
 use crate::widgets::warn_unknown_options;
 use gnome_topbar_core::config::WidgetEntry;
@@ -57,6 +58,45 @@ macro_rules! set_css_class {
             widget.remove_css_class($class_name);
         }
     }};
+}
+
+/// Period of one screen-sharing opacity pulse, in milliseconds.
+/// Matches the former `@keyframes qs-screen-sharing-pulse` CSS animation.
+const SCREEN_SHARING_PULSE_MS: u64 = 3300;
+/// Trough opacity at the midpoint of the pulse (CSS keyframe `50% { opacity }`).
+const SCREEN_SHARING_PULSE_MIN_OPACITY: f64 = 0.72;
+
+/// Drive (or stop) the screen-sharing indicator's opacity pulse.
+///
+/// Replaces the CSS `qs-screen-sharing-pulse` keyframes with a frame-clock
+/// loop so the pulse stays in sync with vsync and respects `theme.animations`.
+/// When `active` is false (or animations are disabled) the indicator is left at
+/// full opacity and any running loop is cancelled, so it never leaks a tick
+/// callback once the indicator hides.
+fn set_screen_sharing_pulse(anim: &Animation, widget: &gtk4::Widget, active: bool) {
+    if !active {
+        anim.cancel();
+        widget.set_opacity(1.0);
+        return;
+    }
+    if anim.is_running() {
+        return;
+    }
+    let widget = widget.clone();
+    anim.start(
+        AnimationParams::new(SCREEN_SHARING_PULSE_MS)
+            .with_easing(Easing::Linear)
+            .repeating(),
+        Box::new(move |phase| {
+            // Cosine-shaped triangle wave: 1.0 at phase 0/1, trough at phase
+            // 0.5. (1 - cos(2*pi*phase)) / 2 sweeps 0 -> 1 -> 0, matching the
+            // ease-in-out feel of the original keyframes.
+            let dip = (1.0 - (std::f64::consts::TAU * phase).cos()) / 2.0;
+            let opacity = 1.0 - (1.0 - SCREEN_SHARING_PULSE_MIN_OPACITY) * dip;
+            widget.set_opacity(opacity);
+        }),
+        None,
+    );
 }
 
 /// Configuration for which cards are shown in Quick Settings.
@@ -546,6 +586,16 @@ impl QuickSettingsWidget {
             TooltipManager::global()
                 .set_styled_tooltip(&screen_share_icon.widget(), "Screen is being shared");
 
+            // Rust-driven opacity pulse (replaces the former CSS keyframes).
+            // The Animation holds the icon weakly and is cancelled whenever the
+            // indicator hides, so no tick callback leaks.
+            let screen_share_pulse = Animation::new(&screen_share_icon.widget());
+            set_screen_sharing_pulse(
+                &screen_share_pulse,
+                screen_share_icon.widget().as_ref(),
+                privacy_snapshot.screen_sharing,
+            );
+
             // Subscribe to AudioService updates
             let audio_icon_handle = audio_icon.clone();
             let mic_recording_icon_handle = mic_recording_icon.clone();
@@ -600,6 +650,11 @@ impl QuickSettingsWidget {
                     set_visible_if_changed!(
                         screen_share_icon_handle.widget(),
                         snapshot.screen_sharing
+                    );
+                    set_screen_sharing_pulse(
+                        &screen_share_pulse,
+                        screen_share_icon_handle.widget().as_ref(),
+                        snapshot.screen_sharing,
                     );
                 },
             ));

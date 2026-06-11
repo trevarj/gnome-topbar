@@ -40,7 +40,7 @@ use crate::services::config_manager::{ConfigManager, ThemeCallbackGuard};
 use crate::services::surfaces::SurfaceStyleManager;
 use crate::styles::{button, notification as notif};
 
-use super::animation::ease_out_cubic;
+use super::animation::{Animation, AnimationParams, Easing};
 use super::notifications_common::{
     POPOVER_WIDTH, SURFACE_SHADOW_MARGIN, TOAST_ESTIMATED_HEIGHT, TOAST_GAP,
     TOAST_TIMEOUT_CRITICAL_MS, TOAST_TIMEOUT_MS, create_notification_image_widget,
@@ -53,8 +53,10 @@ pub(super) struct NotificationToast {
     notification_id: u32,
     timeout_source: RefCell<Option<SourceId>>,
     current_bar_margin: Cell<i32>,
-    animation_source: RefCell<Option<gtk4::TickCallbackId>>,
-    lifecycle_animation_source: RefCell<Option<gtk4::TickCallbackId>>,
+    /// Drives the inter-toast reposition slide (margin only).
+    margin_anim: Animation,
+    /// Drives the enter and dismiss lifecycle fades (opacity + margin).
+    lifecycle_anim: Animation,
     is_closing: Cell<bool>,
     bar_edge: Edge,
     /// Actual rendered height, measured after window is mapped
@@ -103,13 +105,15 @@ impl NotificationToast {
         window.set_margin(Edge::Right, 0);
 
         let notification_id = notification.id;
+        let margin_anim = Animation::new(&window);
+        let lifecycle_anim = Animation::new(&window);
         let toast = Rc::new(Self {
             window,
             notification_id,
             timeout_source: RefCell::new(None),
             current_bar_margin: Cell::new(initial_margin),
-            animation_source: RefCell::new(None),
-            lifecycle_animation_source: RefCell::new(None),
+            margin_anim,
+            lifecycle_anim,
             is_closing: Cell::new(false),
             bar_edge,
             height: Cell::new(TOAST_ESTIMATED_HEIGHT),
@@ -453,15 +457,11 @@ impl NotificationToast {
     }
 
     fn cancel_animation(&self) {
-        if let Some(source_id) = self.animation_source.borrow_mut().take() {
-            source_id.remove();
-        }
+        self.margin_anim.cancel();
     }
 
     fn cancel_lifecycle_animation(&self) {
-        if let Some(source_id) = self.lifecycle_animation_source.borrow_mut().take() {
-            source_id.remove();
-        }
+        self.lifecycle_anim.cancel();
     }
 
     fn start_enter_animation(self: &Rc<Self>) {
@@ -479,41 +479,21 @@ impl NotificationToast {
         self.window.set_opacity(0.0);
         self.window.set_margin(self.bar_edge, start_margin);
 
-        let start_time_us = Rc::new(Cell::new(None::<i64>));
-        let toast_weak = Rc::downgrade(self);
-        let source_id = self.window.add_tick_callback(move |_, frame_clock| {
-            let Some(toast) = toast_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-
-            if toast.is_closing.get() {
-                return glib::ControlFlow::Break;
-            }
-
-            let start = start_time_us.get().unwrap_or_else(|| {
-                let now = frame_clock.frame_time();
-                start_time_us.set(Some(now));
-                now
-            });
-            let elapsed_ms = (frame_clock.frame_time() - start) as f64 / 1000.0;
-            let progress = (elapsed_ms / Self::ANIMATION_DURATION_MS as f64).clamp(0.0, 1.0);
-            let eased = ease_out_cubic(progress);
+        let window = self.window.clone();
+        let bar_edge = self.bar_edge;
+        let on_frame = move |eased: f64| {
             let margin =
                 start_margin + ((target_margin - start_margin) as f64 * eased).round() as i32;
+            window.set_opacity(eased);
+            window.set_margin(bar_edge, margin);
+        };
 
-            toast.window.set_opacity(eased);
-            toast.window.set_margin(toast.bar_edge, margin);
-
-            if progress >= 1.0 {
-                *toast.lifecycle_animation_source.borrow_mut() = None;
-                toast.window.set_opacity(1.0);
-                toast.window.set_margin(toast.bar_edge, target_margin);
-                glib::ControlFlow::Break
-            } else {
-                glib::ControlFlow::Continue
-            }
-        });
-        *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
+        self.lifecycle_anim.start(
+            AnimationParams::new(Self::ANIMATION_DURATION_MS as u64)
+                .with_easing(Easing::EaseOutCubic),
+            Box::new(on_frame),
+            None,
+        );
     }
 
     fn close_with_animation<F>(self: &Rc<Self>, after_close: F)
@@ -536,52 +516,33 @@ impl NotificationToast {
             blur.remove_blur_region(&self.window);
         }
 
-        let after_close = Rc::new(RefCell::new(Some(after_close)));
         let target_margin = toast_visible_margin(self.current_bar_margin.get());
+        let window = self.window.clone();
+        let bar_edge = self.bar_edge;
 
-        if !ConfigManager::global().animations_enabled() {
-            if let Some(after_close) = after_close.borrow_mut().take() {
-                after_close();
-            }
-            self.window.close();
-            return;
-        }
+        let on_done = move || {
+            after_close();
+            window.close();
+        };
 
+        // The disabled path is handled by the helper (it invokes the per-frame
+        // callback once at the final value, then the done callback).
         let start_opacity = self.window.opacity();
         let end_margin = target_margin.saturating_sub(8);
-        let start_time_us = Rc::new(Cell::new(None::<i64>));
-        let toast_weak = Rc::downgrade(self);
-        let source_id = self.window.add_tick_callback(move |_, frame_clock| {
-            let Some(toast) = toast_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-
-            let start = start_time_us.get().unwrap_or_else(|| {
-                let now = frame_clock.frame_time();
-                start_time_us.set(Some(now));
-                now
-            });
-            let elapsed_ms = (frame_clock.frame_time() - start) as f64 / 1000.0;
-            let progress = (elapsed_ms / Self::ANIMATION_DURATION_MS as f64).clamp(0.0, 1.0);
-            let eased = ease_out_cubic(progress);
+        let window_for_frame = self.window.clone();
+        let on_frame = move |eased: f64| {
             let margin =
                 target_margin + ((end_margin - target_margin) as f64 * eased).round() as i32;
+            window_for_frame.set_opacity(start_opacity * (1.0 - eased));
+            window_for_frame.set_margin(bar_edge, margin);
+        };
 
-            toast.window.set_opacity(start_opacity * (1.0 - eased));
-            toast.window.set_margin(toast.bar_edge, margin);
-
-            if progress >= 1.0 {
-                *toast.lifecycle_animation_source.borrow_mut() = None;
-                if let Some(after_close) = after_close.borrow_mut().take() {
-                    after_close();
-                }
-                toast.window.close();
-                glib::ControlFlow::Break
-            } else {
-                glib::ControlFlow::Continue
-            }
-        });
-        *self.lifecycle_animation_source.borrow_mut() = Some(source_id);
+        self.lifecycle_anim.start(
+            AnimationParams::new(Self::ANIMATION_DURATION_MS as u64)
+                .with_easing(Easing::EaseOutCubic),
+            Box::new(on_frame),
+            Some(Box::new(on_done)),
+        );
     }
 
     fn force_close(&self) {
@@ -614,54 +575,34 @@ impl NotificationToast {
             return;
         }
 
-        // Cancel existing animation
-        self.cancel_animation();
-
-        // Animate position change
+        // Animate position change (supersedes any in-flight reposition).
         let start_margin = current;
-        let start_time_us = Rc::new(Cell::new(None::<i64>));
         let toast_weak = Rc::downgrade(self);
-
-        let source_id = self.window.add_tick_callback(move |_, frame_clock| {
+        let on_frame = move |eased: f64| {
             let Some(toast) = toast_weak.upgrade() else {
-                return glib::ControlFlow::Break;
+                return;
             };
-
-            let start = start_time_us.get().unwrap_or_else(|| {
-                let now = frame_clock.frame_time();
-                start_time_us.set(Some(now));
-                now
-            });
-            let elapsed_ms = (frame_clock.frame_time() - start) as f64 / 1000.0;
-            let progress = (elapsed_ms / Self::ANIMATION_DURATION_MS as f64).clamp(0.0, 1.0);
-            let eased = ease_out_cubic(progress);
-
             let new_margin = start_margin + ((target_margin - start_margin) as f64 * eased) as i32;
             toast.current_bar_margin.set(new_margin);
             toast
                 .window
                 .set_margin(toast.bar_edge, toast_visible_margin(new_margin));
+        };
 
-            if progress >= 1.0 {
-                *toast.animation_source.borrow_mut() = None;
-                glib::ControlFlow::Break
-            } else {
-                glib::ControlFlow::Continue
-            }
-        });
-        *self.animation_source.borrow_mut() = Some(source_id);
+        self.margin_anim.start(
+            AnimationParams::new(Self::ANIMATION_DURATION_MS as u64)
+                .with_easing(Easing::EaseOutCubic),
+            Box::new(on_frame),
+            None,
+        );
     }
 }
 
 impl Drop for NotificationToast {
     fn drop(&mut self) {
         // Cancel any pending animation to free resources promptly
-        if let Some(source_id) = self.animation_source.borrow_mut().take() {
-            source_id.remove();
-        }
-        if let Some(source_id) = self.lifecycle_animation_source.borrow_mut().take() {
-            source_id.remove();
-        }
+        self.margin_anim.cancel();
+        self.lifecycle_anim.cancel();
         // Cancel any pending timeout (may already be cleared by glib)
         if let Some(source_id) = self.timeout_source.borrow_mut().take() {
             source_id.remove();

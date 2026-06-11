@@ -8,7 +8,7 @@
 //! 2. **`LayerShellPopover`** - Complete popover solution for simple widget menus.
 
 use gtk4::gdk::{self, Monitor};
-use gtk4::glib::{self, ControlFlow, Propagation};
+use gtk4::glib::{self, Propagation};
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, EventControllerKey, GestureClick, Orientation,
@@ -33,6 +33,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use super::animation::{Animation, AnimationParams, Easing};
 use super::scale_box::ScaleBox;
 use crate::services::config_manager::ConfigManager;
 use crate::services::surfaces::SurfaceStyleManager;
@@ -64,109 +65,6 @@ pub(crate) const ANIM_SCALE_FROM: f64 = 0.94;
 pub(crate) enum AnimDirection {
     Opening,
     Closing,
-}
-
-/// Shared animation state, passed to the tick callback via `Rc<RefCell<_>>`.
-///
-/// `progress` represents the current visual state:
-///   0.0 = fully hidden (opacity 0)
-///   1.0 = fully visible (opacity 1)
-pub(crate) struct AnimState {
-    /// Current direction of animation.
-    pub(crate) direction: AnimDirection,
-    /// Frame-clock time (microseconds) when this animation segment started.
-    pub(crate) start_time_us: i64,
-    /// Progress value at the start of this segment (for mid-flight reversal).
-    pub(crate) start_progress: f64,
-    /// Target progress (1.0 for opening, 0.0 for closing).
-    pub(crate) target_progress: f64,
-    /// Whether a tick callback is currently driving this state.
-    pub(crate) active: bool,
-    /// Generation counter that the current tick callback was started with.
-    /// Used to detect when an active tick has a stale generation and needs
-    /// to be replaced by a new one.
-    pub(crate) tick_generation: u32,
-}
-
-impl AnimState {
-    pub(crate) fn new_idle() -> Self {
-        Self {
-            direction: AnimDirection::Opening,
-            start_time_us: 0,
-            start_progress: 0.0,
-            target_progress: 0.0,
-            active: false,
-            tick_generation: 0,
-        }
-    }
-
-    /// Compute the current eased progress given the frame clock time.
-    pub(crate) fn current_progress(&self, now_us: i64) -> f64 {
-        let elapsed_ms = (now_us - self.start_time_us) as f64 / 1000.0;
-        let distance = (self.target_progress - self.start_progress).abs();
-        if distance < f64::EPSILON {
-            return self.target_progress;
-        }
-        // Duration is proportional to remaining distance — a half-done
-        // animation that reverses takes half the time.
-        let segment_duration_ms = ANIM_DURATION_MS * distance;
-        let t = (elapsed_ms / segment_duration_ms).clamp(0.0, 1.0);
-        // Quintic ease-out: snappy start, long gentle tail.
-        // Approximates the Material Design `cubic-bezier(0.2, 0, 0, 1)` curve
-        // used in the original CSS transitions.
-        let eased = 1.0 - (1.0 - t).powi(5);
-        self.start_progress + (self.target_progress - self.start_progress) * eased
-    }
-
-    /// Whether the animation has reached its target.
-    pub(crate) fn is_complete(&self, now_us: i64) -> bool {
-        let elapsed_ms = (now_us - self.start_time_us) as f64 / 1000.0;
-        let distance = (self.target_progress - self.start_progress).abs();
-        if distance < f64::EPSILON {
-            return true;
-        }
-        let segment_duration_ms = ANIM_DURATION_MS * distance;
-        elapsed_ms >= segment_duration_ms
-    }
-
-    /// Prepare an animation segment and determine if a new tick callback is needed.
-    ///
-    /// Captures the current progress (for mid-flight reversal), updates all state
-    /// fields, and returns `true` if a new tick callback must be registered. Returns
-    /// `false` if the existing tick callback will pick up the new direction.
-    ///
-    /// `current_opacity` is the shell's current opacity, used as the starting
-    /// progress when no animation is in flight.
-    pub(crate) fn prepare(
-        &mut self,
-        direction: AnimDirection,
-        generation: u32,
-        start_time_us: i64,
-        current_opacity: f64,
-    ) -> bool {
-        let target = match direction {
-            AnimDirection::Opening => 1.0,
-            AnimDirection::Closing => 0.0,
-        };
-
-        let start_progress = if self.active {
-            self.current_progress(start_time_us)
-        } else {
-            current_opacity
-        };
-
-        let was_active = self.active;
-        let tick_is_current = was_active && self.tick_generation == generation;
-        self.direction = direction;
-        self.start_time_us = start_time_us;
-        self.start_progress = start_progress;
-        self.target_progress = target;
-        self.active = true;
-        self.tick_generation = generation;
-        // Need a new tick callback if none is running, or the running one
-        // has a stale generation (it will self-cancel).
-        !tick_is_current
-    }
 }
 
 pub(crate) fn snap_anim_shell(shell: &ScaleBox, widget_name: &str, opacity: f64, scale: f64) {
@@ -381,13 +279,15 @@ where
 ///
 /// ## Animation architecture
 ///
-/// Open/close animations (opacity fade) are driven by a **tick callback**
-/// on the persistent animation shell, not by CSS `transition:` properties.
-/// CSS `transform: scale()` transitions are observed to cause unbounded
-/// memory growth in GTK4.
+/// Open/close animations (opacity + scale fade) are driven by the shared
+/// frame-clock [`Animation`] helper on the persistent animation shell, not by
+/// CSS `transition:` properties. CSS `transform: scale()` transitions are
+/// observed to cause unbounded memory growth in GTK4.
 ///
-/// The tick callback reads the frame clock each frame, computes eased progress
-/// from an `AnimState`, and applies opacity via `Widget::set_opacity()`. This gives:
+/// Each run applies the eased progress to `Widget::set_opacity()` and the
+/// `ScaleBox` scale. The shell's live opacity doubles as the current visual
+/// progress, so a reversal starts from there with a duration proportional to
+/// the remaining distance. This gives:
 ///
 /// - **No CSS transitions** (no `transition:` on any widget)
 /// - **Smooth mid-flight reversal** (clicking close during open reverses from
@@ -412,10 +312,14 @@ pub struct LayerShellPopover {
     /// is parented but before the animation starts). Use this to refresh data
     /// in reuse mode — e.g. updating the calendar to today's date.
     on_show: RefCell<Option<Rc<dyn Fn()>>>,
-    /// Shared animation state driven by the tick callback.
-    anim_state: Rc<RefCell<AnimState>>,
+    /// Frame-clock animation driving the open/close opacity + scale fade.
+    /// Created lazily once the persistent animation shell exists.
+    anim: RefCell<Option<Animation>>,
+    /// Current animation direction, read by the reversal path in
+    /// `show_internal()` to decide whether a close is in flight.
+    anim_direction: Cell<AnimDirection>,
     /// Generation counter incremented on every show/hide to cancel stale
-    /// tick callbacks and idle callbacks.
+    /// idle callbacks scheduled by `show_internal()`.
     anim_generation: Rc<Cell<u32>>,
     /// Logical open state. True from the moment show() is called until
     /// hide() is called. Used by is_visible() so the toggle logic in BaseWidget works correctly
@@ -470,7 +374,8 @@ impl LayerShellPopover {
             anchor_monitor: RefCell::new(None),
             on_close: RefCell::new(None),
             on_show: RefCell::new(None),
-            anim_state: Rc::new(RefCell::new(AnimState::new_idle())),
+            anim: RefCell::new(None),
+            anim_direction: Cell::new(AnimDirection::Opening),
             anim_generation: Rc::new(Cell::new(0)),
             logically_open: Cell::new(false),
             content_dirty: Cell::new(false),
@@ -632,8 +537,8 @@ impl LayerShellPopover {
         self.remove_deferred_kbd_controller();
 
         // Bump generation to cancel any pending idle callback from show_internal().
-        let generation = self.anim_generation.get().wrapping_add(1);
-        self.anim_generation.set(generation);
+        self.anim_generation
+            .set(self.anim_generation.get().wrapping_add(1));
 
         // Hide click-catcher immediately so bar is interactive during animation.
         if let Some(ref catcher) = *self.click_catcher.borrow() {
@@ -680,8 +585,8 @@ impl LayerShellPopover {
         }
 
         // Start (or reverse into) the close animation.
-        // on_close fires when the animation completes (in the tick callback).
-        self.start_animation(AnimDirection::Closing, generation);
+        // on_close fires when the animation completes (in the done callback).
+        self.start_animation(AnimDirection::Closing);
     }
 
     /// Rebuild the popover content in-place without any animation.
@@ -715,7 +620,12 @@ impl LayerShellPopover {
         self.update_content_width_estimate(&content);
         self.update_content_animation_mode(&content);
         anim_shell.set_child(&content);
-        if self.anim_state.borrow().active {
+        if self
+            .anim
+            .borrow()
+            .as_ref()
+            .is_some_and(|anim| anim.is_running())
+        {
             SurfaceStyleManager::global().apply_animated_surface_outline(
                 &anim_shell,
                 &self.widget_name,
@@ -733,10 +643,12 @@ impl LayerShellPopover {
         // If we're currently animating a close, the window is still visible
         // with content — just reverse the animation direction. No need to
         // rebuild content, recreate click-catcher, etc.
-        let was_closing = {
-            let state = self.anim_state.borrow();
-            state.active && state.direction == AnimDirection::Closing
-        };
+        let was_closing = self
+            .anim
+            .borrow()
+            .as_ref()
+            .is_some_and(|anim| anim.is_running())
+            && self.anim_direction.get() == AnimDirection::Closing;
 
         if was_closing {
             // Content may have become stale during the close animation (e.g. a
@@ -747,9 +659,6 @@ impl LayerShellPopover {
                 self.rebuild_content();
             }
 
-            // Use the CURRENT generation (set by hide()) so the existing tick
-            // callback stays valid — no new closure allocation needed.
-            let generation = self.anim_generation.get();
             // Re-show click-catcher (hide() hid it).
             let catcher = self.ensure_click_catcher();
             if let Some(ref monitor) = *self.anchor_monitor.borrow() {
@@ -766,8 +675,8 @@ impl LayerShellPopover {
             // Anchor may have changed since the original open.
             self.update_position();
 
-            // Reverse into opening — tick callback picks up new direction.
-            self.start_animation(AnimDirection::Opening, generation);
+            // Reverse into opening — animation restarts from current opacity.
+            self.start_animation(AnimDirection::Opening);
 
             // Install deferred Tab controller so keyboard nav activates on Tab.
             self.prepare_keyboard_nav();
@@ -898,7 +807,7 @@ impl LayerShellPopover {
                 }
 
                 if ConfigManager::global().animations_enabled() {
-                    popover.start_animation(AnimDirection::Opening, generation);
+                    popover.start_animation(AnimDirection::Opening);
                 } else {
                     // Animations disabled — snap open immediately.
                     if let Some(ref shell) = *popover.anim_shell.borrow() {
@@ -1004,6 +913,7 @@ impl LayerShellPopover {
         shell.set_opacity(0.0);
         shell.set_scale(ANIM_SCALE_FROM);
 
+        *self.anim.borrow_mut() = Some(Animation::new(&shell));
         *self.anim_shell.borrow_mut() = Some(shell.clone());
         shell
     }
@@ -1056,48 +966,44 @@ impl LayerShellPopover {
         catcher
     }
 
-    /// Start or reverse the open/close animation via a tick callback.
+    /// Start or reverse the open/close animation via the shared [`Animation`]
+    /// helper.
     ///
     /// If an animation is already in flight (e.g., opening and user clicks to
-    /// close), the current progress is captured and the animation reverses from
-    /// that point with proportional timing — no snapping.
-    fn start_animation(&self, direction: AnimDirection, generation: u32) {
+    /// close), the shell's live opacity is the current visual progress (the
+    /// per-frame callback writes it), so the reversal starts from there. The
+    /// segment duration is proportional to the remaining distance, so a
+    /// half-open popover that reverses takes proportionally less time — no
+    /// snapping.
+    fn start_animation(&self, direction: AnimDirection) {
         let anim_shell = self.anim_shell.borrow().as_ref().cloned();
         let Some(anim_shell) = anim_shell else {
             return;
         };
+        let anim = self.anim.borrow().clone();
+        let Some(anim) = anim else {
+            return;
+        };
 
-        let start_time_us = anim_shell
-            .frame_clock()
-            .map(|fc| fc.frame_time())
-            .unwrap_or(0);
-
-        let need_tick = self.anim_state.borrow_mut().prepare(
-            direction,
-            generation,
-            start_time_us,
-            anim_shell.opacity(),
-        );
-
-        // Prepare first so reversal paths can reuse the existing tick callback;
-        // then ensure the current child has animation-outline styling even if no
-        // new callback is needed.
+        // Outline styling for the in-flight (and reversal) shell.
         SurfaceStyleManager::global().apply_animated_surface_outline(
             &anim_shell,
             &self.widget_name,
             true,
         );
 
-        if !need_tick {
-            return;
-        }
+        self.anim_direction.set(direction);
 
-        let anim_state = Rc::clone(&self.anim_state);
-        let anim_gen = Rc::clone(&self.anim_generation);
+        let target = match direction {
+            AnimDirection::Opening => 1.0,
+            AnimDirection::Closing => 0.0,
+        };
+        // The shell opacity tracks current progress, so a reversal starts from
+        // the present position rather than snapping.
+        let start = anim_shell.opacity();
+        let distance = (target - start).abs();
+
         let window = self.window.borrow().as_ref().cloned();
-        let shell_for_scale = anim_shell.clone();
-        let on_close = self.on_close.borrow().clone();
-        let widget_name = self.widget_name.clone();
         let scale_from = self.hidden_scale();
         let blur = if ConfigManager::global().blur_enabled() {
             crate::services::background_effect::BackgroundEffectManager::global()
@@ -1105,46 +1011,35 @@ impl LayerShellPopover {
             None
         };
 
-        anim_shell.add_tick_callback(move |shell, frame_clock| {
-            // Generation check — bail if a newer cycle started.
-            // Do NOT touch `active` — a newer tick callback owns that now.
-            if anim_gen.get() != generation {
-                return ControlFlow::Break;
-            }
+        let on_frame = {
+            let shell = anim_shell.clone();
+            let window = window.clone();
+            let blur = blur.clone();
+            move |eased: f64| {
+                let progress = start + (target - start) * eased;
+                shell.set_opacity(progress);
+                // Interpolate scale: scale_from at progress=0 → 1.0 at progress=1.
+                let scale = scale_from + (1.0 - scale_from) * progress;
+                shell.set_scale(scale);
 
-            let now_us = frame_clock.frame_time();
-            let (progress, complete, direction) = {
-                let state = anim_state.borrow();
-                if !state.active {
-                    return ControlFlow::Break;
+                if direction == AnimDirection::Opening
+                    && let Some(blur) = blur.as_ref()
+                    && let Some(ref w) = window
+                {
+                    blur.apply_open_animation_blur(w, POPOVER_SHADOW_MARGIN, scale, false);
                 }
-                (
-                    state.current_progress(now_us),
-                    state.is_complete(now_us),
-                    state.direction,
-                )
-            };
-
-            // Apply visual state — opacity and scale, no CSS involvement.
-            shell.set_opacity(progress);
-            // Interpolate scale: ANIM_SCALE_FROM at progress=0 → 1.0 at progress=1.
-            let scale = scale_from + (1.0 - scale_from) * progress;
-            shell_for_scale.set_scale(scale);
-
-            if direction == AnimDirection::Opening
-                && let Some(blur) = blur.as_ref()
-                && let Some(ref w) = window
-            {
-                blur.apply_open_animation_blur(w, POPOVER_SHADOW_MARGIN, scale, complete);
             }
+        };
 
-            if complete {
-                anim_state.borrow_mut().active = false;
-
+        let on_close = self.on_close.borrow().clone();
+        let widget_name = self.widget_name.clone();
+        let on_done = {
+            let shell = anim_shell.clone();
+            move || {
                 if direction == AnimDirection::Closing {
                     // Close complete — remove content and hide window.
-                    snap_anim_shell(&shell_for_scale, &widget_name, 0.0, scale_from);
-                    shell_for_scale.remove_child();
+                    snap_anim_shell(&shell, &widget_name, 0.0, scale_from);
+                    shell.remove_child();
                     if let Some(ref w) = window {
                         w.set_visible(false);
                     }
@@ -1153,14 +1048,24 @@ impl LayerShellPopover {
                         cb();
                     }
                 } else {
-                    // Open complete — ensure we're at exactly 1.0.
-                    snap_anim_shell(&shell_for_scale, &widget_name, 1.0, 1.0);
+                    // Open complete — ensure we're at exactly 1.0 and lay down
+                    // the final (non-scaled) blur region.
+                    snap_anim_shell(&shell, &widget_name, 1.0, 1.0);
+                    if let Some(blur) = blur.as_ref()
+                        && let Some(ref w) = window
+                    {
+                        blur.apply_open_animation_blur(w, POPOVER_SHADOW_MARGIN, 1.0, true);
+                    }
                 }
-                return ControlFlow::Break;
             }
+        };
 
-            ControlFlow::Continue
-        });
+        let duration_ms = (ANIM_DURATION_MS * distance).round() as u64;
+        anim.start(
+            AnimationParams::new(duration_ms).with_easing(Easing::EaseOutQuintic),
+            Box::new(on_frame),
+            Some(Box::new(on_done)),
+        );
     }
 
     fn update_position(&self) {
@@ -1228,7 +1133,12 @@ impl Drop for LayerShellPopover {
         // If the popover was still open (or mid-animation) when destroyed,
         // fire on_close synchronously so consumers can clean up resources
         // (e.g. SystemPopoverBinding releases GPU polling).
-        if (self.logically_open.get() || self.anim_state.borrow().active)
+        if (self.logically_open.get()
+            || self
+                .anim
+                .borrow()
+                .as_ref()
+                .is_some_and(|anim| anim.is_running()))
             && let Some(ref cb) = *self.on_close.borrow()
         {
             cb();
@@ -1279,26 +1189,5 @@ mod tests {
         assert!(!is_keynav_key(gdk::Key::Escape));
         assert!(!is_keynav_key(gdk::Key::space));
         assert!(!is_keynav_key(gdk::Key::Return));
-    }
-
-    #[test]
-    fn anim_state_prepares_new_tick_only_when_needed() {
-        let mut state = AnimState::new_idle();
-
-        assert!(state.prepare(AnimDirection::Opening, 1, 0, 0.0));
-        assert!(!state.prepare(AnimDirection::Closing, 1, 10_000, 1.0));
-        assert!(state.prepare(AnimDirection::Opening, 2, 20_000, 0.5));
-    }
-
-    #[test]
-    fn anim_state_progress_moves_toward_target() {
-        let mut state = AnimState::new_idle();
-        state.prepare(AnimDirection::Opening, 1, 0, 0.0);
-
-        let progress = state.current_progress(50_000);
-
-        assert!(progress > 0.0);
-        assert!(progress < 1.0);
-        assert!(state.is_complete((ANIM_DURATION_MS as i64 * 1000) + 1));
     }
 }

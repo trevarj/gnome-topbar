@@ -485,7 +485,7 @@ impl BaseWidget {
         // Must be a GtkBox (not Overlay) — Overlay doesn't clip background to border-radius.
         let surface = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         surface.add_css_class(class::WIDGET);
-        // Widget-specific classes live on the surface so user CSS like
+        // Widget-specific classes live on the surface so generated CSS like
         // `.clock { background: ... }` targets the painted element only.
         for cls in extra_classes {
             surface.add_css_class(cls);
