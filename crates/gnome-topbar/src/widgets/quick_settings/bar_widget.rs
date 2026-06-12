@@ -1,10 +1,16 @@
 //! Quick Settings bar widget - slim indicator that toggles the
 //! global Quick Settings window.
 //!
-//! Renders status icons (network, VPN, audio, battery, bluetooth) and toggles
-//! the keep-alive QS window on click.
+//! Renders status icons (network, VPN, resources, audio, battery, bluetooth)
+//! and toggles the keep-alive QS window on click.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::time::Duration;
 
 use gtk4::gdk::BUTTON_PRIMARY;
+use gtk4::gio;
+use gtk4::glib::{self, SourceId};
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, GestureClick};
 use tracing::{debug, warn};
@@ -26,9 +32,13 @@ use crate::services::config_manager::ConfigManager;
 use crate::services::icons::IconHandle;
 use crate::services::network::{NetworkService, NetworkSnapshot};
 use crate::services::privacy::{PrivacyService, PrivacySnapshot};
+use crate::services::resource_monitor::{
+    CpuSample, MemorySnapshot, ResourceLevel, ResourceSnapshot, cpu_level, memory_level,
+    read_resource_snapshot,
+};
 use crate::services::tooltip::TooltipManager;
 use crate::services::vpn::{VpnService, VpnSnapshot};
-use crate::styles::{icon, qs, state, widget};
+use crate::styles::{color, icon, qs, state, widget};
 use crate::widgets::BaseWidget;
 use crate::widgets::WidgetConfig;
 use crate::widgets::animation::{Animation, AnimationParams, Easing};
@@ -65,6 +75,7 @@ macro_rules! set_css_class {
 const SCREEN_SHARING_PULSE_MS: u64 = 3300;
 /// Trough opacity at the midpoint of the pulse (CSS keyframe `50% { opacity }`).
 const SCREEN_SHARING_PULSE_MIN_OPACITY: f64 = 0.72;
+const RESOURCE_WARNING_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Drive (or stop) the screen-sharing indicator's opacity pulse.
 ///
@@ -299,6 +310,10 @@ impl QuickSettingsConfig {
         if cards.network {
             names.push("mobile");
         }
+        if cards.resource_overview {
+            names.push("cpu_warning");
+            names.push("ram_warning");
+        }
         if cards.audio {
             names.push("audio");
         }
@@ -325,6 +340,48 @@ pub struct QuickSettingsWidget {
     network_mobile_callback_id: Option<CallbackId>,
     vpn_callback_id: Option<CallbackId>,
     privacy_callback_id: Option<CallbackId>,
+    resource_warning_state: Option<Rc<ResourceWarningBarState>>,
+}
+
+struct ResourceWarningBarState {
+    cpu_icon: IconHandle,
+    ram_icon: IconHandle,
+    timer: RefCell<Option<SourceId>>,
+    last_cpu: RefCell<Option<CpuSample>>,
+    generation: Cell<u64>,
+}
+
+impl ResourceWarningBarState {
+    fn new(cpu_icon: IconHandle, ram_icon: IconHandle) -> Rc<Self> {
+        Rc::new(Self {
+            cpu_icon,
+            ram_icon,
+            timer: RefCell::new(None),
+            last_cpu: RefCell::new(None),
+            generation: Cell::new(0),
+        })
+    }
+
+    fn start(self: &Rc<Self>) {
+        let generation = self.generation.get().wrapping_add(1);
+        self.generation.set(generation);
+        refresh_resource_warnings(self, generation);
+
+        let state = Rc::clone(self);
+        let source = glib::timeout_add_local(RESOURCE_WARNING_INTERVAL, move || {
+            refresh_resource_warnings(&state, generation);
+            glib::ControlFlow::Continue
+        });
+        *self.timer.borrow_mut() = Some(source);
+    }
+
+    fn stop(&self) {
+        self.generation.set(self.generation.get().wrapping_add(1));
+        if let Some(source) = self.timer.borrow_mut().take() {
+            source.remove();
+        }
+        *self.last_cpu.borrow_mut() = None;
+    }
 }
 
 impl QuickSettingsWidget {
@@ -344,8 +401,10 @@ impl QuickSettingsWidget {
         let mut network_mobile_callback_id = None;
         let mut vpn_callback_id = None;
         let mut privacy_callback_id = None;
+        let mut resource_warning_state = None;
 
-        // Build icons only for enabled cards (order: network, VPN, mobile, audio, battery, Bluetooth)
+        // Build icons only for enabled cards (order: network, VPN, mobile,
+        // resource warnings, audio, battery, Bluetooth).
         // Network icon (Wi-Fi / Ethernet).
         //
         // Shows the primary network connection: ethernet when plugged in,
@@ -548,6 +607,20 @@ impl QuickSettingsWidget {
                     TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
                 },
             ));
+        }
+
+        // Resource pressure warnings — transient red icons shown only when the
+        // resource overview feature is enabled and CPU/RAM crosses its warning
+        // threshold.
+        if cards.resource_overview {
+            let cpu_icon = base.add_icon("cpu-symbolic", &[icon::ICON, icon::TEXT, color::ERROR]);
+            let ram_icon = base.add_icon("ram-symbolic", &[icon::ICON, icon::TEXT, color::ERROR]);
+            set_visible_if_changed!(cpu_icon.widget(), false);
+            set_visible_if_changed!(ram_icon.widget(), false);
+
+            let state = ResourceWarningBarState::new(cpu_icon, ram_icon);
+            state.start();
+            resource_warning_state = Some(state);
         }
 
         // Audio icon
@@ -815,6 +888,7 @@ impl QuickSettingsWidget {
             network_mobile_callback_id,
             vpn_callback_id,
             privacy_callback_id,
+            resource_warning_state,
         }
     }
 
@@ -849,7 +923,73 @@ impl Drop for QuickSettingsWidget {
         if let Some(id) = self.privacy_callback_id.take() {
             PrivacyService::global().disconnect(id);
         }
+        if let Some(state) = self.resource_warning_state.take() {
+            state.stop();
+        }
     }
+}
+
+fn refresh_resource_warnings(state: &Rc<ResourceWarningBarState>, generation: u64) {
+    let previous_cpu = *state.last_cpu.borrow();
+    let state = Rc::clone(state);
+
+    glib::spawn_future_local(async move {
+        let result = gio::spawn_blocking(move || read_resource_snapshot(previous_cpu)).await;
+        if state.generation.get() != generation {
+            return;
+        }
+
+        match result {
+            Ok(Ok((snapshot, cpu_sample))) => {
+                *state.last_cpu.borrow_mut() = cpu_sample;
+                update_resource_warning_indicators(&state, &snapshot);
+            }
+            Ok(Err(err)) => {
+                warn!("resource warning update failed: {}", err);
+                hide_resource_warning_indicators(&state);
+            }
+            Err(err) => {
+                warn!("resource warning task failed: {:?}", err);
+                hide_resource_warning_indicators(&state);
+            }
+        }
+    });
+}
+
+fn update_resource_warning_indicators(
+    state: &ResourceWarningBarState,
+    snapshot: &ResourceSnapshot,
+) {
+    let cpu_visible = cpu_warning_visible(snapshot.cpu_usage);
+    set_visible_if_changed!(state.cpu_icon.widget(), cpu_visible);
+    if let Some(usage) = snapshot.cpu_usage
+        && cpu_visible
+    {
+        TooltipManager::global()
+            .set_styled_tooltip(&state.cpu_icon.widget(), &format!("CPU: {usage}%"));
+    }
+
+    let ram_visible = memory_warning_visible(&snapshot.memory);
+    set_visible_if_changed!(state.ram_icon.widget(), ram_visible);
+    if ram_visible {
+        TooltipManager::global().set_styled_tooltip(
+            &state.ram_icon.widget(),
+            &format!("RAM: {}%", snapshot.memory.used_percent),
+        );
+    }
+}
+
+fn hide_resource_warning_indicators(state: &ResourceWarningBarState) {
+    set_visible_if_changed!(state.cpu_icon.widget(), false);
+    set_visible_if_changed!(state.ram_icon.widget(), false);
+}
+
+fn cpu_warning_visible(usage: Option<u8>) -> bool {
+    cpu_level(usage) == ResourceLevel::Warning
+}
+
+fn memory_warning_visible(memory: &MemorySnapshot) -> bool {
+    memory_level(memory) == ResourceLevel::Warning
 }
 
 fn update_battery_indicator(icon_handle: &IconHandle, snapshot: &BatterySnapshot) {
@@ -920,6 +1060,19 @@ mod tests {
         }
     }
 
+    fn memory_with_used_percent(used_percent: u8) -> MemorySnapshot {
+        MemorySnapshot {
+            total_kib: 100,
+            available_kib: 100u64.saturating_sub(used_percent as u64),
+            used_kib: used_percent as u64,
+            used_percent,
+            swap_total_kib: 0,
+            swap_free_kib: 0,
+            swap_used_kib: 0,
+            swap_used_percent: None,
+        }
+    }
+
     #[test]
     fn test_quick_settings_config_defaults() {
         let config = QuickSettingsConfig::from_entry(&make_widget_entry(HashMap::new()));
@@ -944,7 +1097,16 @@ mod tests {
         );
         assert_eq!(
             config.enabled_bar_indicators(),
-            vec!["network", "vpn", "mobile", "audio", "battery", "bluetooth"]
+            vec![
+                "network",
+                "vpn",
+                "mobile",
+                "cpu_warning",
+                "ram_warning",
+                "audio",
+                "battery",
+                "bluetooth"
+            ]
         );
     }
 
@@ -984,7 +1146,15 @@ mod tests {
         assert!(!config.battery);
         assert_eq!(
             config.enabled_bar_indicators(),
-            vec!["network", "vpn", "mobile", "audio", "bluetooth"]
+            vec![
+                "network",
+                "vpn",
+                "mobile",
+                "cpu_warning",
+                "ram_warning",
+                "audio",
+                "bluetooth"
+            ]
         );
     }
 
@@ -1023,5 +1193,17 @@ mod tests {
         assert!(config.cards.battery_health);
         assert!(config.cards.resource_overview);
         assert!(config.cards.vpn);
+    }
+
+    #[test]
+    fn resource_warning_visibility_uses_existing_thresholds() {
+        assert!(!cpu_warning_visible(None));
+        assert!(!cpu_warning_visible(Some(89)));
+        assert!(cpu_warning_visible(Some(90)));
+        assert!(cpu_warning_visible(Some(100)));
+
+        assert!(!memory_warning_visible(&memory_with_used_percent(84)));
+        assert!(memory_warning_visible(&memory_with_used_percent(85)));
+        assert!(memory_warning_visible(&memory_with_used_percent(100)));
     }
 }
