@@ -46,7 +46,7 @@ use tracing::{debug, warn};
 
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
-use crate::services::icons::{IconHandle, has_material_mapping};
+use crate::services::icons::{CairoSpinner, IconHandle, has_material_mapping};
 use crate::services::network::{NetworkService, NetworkSnapshot};
 use crate::services::tooltip::TooltipManager;
 use crate::styles::{icon, state, widget as wgt};
@@ -69,7 +69,7 @@ const KNOWN_OPTIONS: &[&str] = &[
 ];
 
 /// Default exec timeout in seconds.
-const EXEC_TIMEOUT_SECS: u64 = 10;
+const EXEC_TIMEOUT_SECS: u64 = 30;
 
 /// Normalized output from a custom widget exec command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,6 +251,7 @@ impl WidgetConfig for CustomConfig {
 struct ExecState {
     cmd: String,
     label: Option<Label>,
+    spinner: Rc<CairoSpinner>,
     fallback_text: String,
     template: Option<String>,
     custom_id: String,
@@ -270,6 +271,7 @@ struct ShowIfGate {
 struct ExecInvocation<'a> {
     exec_cmd: &'a str,
     label: Option<&'a Label>,
+    spinner: Option<&'a Rc<CairoSpinner>>,
     fallback_text: &'a str,
     template: Option<&'a str>,
     custom_id: &'a str,
@@ -310,6 +312,9 @@ pub struct CustomWidget {
     /// Held to prevent GTK from dropping the image widget.
     #[allow(dead_code)]
     image_widget: Option<Image>,
+    /// Held to keep exec loading spinner animation state alive.
+    #[allow(dead_code)]
+    spinner: Option<Rc<CairoSpinner>>,
     /// Active timer source ID for cancellation on drop.
     timer_source: Rc<RefCell<Option<SourceId>>>,
     /// Pending one-shot network callback for `requires_network` exec polling.
@@ -458,11 +463,25 @@ impl CustomWidget {
             None
         };
 
+        let spinner = if config.exec.is_some() {
+            let spinner = Rc::new(CairoSpinner::new(base.content()));
+            spinner.set_size(12);
+            base.content().append(spinner.widget());
+            Some(spinner)
+        } else {
+            None
+        };
+
         // Must be set up before click handlers to share exec_state
         let exec_state = if let Some(exec_cmd) = config.exec {
+            let spinner = spinner
+                .as_ref()
+                .expect("exec-backed custom widgets must own a spinner")
+                .clone();
             let state = ExecState {
                 cmd: exec_cmd,
                 label: label.clone(),
+                spinner,
                 fallback_text: config.label,
                 template: config.template,
                 custom_id: widget_name.to_string(),
@@ -475,6 +494,7 @@ impl CustomWidget {
             run_exec(ExecInvocation {
                 exec_cmd: &state.cmd,
                 label: state.label.as_ref(),
+                spinner: Some(&state.spinner),
                 fallback_text: &state.fallback_text,
                 template: state.template.as_deref(),
                 custom_id: &state.custom_id,
@@ -494,6 +514,7 @@ impl CustomWidget {
                         run_exec(ExecInvocation {
                             exec_cmd: &state_for_timer.cmd,
                             label: state_for_timer.label.as_ref(),
+                            spinner: Some(&state_for_timer.spinner),
                             fallback_text: &state_for_timer.fallback_text,
                             template: state_for_timer.template.as_deref(),
                             custom_id: &state_for_timer.custom_id,
@@ -572,6 +593,7 @@ impl CustomWidget {
                         run_exec(ExecInvocation {
                             exec_cmd: &state.cmd,
                             label: state.label.as_ref(),
+                            spinner: Some(&state.spinner),
                             fallback_text: &state.fallback_text,
                             template: state.template.as_deref(),
                             custom_id: &state.custom_id,
@@ -591,6 +613,7 @@ impl CustomWidget {
             label,
             icon_handle,
             image_widget,
+            spinner,
             timer_source,
             network_callback,
         }
@@ -632,6 +655,10 @@ fn run_exec(invocation: ExecInvocation<'_>) {
     };
 
     if invocation.requires_network && !NetworkService::global().internet_available() {
+        if let Some(spinner) = invocation.spinner {
+            spinner.stop();
+        }
+        set_visible_if_changed(invocation.widget, false);
         queue_exec_when_online(ExecInvocation {
             label: Some(label),
             ..invocation
@@ -640,6 +667,7 @@ fn run_exec(invocation: ExecInvocation<'_>) {
     }
 
     let label = label.clone();
+    let spinner = invocation.spinner.cloned();
     let exec_cmd = invocation.exec_cmd.to_string();
     let fallback_text = invocation.fallback_text.to_string();
     let template = invocation.template.map(String::from);
@@ -679,6 +707,12 @@ fn run_exec(invocation: ExecInvocation<'_>) {
             if !visible {
                 return;
             }
+        }
+
+        if let Some(spinner) = spinner.as_ref() {
+            label.set_visible(false);
+            set_visible_if_changed(&widget, true);
+            spinner.start();
         }
 
         let result = gio::spawn_blocking(move || {
@@ -751,19 +785,29 @@ fn run_exec(invocation: ExecInvocation<'_>) {
 
         match result {
             Ok(Ok(output)) => {
+                if let Some(spinner) = spinner.as_ref() {
+                    spinner.stop();
+                }
                 let display =
                     build_exec_display(output.trim(), &fallback_text, template.as_deref());
-                set_label_if_changed(&label, &display.label_text);
-                if let Some(tooltip) = display.tooltip {
-                    TooltipManager::global().set_styled_tooltip(&widget, &tooltip);
+                if let Some(tooltip) = display.tooltip.as_ref() {
+                    TooltipManager::global().set_styled_tooltip(&widget, tooltip);
                 }
-                set_visible_if_changed(&widget, display.visible);
+                apply_exec_display(&label, &widget, &display);
             }
             Ok(Err(err)) => {
+                if let Some(spinner) = spinner.as_ref() {
+                    spinner.stop();
+                }
+                restore_exec_display_after_error(&label, &widget);
                 warn!("'custom-{}' exec failed: {}", custom_id, err);
                 // Keep previous label text and visibility on error
             }
             Err(err) => {
+                if let Some(spinner) = spinner.as_ref() {
+                    spinner.stop();
+                }
+                restore_exec_display_after_error(&label, &widget);
                 warn!("'custom-{}' exec task failed: {:?}", custom_id, err);
                 // Keep previous label text and visibility on error
             }
@@ -782,6 +826,7 @@ fn queue_exec_when_online(invocation: ExecInvocation<'_>) {
 
     let exec_cmd = invocation.exec_cmd.to_string();
     let label = label.clone();
+    let spinner = invocation.spinner.cloned();
     let fallback_text = invocation.fallback_text.to_string();
     let template = invocation.template.map(String::from);
     let custom_id = invocation.custom_id.to_string();
@@ -801,6 +846,7 @@ fn queue_exec_when_online(invocation: ExecInvocation<'_>) {
         run_exec(ExecInvocation {
             exec_cmd: &exec_cmd,
             label: Some(&label),
+            spinner: spinner.as_ref(),
             fallback_text: &fallback_text,
             template: template.as_deref(),
             custom_id: &custom_id,
@@ -811,6 +857,18 @@ fn queue_exec_when_online(invocation: ExecInvocation<'_>) {
         });
     });
     *invocation.network_callback.borrow_mut() = Some(callback_id);
+}
+
+fn apply_exec_display(label: &Label, widget: &gtk4::Box, display: &CustomExecDisplay) {
+    set_label_if_changed(label, &display.label_text);
+    set_visible_if_changed(label, display.visible);
+    set_visible_if_changed(widget, display.visible);
+}
+
+fn restore_exec_display_after_error(label: &Label, widget: &gtk4::Box) {
+    let has_previous_text = !label.label().is_empty();
+    set_visible_if_changed(label, has_previous_text);
+    set_visible_if_changed(widget, has_previous_text);
 }
 
 fn set_label_if_changed(label: &Label, text: &str) {
@@ -899,6 +957,11 @@ mod tests {
         assert!(config.tooltip.is_none());
         assert!(config.max_chars.is_none());
         assert!(!config.requires_network);
+    }
+
+    #[test]
+    fn test_custom_exec_timeout_default_is_30_seconds() {
+        assert_eq!(EXEC_TIMEOUT_SECS, 30);
     }
 
     #[test]

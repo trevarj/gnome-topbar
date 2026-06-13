@@ -4,9 +4,11 @@
 //! components so the clock can open a GNOME-like overview panel.
 
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 use chrono::{Local, Timelike};
 use chrono_tz::Tz;
@@ -24,14 +26,20 @@ use crate::widgets::custom::build_exec_display;
 use crate::widgets::media_popover::build_media_popover_with_controller;
 use crate::widgets::notifications_panel::build_control_panel_content as build_notifications_content;
 use crate::widgets::weather::{
-    WeatherForecastDay, fetch_weather_display, fetch_weather_forecast,
-    forecast_days_from_widget_name, show_weather_config_window_for_widget,
+    WeatherDisplay, WeatherForecast, WeatherForecastDay, fetch_weather_display,
+    fetch_weather_forecast, forecast_days_from_widget_name, show_weather_config_window_for_widget,
     weather_config_from_widget_name, weather_location_label_from_widget_name,
+    weather_refresh_interval_from_widget_name,
 };
 
 const CONTROL_PANEL_LEFT_WIDTH: i32 = 380;
 const CONTROL_PANEL_RIGHT_WIDTH: i32 = 360;
 const CONTROL_PANEL_COLUMN_SPACING: i32 = 12;
+
+thread_local! {
+    static WEATHER_CACHE: RefCell<HashMap<String, ControlPanelWeatherCache>> =
+        RefCell::new(HashMap::new());
+}
 
 /// A configured secondary clock shown in the clock control panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,11 +161,15 @@ pub fn build_clock_control_panel(
 
     let time_tick = schedule_time_tick(&time_card.time_label, &time_card.date_label);
     let world_clock_tick = schedule_world_clock_tick(&time_card.world_clock_rows);
+    let weather_tick = schedule_weather_tick(&time_card.weather_label, &forecast_card);
     root.connect_destroy(move |_| {
         if let Some(source_id) = time_tick.borrow_mut().take() {
             source_id.remove();
         }
         if let Some(source_id) = world_clock_tick.borrow_mut().take() {
+            source_id.remove();
+        }
+        if let Some(source_id) = weather_tick.borrow_mut().take() {
             source_id.remove();
         }
     });
@@ -170,12 +182,12 @@ pub fn build_clock_control_panel(
         let forecast_card = forecast_card.clone();
         Rc::new(move || {
             refresh_time_labels(&time_label, &date_label);
-            refresh_weather_label(&weather_label);
+            refresh_weather_label_cached(&weather_label);
             refresh_world_clock_rows(&world_clock_rows);
             media_controller.update_from_snapshot(&MediaService::global().snapshot());
             calendar_refresh();
             if let Some(forecast_card) = &forecast_card {
-                refresh_weather_forecast_card(forecast_card);
+                refresh_weather_forecast_card_cached(forecast_card);
             }
         }) as Rc<dyn Fn()>
     };
@@ -209,6 +221,20 @@ struct WeatherForecastRow {
     condition_label: Label,
     temp_label: Label,
     precipitation_label: Label,
+}
+
+#[derive(Clone)]
+struct CachedWeatherValue<T> {
+    fetched_at: Instant,
+    value: T,
+}
+
+#[derive(Default)]
+struct ControlPanelWeatherCache {
+    display: Option<CachedWeatherValue<WeatherDisplay>>,
+    forecasts: HashMap<usize, CachedWeatherValue<WeatherForecast>>,
+    display_refreshing: bool,
+    forecast_refreshing: HashSet<usize>,
 }
 
 #[derive(Clone)]
@@ -335,9 +361,11 @@ fn build_weather_forecast_card(
         configure_button.connect_clicked(move |_| {
             let card_for_saved = card_for_saved.clone();
             let weather_label_for_saved = weather_label_for_saved.clone();
+            let widget_name_for_saved = widget_name.clone();
             show_weather_config_window_for_widget(&widget_name, move || {
-                refresh_weather_label(&weather_label_for_saved);
-                refresh_weather_forecast_card(&card_for_saved);
+                invalidate_weather_cache(&widget_name_for_saved);
+                refresh_weather_label_cached(&weather_label_for_saved);
+                refresh_weather_forecast_card_cached(&card_for_saved);
             });
         });
     }
@@ -345,40 +373,92 @@ fn build_weather_forecast_card(
     card
 }
 
-fn refresh_weather_forecast_card(card: &WeatherForecastCard) {
+fn refresh_weather_forecast_card_cached(card: &WeatherForecastCard) {
+    let widget_name = card.widget_name.clone();
+    let forecast_days = forecast_days_from_widget_name(&widget_name);
+    let interval = weather_refresh_interval_from_widget_name(&widget_name);
+
+    let cached = WEATHER_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .get(&widget_name)
+            .and_then(|entry| entry.forecasts.get(&forecast_days))
+            .cloned()
+    });
+    if let Some(cached) = cached {
+        apply_weather_forecast(card, &cached.value);
+        if weather_cache_is_fresh(cached.fetched_at, interval) {
+            return;
+        }
+    }
+
+    let already_refreshing = WEATHER_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let entry = cache.entry(widget_name.clone()).or_default();
+        if entry.forecast_refreshing.contains(&forecast_days) {
+            true
+        } else {
+            entry.forecast_refreshing.insert(forecast_days);
+            false
+        }
+    });
+    if already_refreshing {
+        return;
+    }
+
     let card = card.clone();
-    let config = weather_config_from_widget_name(&card.widget_name);
-    let forecast_days = forecast_days_from_widget_name(&card.widget_name);
+    let config = weather_config_from_widget_name(&widget_name);
     glib::spawn_future_local(async move {
         let result =
             gio::spawn_blocking(move || fetch_weather_forecast(&config, forecast_days)).await;
 
         match result {
             Ok(forecast) => {
-                set_label_if_changed(&card.current_label, &forecast.current);
-                set_label_if_changed(&card.location_label, &forecast.location);
-                set_label_if_changed(&card.summary_label, &forecast.summary);
-                set_visible_if_changed(&card.container, true);
-                for (row, day) in card.rows.iter().zip(forecast.days.iter()) {
-                    refresh_weather_forecast_row(row, day);
-                    set_visible_if_changed(&row.day_label, true);
-                    if let Some(parent) = row.day_label.parent() {
-                        set_visible_if_changed(&parent, true);
-                    }
-                }
-                for row in card.rows.iter().skip(forecast.days.len()) {
-                    if let Some(parent) = row.day_label.parent() {
-                        set_visible_if_changed(&parent, false);
-                    }
-                }
+                WEATHER_CACHE.with(|cache| {
+                    let mut cache = cache.borrow_mut();
+                    let entry = cache.entry(widget_name.clone()).or_default();
+                    entry.forecast_refreshing.remove(&forecast_days);
+                    entry.forecasts.insert(
+                        forecast_days,
+                        CachedWeatherValue {
+                            fetched_at: Instant::now(),
+                            value: forecast.clone(),
+                        },
+                    );
+                });
+                apply_weather_forecast(&card, &forecast);
             }
             Err(err) => {
+                WEATHER_CACHE.with(|cache| {
+                    if let Some(entry) = cache.borrow_mut().get_mut(&widget_name) {
+                        entry.forecast_refreshing.remove(&forecast_days);
+                    }
+                });
                 warn!("control panel weather forecast update failed: {:?}", err);
                 set_label_if_changed(&card.current_label, "Weather unavailable");
                 set_label_if_changed(&card.summary_label, "Forecast could not be updated.");
             }
         }
     });
+}
+
+fn apply_weather_forecast(card: &WeatherForecastCard, forecast: &WeatherForecast) {
+    set_label_if_changed(&card.current_label, &forecast.current);
+    set_label_if_changed(&card.location_label, &forecast.location);
+    set_label_if_changed(&card.summary_label, &forecast.summary);
+    set_visible_if_changed(&card.container, true);
+    for (row, day) in card.rows.iter().zip(forecast.days.iter()) {
+        refresh_weather_forecast_row(row, day);
+        set_visible_if_changed(&row.day_label, true);
+        if let Some(parent) = row.day_label.parent() {
+            set_visible_if_changed(&parent, true);
+        }
+    }
+    for row in card.rows.iter().skip(forecast.days.len()) {
+        if let Some(parent) = row.day_label.parent() {
+            set_visible_if_changed(&parent, false);
+        }
+    }
 }
 
 fn refresh_weather_forecast_row(row: &WeatherForecastRow, day: &WeatherForecastDay) {
@@ -570,7 +650,39 @@ fn schedule_world_clock_tick(rows: &[WorldClockRow]) -> Rc<RefCell<Option<glib::
     source_slot
 }
 
-fn refresh_weather_label(label: &Option<(Label, String)>) {
+fn schedule_weather_tick(
+    weather_label: &Option<(Label, String)>,
+    forecast_card: &Option<WeatherForecastCard>,
+) -> Rc<RefCell<Option<glib::SourceId>>> {
+    let source_slot = Rc::new(RefCell::new(None));
+    let widget_name = weather_label
+        .as_ref()
+        .map(|(_, widget_name)| widget_name.clone())
+        .or_else(|| forecast_card.as_ref().map(|card| card.widget_name.clone()));
+    let Some(widget_name) = widget_name else {
+        return source_slot;
+    };
+
+    let interval = weather_refresh_interval_from_widget_name(&widget_name);
+    if interval == 0 {
+        return source_slot;
+    }
+
+    let weather_label = weather_label.clone();
+    let forecast_card = forecast_card.clone();
+    let source_id = glib::timeout_add_seconds_local(interval as u32, move || {
+        refresh_weather_label_cached(&weather_label);
+        if let Some(forecast_card) = &forecast_card {
+            refresh_weather_forecast_card_cached(forecast_card);
+        }
+        glib::ControlFlow::Continue
+    });
+
+    *source_slot.borrow_mut() = Some(source_id);
+    source_slot
+}
+
+fn refresh_weather_label_cached(label: &Option<(Label, String)>) {
     let Some((label, widget_name)) = label else {
         return;
     };
@@ -609,16 +721,74 @@ fn refresh_weather_label(label: &Option<(Label, String)>) {
             }
         });
     } else {
-        let config = weather_config_from_widget_name(widget_name);
+        let interval = weather_refresh_interval_from_widget_name(widget_name);
+        let cached = WEATHER_CACHE.with(|cache| {
+            cache
+                .borrow()
+                .get(widget_name)
+                .and_then(|entry| entry.display.clone())
+        });
+        if let Some(cached) = cached {
+            apply_weather_display(&label, &cached.value);
+            if weather_cache_is_fresh(cached.fetched_at, interval) {
+                return;
+            }
+        }
+
+        let already_refreshing = WEATHER_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            let entry = cache.entry(widget_name.clone()).or_default();
+            if entry.display_refreshing {
+                true
+            } else {
+                entry.display_refreshing = true;
+                false
+            }
+        });
+        if already_refreshing {
+            return;
+        }
+
+        let widget_name = widget_name.clone();
+        let config = weather_config_from_widget_name(&widget_name);
         glib::spawn_future_local(async move {
             let result = gio::spawn_blocking(move || fetch_weather_display(&config)).await;
 
             if let Ok(display) = result {
-                set_label_if_changed(&label, &display.text);
-                set_visible_if_changed(&label, true);
+                WEATHER_CACHE.with(|cache| {
+                    let mut cache = cache.borrow_mut();
+                    let entry = cache.entry(widget_name.clone()).or_default();
+                    entry.display_refreshing = false;
+                    entry.display = Some(CachedWeatherValue {
+                        fetched_at: Instant::now(),
+                        value: display.clone(),
+                    });
+                });
+                apply_weather_display(&label, &display);
+            } else {
+                WEATHER_CACHE.with(|cache| {
+                    if let Some(entry) = cache.borrow_mut().get_mut(&widget_name) {
+                        entry.display_refreshing = false;
+                    }
+                });
             }
         });
     }
+}
+
+fn apply_weather_display(label: &Label, display: &WeatherDisplay) {
+    set_label_if_changed(label, &display.text);
+    set_visible_if_changed(label, true);
+}
+
+fn weather_cache_is_fresh(fetched_at: Instant, interval_secs: u64) -> bool {
+    interval_secs == 0 || fetched_at.elapsed() < Duration::from_secs(interval_secs)
+}
+
+fn invalidate_weather_cache(widget_name: &str) {
+    WEATHER_CACHE.with(|cache| {
+        cache.borrow_mut().remove(widget_name);
+    });
 }
 
 fn set_label_if_changed(label: &Label, text: &str) {

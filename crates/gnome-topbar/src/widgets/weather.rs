@@ -13,6 +13,7 @@ use tracing::warn;
 
 use crate::services::callbacks::CallbackId;
 use crate::services::config_manager::ConfigManager;
+use crate::services::icons::CairoSpinner;
 use crate::services::network::{NetworkService, NetworkSnapshot};
 use crate::services::weather_runtime_config::{
     WeatherCoordinates, WeatherLocation, load_weather_location, save_weather_location,
@@ -23,6 +24,7 @@ use crate::widgets::base::BaseWidget;
 use crate::widgets::{WidgetConfig, warn_unknown_options};
 
 const DEFAULT_INTERVAL_SECS: u64 = 1800;
+const WEATHER_API_TIMEOUT_SECS: u64 = 30;
 const FALLBACK_ICON: &str = "󰨹";
 const CONFIGURE_LABEL: &str = "Configure...";
 
@@ -205,6 +207,10 @@ pub(crate) fn forecast_days_from_widget_name(widget_name: &str) -> usize {
         .unwrap_or(5)
 }
 
+pub(crate) fn weather_refresh_interval_from_widget_name(widget_name: &str) -> u64 {
+    weather_config_from_widget_name(widget_name).interval
+}
+
 pub(crate) fn show_weather_config_window_for_widget(
     widget_name: &str,
     on_saved: impl Fn() + 'static,
@@ -267,6 +273,7 @@ pub(crate) struct WeatherForecastDay {
 
 pub struct WeatherWidget {
     base: BaseWidget,
+    _spinner: Rc<CairoSpinner>,
     _timer: Rc<RefCell<Option<SourceId>>>,
     network_callback: Rc<RefCell<Option<CallbackId>>>,
 }
@@ -277,7 +284,11 @@ impl WeatherWidget {
         let refresh_generation = Rc::new(Cell::new(0_u64));
         let network_callback = Rc::new(RefCell::new(None));
         let base = BaseWidget::new(&[wgt::WEATHER]);
-        let label = base.add_label(Some(FALLBACK_ICON), &[wgt::WEATHER]);
+        let spinner = Rc::new(CairoSpinner::new(base.content()));
+        spinner.set_size(12);
+        base.content().append(spinner.widget());
+        let label = base.add_label(None, &[wgt::WEATHER]);
+        label.set_visible(false);
         label.set_xalign(0.5);
 
         let on_click_right_cmd = ConfigManager::global().get_click_handlers(wgt::WEATHER).1;
@@ -286,6 +297,7 @@ impl WeatherWidget {
             let click = GestureClick::new();
             click.set_button(gdk::BUTTON_SECONDARY);
             let label_for_toggle = label.clone();
+            let spinner_for_toggle = spinner.clone();
             let config_for_toggle = config.clone();
             let generation_for_toggle = refresh_generation.clone();
             click.connect_released(move |_gesture, _n_press, _x, _y| {
@@ -293,7 +305,12 @@ impl WeatherWidget {
                 config.unit = config.unit.toggled();
                 let current_config = config.clone();
                 drop(config);
-                refresh_weather_label(&label_for_toggle, &current_config, &generation_for_toggle);
+                refresh_weather_label(
+                    &label_for_toggle,
+                    &spinner_for_toggle,
+                    &current_config,
+                    &generation_for_toggle,
+                );
             });
             base.widget().add_controller(click);
         }
@@ -303,6 +320,7 @@ impl WeatherWidget {
             base.set_tooltip(&snapshot.tooltip);
             refresh_weather_label_when_online(
                 &label,
+                &spinner,
                 &snapshot,
                 &refresh_generation,
                 &network_callback,
@@ -313,6 +331,7 @@ impl WeatherWidget {
         if interval > 0 {
             let timer = Rc::new(RefCell::new(None));
             let label_for_timer = label.clone();
+            let spinner_for_timer = spinner.clone();
             let config_for_timer = config.clone();
             let generation_for_timer = refresh_generation.clone();
             let network_callback_for_timer = network_callback.clone();
@@ -320,6 +339,7 @@ impl WeatherWidget {
                 let snapshot = config_for_timer.borrow().clone();
                 refresh_weather_label_when_online(
                     &label_for_timer,
+                    &spinner_for_timer,
                     &snapshot,
                     &generation_for_timer,
                     &network_callback_for_timer,
@@ -329,12 +349,14 @@ impl WeatherWidget {
             *timer.borrow_mut() = Some(source);
             Self {
                 base,
+                _spinner: spinner,
                 _timer: timer,
                 network_callback,
             }
         } else {
             Self {
                 base,
+                _spinner: spinner,
                 _timer: Rc::new(RefCell::new(None)),
                 network_callback,
             }
@@ -476,7 +498,7 @@ pub(crate) fn show_weather_config_window_with_callback<F>(
             weather_config.coordinates = Some(location.coordinates());
             let current_config = weather_config.clone();
             drop(weather_config);
-            refresh_weather_label(&label, &current_config, &generation);
+            refresh_weather_label_without_loading(&label, &current_config, &generation);
             if let Some(on_saved) = on_saved.as_ref() {
                 on_saved();
             }
@@ -489,12 +511,13 @@ pub(crate) fn show_weather_config_window_with_callback<F>(
 
 fn refresh_weather_label_when_online(
     label: &Label,
+    spinner: &Rc<CairoSpinner>,
     config: &WeatherConfig,
     generation: &Rc<Cell<u64>>,
     network_callback: &Rc<RefCell<Option<CallbackId>>>,
 ) {
     if NetworkService::global().internet_available() {
-        refresh_weather_label(label, config, generation);
+        refresh_weather_label(label, spinner, config, generation);
         return;
     }
 
@@ -503,6 +526,7 @@ fn refresh_weather_label_when_online(
     }
 
     let label = label.clone();
+    let spinner = spinner.clone();
     let config = config.clone();
     let generation = generation.clone();
     let callback_id_cell = network_callback.clone();
@@ -514,12 +538,54 @@ fn refresh_weather_label_when_online(
         if let Some(callback_id) = callback_id_cell.borrow_mut().take() {
             NetworkService::global().unsubscribe(callback_id);
         }
-        refresh_weather_label(&label, &config, &generation);
+        refresh_weather_label(&label, &spinner, &config, &generation);
     });
     *network_callback.borrow_mut() = Some(callback_id);
 }
 
-fn refresh_weather_label(label: &Label, config: &WeatherConfig, generation: &Rc<Cell<u64>>) {
+fn refresh_weather_label(
+    label: &Label,
+    spinner: &Rc<CairoSpinner>,
+    config: &WeatherConfig,
+    generation: &Rc<Cell<u64>>,
+) {
+    if should_show_weather_loading(label, config) {
+        label.set_visible(false);
+        spinner.start();
+    }
+
+    let label = label.clone();
+    let spinner = spinner.clone();
+    let config = config.clone();
+    let max_chars = config.max_chars;
+    let request_generation = generation.get().wrapping_add(1);
+    generation.set(request_generation);
+    let generation = generation.clone();
+    glib::spawn_future_local(async move {
+        let result = gio::spawn_blocking(move || fetch_weather_display(&config)).await;
+        if generation.get() != request_generation {
+            return;
+        }
+        spinner.stop();
+        match result {
+            Ok(display) => {
+                set_label_if_changed(&label, &truncate_label(&display.text, max_chars));
+                set_visible_if_changed(&label, true);
+            }
+            Err(err) => {
+                warn!("weather update failed: {:?}", err);
+                set_label_if_changed(&label, FALLBACK_ICON);
+                set_visible_if_changed(&label, true);
+            }
+        }
+    });
+}
+
+fn refresh_weather_label_without_loading(
+    label: &Label,
+    config: &WeatherConfig,
+    generation: &Rc<Cell<u64>>,
+) {
     let label = label.clone();
     let config = config.clone();
     let max_chars = config.max_chars;
@@ -543,6 +609,10 @@ fn refresh_weather_label(label: &Label, config: &WeatherConfig, generation: &Rc<
             }
         }
     });
+}
+
+fn should_show_weather_loading(label: &Label, config: &WeatherConfig) -> bool {
+    config.coordinates.is_some() && (!label.is_visible() || label.label().as_str() == FALLBACK_ICON)
 }
 
 fn set_label_if_changed(label: &Label, text: &str) {
@@ -576,45 +646,43 @@ pub(crate) fn fetch_weather_display(config: &WeatherConfig) -> WeatherDisplay {
     };
 
     let url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current_weather=true&temperature_unit={}",
+        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,weather_code&temperature_unit={}",
         coordinates.latitude,
         coordinates.longitude,
         config.unit.api_value()
     );
 
     let response = minreq::get(url)
-        .with_timeout(8)
+        .with_timeout(WEATHER_API_TIMEOUT_SECS)
         .send()
         .ok()
         .and_then(|response| response.as_str().ok().map(str::to_string))
         .and_then(|body| serde_json::from_str::<OpenMeteoCurrentResponse>(&body).ok());
 
-    let Some(weather) = response.map(|r| r.current_weather) else {
+    let Some(weather) = response.map(|r| r.current) else {
         return WeatherDisplay {
             text: FALLBACK_ICON.to_string(),
         };
     };
 
-    let temp = weather.temperature.round() as i64;
-    WeatherDisplay {
-        text: format!(
-            "{}   {}{}",
-            weather_icon(weather.weathercode),
-            temp,
-            config.unit.symbol()
-        ),
-    }
+    build_weather_display(weather, config.unit)
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenMeteoCurrentResponse {
-    current_weather: CurrentWeather,
+    current: ForecastCurrent,
 }
 
-#[derive(Debug, Deserialize)]
-struct CurrentWeather {
-    temperature: f64,
-    weathercode: i64,
+fn build_weather_display(weather: ForecastCurrent, unit: WeatherUnit) -> WeatherDisplay {
+    let temp = weather.temperature_2m.round() as i64;
+    WeatherDisplay {
+        text: format!(
+            "{}   {}{}",
+            weather_icon(weather.weather_code),
+            temp,
+            unit.symbol()
+        ),
+    }
 }
 
 pub(crate) fn fetch_weather_forecast(
@@ -640,7 +708,7 @@ pub(crate) fn fetch_weather_forecast(
     );
 
     minreq::get(url)
-        .with_timeout(8)
+        .with_timeout(WEATHER_API_TIMEOUT_SECS)
         .send()
         .ok()
         .and_then(|response| response.as_str().ok().map(str::to_string))
@@ -661,7 +729,7 @@ fn fetch_geocoding_result(query: &str) -> Option<WeatherLocation> {
     );
 
     minreq::get(url)
-        .with_timeout(8)
+        .with_timeout(WEATHER_API_TIMEOUT_SECS)
         .send()
         .ok()
         .and_then(|response| response.as_str().ok().map(str::to_string))
@@ -899,6 +967,19 @@ mod tests {
         assert_eq!(weather_condition(2), "Partly cloudy");
         assert_eq!(weather_condition(63), "Rain");
         assert_eq!(weather_condition(999), "Weather unavailable");
+    }
+
+    #[test]
+    fn build_weather_display_formats_current_conditions() {
+        let display = build_weather_display(
+            ForecastCurrent {
+                temperature_2m: 21.4,
+                weather_code: 2,
+            },
+            WeatherUnit::Celsius,
+        );
+
+        assert_eq!(display.text, "󰖕   21°C");
     }
 
     #[test]
