@@ -361,12 +361,12 @@ impl IndicatorWidth {
 
     /// Animate this indicator's width to `target` pixels.
     ///
-    /// No-op when already at the target and not mid-animation. Otherwise starts
-    /// a fresh linear run from the current interpolated width so
-    /// reversals/retargets are smooth. When `theme.animations` is disabled,
-    /// [`Animation::start`] jumps straight to the final width.
+    /// No-op when already targeting `target`. Otherwise starts a fresh linear
+    /// run from the current interpolated width so reversals/retargets are
+    /// smooth. When `theme.animations` is disabled, [`Animation::start`] jumps
+    /// straight to the final width.
     fn retarget(&self, target: i32) {
-        if self.target.get() == target && !self.anim.is_running() {
+        if !should_retarget_width(self.target.get(), target) {
             return;
         }
         self.target.set(target);
@@ -456,6 +456,10 @@ impl IndicatorWidth {
             c.queue_resize();
         }
     }
+}
+
+fn should_retarget_width(current_target: i32, new_target: i32) -> bool {
+    current_target != new_target
 }
 
 impl Drop for IndicatorWidth {
@@ -2103,6 +2107,21 @@ mod tests {
             classify_change(true, true, true, true),
             StructuralChange::Recreate
         );
+    }
+
+    // -- width retarget tests --
+
+    #[test]
+    fn test_width_retarget_skips_identical_target() {
+        // Repeated workspace snapshots may update progress metadata while the
+        // active/inactive pill widths stay unchanged.
+        assert!(!should_retarget_width(28, 28));
+    }
+
+    #[test]
+    fn test_width_retarget_runs_for_new_target() {
+        assert!(should_retarget_width(16, 28));
+        assert!(should_retarget_width(28, 16));
     }
 
     // -- indicator_target_width tests --
