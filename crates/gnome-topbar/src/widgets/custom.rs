@@ -709,10 +709,15 @@ fn run_exec(invocation: ExecInvocation<'_>) {
             }
         }
 
+        let show_loading = should_show_exec_loading(label.is_visible(), label.label().as_str());
         if let Some(spinner) = spinner.as_ref() {
-            label.set_visible(false);
-            set_visible_if_changed(&widget, true);
-            spinner.start();
+            if show_loading {
+                label.set_visible(false);
+                set_visible_if_changed(&widget, true);
+                spinner.start();
+            } else {
+                spinner.stop();
+            }
         }
 
         let result = gio::spawn_blocking(move || {
@@ -871,6 +876,10 @@ fn restore_exec_display_after_error(label: &Label, widget: &gtk4::Box) {
     set_visible_if_changed(widget, has_previous_text);
 }
 
+fn should_show_exec_loading(label_visible: bool, label_text: &str) -> bool {
+    !label_visible || label_text.is_empty()
+}
+
 fn set_label_if_changed(label: &Label, text: &str) {
     if label.label().as_str() != text {
         label.set_label(text);
@@ -962,6 +971,26 @@ mod tests {
     #[test]
     fn test_custom_exec_timeout_default_is_30_seconds() {
         assert_eq!(EXEC_TIMEOUT_SECS, 30);
+    }
+
+    #[test]
+    fn test_custom_exec_loading_shown_when_hidden_and_empty() {
+        assert!(should_show_exec_loading(false, ""));
+    }
+
+    #[test]
+    fn test_custom_exec_loading_suppressed_for_visible_value() {
+        assert!(!should_show_exec_loading(true, "BTC 103421"));
+    }
+
+    #[test]
+    fn test_custom_exec_loading_shown_when_visible_but_empty() {
+        assert!(should_show_exec_loading(true, ""));
+    }
+
+    #[test]
+    fn test_custom_exec_loading_shown_when_hidden_with_stale_value() {
+        assert!(should_show_exec_loading(false, "BTC 103421"));
     }
 
     #[test]
