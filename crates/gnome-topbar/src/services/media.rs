@@ -27,13 +27,18 @@
 //!   - `org.mpris.MediaPlayer2.Player` - Playback control and state
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use gtk4::gio;
 use gtk4::glib::{self, ControlFlow, Variant, clone};
 use gtk4::prelude::*;
+use sha2::{Digest, Sha256};
 use tracing::{debug, error, trace, warn};
 
 use super::callbacks::{CallbackId, Callbacks};
@@ -46,9 +51,15 @@ const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
 const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
 const MPRIS_PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
 const PROPERTIES_INTERFACE: &str = "org.freedesktop.DBus.Properties";
+const MPD_PLAYER_NAME: &str = "mpd";
+const MPD_HOST: &str = "127.0.0.1:6600";
+const MPD_TIMEOUT_MS: u64 = 500;
+const MPD_ART_CACHE_DIR: &str = "gnome-topbar-mpd-art";
 
 /// Position polling interval when playing (in milliseconds).
 const POSITION_POLL_INTERVAL_MS: u64 = 1000;
+/// MPD discovery/status refresh interval.
+const MPD_REFRESH_INTERVAL_MS: u64 = 5000;
 /// Default timeout for D-Bus method calls (in milliseconds).
 const DBUS_CALL_TIMEOUT_MS: i32 = 5000;
 /// Shorter timeout for position polling queries.
@@ -72,6 +83,16 @@ fn capitalize_first(s: &str) -> String {
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// Extract MPRIS bus names from a D-Bus `(as)` reply.
+fn mpris_names_from_reply(reply: &Variant) -> Vec<String> {
+    reply
+        .child_value(0)
+        .iter()
+        .filter_map(|v| v.get::<String>())
+        .filter(|n| n.starts_with(MPRIS_PREFIX))
+        .collect()
 }
 
 /// Playback status of the media player.
@@ -211,12 +232,39 @@ impl MprisPlayer {
     }
 }
 
+/// State for a native MPD player discovered over the local MPD protocol.
+#[derive(Debug, Clone)]
+struct MpdPlayer {
+    playback_status: PlaybackStatus,
+    metadata: MediaMetadata,
+    position: i64,
+    can_seek: bool,
+}
+
+struct MpdBinaryChunk {
+    total_size: usize,
+    bytes: Vec<u8>,
+}
+
+impl MpdPlayer {
+    fn to_player_info(&self, is_active: bool) -> PlayerInfo {
+        PlayerInfo {
+            bus_name: MPD_PLAYER_NAME.to_string(),
+            player_name: "MPD".to_string(),
+            playback_status: self.playback_status,
+            is_active,
+        }
+    }
+}
+
 /// Shared, process-wide media service with multi-player support.
 pub struct MediaService {
     /// Connection to the session bus.
     connection: RefCell<Option<gio::DBusConnection>>,
     /// All connected MPRIS players, keyed by bus name.
     players: RefCell<HashMap<String, Rc<RefCell<MprisPlayer>>>>,
+    /// Native MPD fallback when no MPRIS bridge exposes MPD on D-Bus.
+    mpd_player: RefCell<Option<MpdPlayer>>,
     /// Bus name of the currently active player.
     active_player: RefCell<Option<String>>,
     /// User's manual selection (None = auto mode).
@@ -227,6 +275,8 @@ pub struct MediaService {
     _name_owner_subscription: RefCell<Option<gio::SignalSubscription>>,
     /// Timer for position polling when playing.
     position_poll_source: RefCell<Option<glib::SourceId>>,
+    /// Timer for periodically discovering and refreshing MPD.
+    mpd_refresh_source: RefCell<Option<glib::SourceId>>,
     /// Cancellable for position polling D-Bus calls.
     poll_cancellable: RefCell<gio::Cancellable>,
     /// Live media snapshot listeners.
@@ -238,16 +288,19 @@ impl MediaService {
         let service = Rc::new(Self {
             connection: RefCell::new(None),
             players: RefCell::new(HashMap::new()),
+            mpd_player: RefCell::new(None),
             active_player: RefCell::new(None),
             manual_selection: RefCell::new(None),
             last_playing: RefCell::new(None),
             _name_owner_subscription: RefCell::new(None),
             position_poll_source: RefCell::new(None),
+            mpd_refresh_source: RefCell::new(None),
             poll_cancellable: RefCell::new(gio::Cancellable::new()),
             callbacks: Callbacks::new(),
         });
 
         Self::init_dbus(&service);
+        Self::init_mpd(&service);
         service
     }
 
@@ -282,21 +335,29 @@ impl MediaService {
     /// Get info about all available players (for selector UI).
     pub fn available_players(&self) -> Vec<PlayerInfo> {
         let players = self.players.borrow();
+        let mpd_player = self.mpd_player.borrow();
         let active = self.active_player.borrow();
 
-        players
+        let mut infos: Vec<PlayerInfo> = players
             .values()
             .map(|p| {
                 let p = p.borrow();
                 let is_active = active.as_ref() == Some(&p.bus_name);
                 p.to_player_info(is_active)
             })
-            .collect()
+            .collect();
+
+        if let Some(mpd) = mpd_player.as_ref() {
+            infos.push(mpd.to_player_info(active.as_deref() == Some(MPD_PLAYER_NAME)));
+        }
+
+        infos
     }
 
     /// Manually select a specific player.
     pub fn set_active_player(self: &Rc<Self>, bus_name: &str) {
-        if !self.players.borrow().contains_key(bus_name) {
+        let is_mpd = bus_name == MPD_PLAYER_NAME && self.mpd_player.borrow().is_some();
+        if !is_mpd && !self.players.borrow().contains_key(bus_name) {
             warn!("Cannot select unknown player: {}", bus_name);
             return;
         }
@@ -394,6 +455,7 @@ impl MediaService {
         };
 
         let this_weak = Rc::downgrade(self);
+        let connection_for_activatable = connection.clone();
         connection.call(
             Some(DBUS_NAME),
             DBUS_PATH,
@@ -417,28 +479,408 @@ impl MediaService {
                     }
                 };
 
-                let names: Vec<String> = reply
-                    .child_value(0)
-                    .iter()
-                    .filter_map(|v| v.get::<String>())
-                    .collect();
+                let owned_players = mpris_names_from_reply(&reply);
+                let this_weak = Rc::downgrade(&this);
 
-                let players: Vec<String> = names
-                    .into_iter()
-                    .filter(|n| n.starts_with(MPRIS_PREFIX))
-                    .collect();
+                // Some MPRIS bridges (including MPD bridges on Guix systems) are
+                // D-Bus activatable and only take a well-known name once a client
+                // asks for them. Include those names so discovery can activate them.
+                connection_for_activatable.call(
+                    Some(DBUS_NAME),
+                    DBUS_PATH,
+                    DBUS_INTERFACE,
+                    "ListActivatableNames",
+                    None,
+                    Some(glib::VariantTy::new("(as)").unwrap()),
+                    gio::DBusCallFlags::NONE,
+                    DBUS_CALL_TIMEOUT_MS,
+                    None::<&gio::Cancellable>,
+                    move |res| {
+                        let Some(this) = this_weak.upgrade() else {
+                            return;
+                        };
 
-                debug!(
-                    "Discovered {} MPRIS player(s): {:?}",
-                    players.len(),
-                    players
+                        let mut players: HashSet<String> = owned_players.into_iter().collect();
+                        match res {
+                            Ok(reply) => players.extend(mpris_names_from_reply(&reply)),
+                            Err(e) => {
+                                warn!("Failed to list activatable D-Bus names: {}", e);
+                            }
+                        }
+
+                        let mut players: Vec<String> = players.into_iter().collect();
+                        players.sort();
+
+                        debug!(
+                            "Discovered {} MPRIS player(s): {:?}",
+                            players.len(),
+                            players
+                        );
+
+                        for bus_name in players {
+                            this.add_player(&bus_name);
+                        }
+                    },
                 );
-
-                for bus_name in players {
-                    this.add_player(&bus_name);
-                }
             },
         );
+    }
+
+    // ========== Native MPD fallback ==========
+
+    fn init_mpd(this: &Rc<Self>) {
+        this.refresh_mpd();
+
+        let this_weak = Rc::downgrade(this);
+        let source =
+            glib::timeout_add_local(Duration::from_millis(MPD_REFRESH_INTERVAL_MS), move || {
+                let Some(this) = this_weak.upgrade() else {
+                    return ControlFlow::Break;
+                };
+
+                this.refresh_mpd();
+                ControlFlow::Continue
+            });
+        this.mpd_refresh_source.replace(Some(source));
+    }
+
+    fn refresh_mpd(self: &Rc<Self>) {
+        let old_player = self.mpd_player.borrow().clone();
+        let new_player = Self::query_mpd_player().ok();
+
+        let changed = old_player.as_ref().map(Self::mpd_signature)
+            != new_player.as_ref().map(Self::mpd_signature);
+        let appeared = old_player.is_none() && new_player.is_some();
+        let disappeared = old_player.is_some() && new_player.is_none();
+
+        self.mpd_player.replace(new_player);
+
+        if appeared {
+            debug!("Added native MPD player");
+        } else if disappeared {
+            debug!("Removed native MPD player");
+            if self.manual_selection.borrow().as_deref() == Some(MPD_PLAYER_NAME) {
+                self.manual_selection.replace(None);
+            }
+        }
+
+        if appeared || disappeared {
+            self.update_active_player();
+        } else if changed {
+            if self
+                .mpd_player
+                .borrow()
+                .as_ref()
+                .is_some_and(|p| p.playback_status == PlaybackStatus::Playing)
+            {
+                self.last_playing.replace(Some(MPD_PLAYER_NAME.to_string()));
+            }
+            self.update_active_player();
+            if self.active_player.borrow().as_deref() == Some(MPD_PLAYER_NAME) {
+                self.notify_listeners();
+            }
+        }
+    }
+
+    fn mpd_signature(player: &MpdPlayer) -> (PlaybackStatus, Option<String>, i64, Option<i64>) {
+        (
+            player.playback_status,
+            player.metadata.track_id.clone(),
+            player.position,
+            player.metadata.length,
+        )
+    }
+
+    fn query_mpd_player() -> Result<MpdPlayer, String> {
+        let status = Self::mpd_query("status")?;
+        let song = Self::mpd_query("currentsong").unwrap_or_default();
+        let status = Self::parse_mpd_pairs(&status);
+        let song = Self::parse_mpd_pairs(&song);
+
+        let playback_status = match status.get("state").map(String::as_str) {
+            Some("play") => PlaybackStatus::Playing,
+            Some("pause") => PlaybackStatus::Paused,
+            _ => PlaybackStatus::Stopped,
+        };
+
+        let title = song
+            .get("Title")
+            .cloned()
+            .or_else(|| song.get("file").cloned());
+        let artist = song.get("Artist").cloned();
+        let album = song.get("Album").cloned();
+        let length = song
+            .get("duration")
+            .or_else(|| status.get("duration"))
+            .and_then(|v| Self::mpd_seconds_to_microseconds(v));
+        let position = status
+            .get("elapsed")
+            .and_then(|v| Self::mpd_seconds_to_microseconds(v))
+            .unwrap_or(0);
+        let track_id = song
+            .get("Id")
+            .or_else(|| status.get("songid"))
+            .map(|id| format!("mpd:{}", id));
+        let art_url = song.get("file").and_then(|file| {
+            let cache_key = track_id.as_deref().unwrap_or(file);
+            Self::mpd_album_art_url(file, cache_key).ok().flatten()
+        });
+
+        Ok(MpdPlayer {
+            playback_status,
+            metadata: MediaMetadata {
+                title,
+                artist,
+                album,
+                art_url,
+                length,
+                track_id,
+                ..Default::default()
+            },
+            position,
+            can_seek: length.is_some(),
+        })
+    }
+
+    fn mpd_query(command: &str) -> Result<Vec<String>, String> {
+        let timeout = Duration::from_millis(MPD_TIMEOUT_MS);
+        let mut stream =
+            TcpStream::connect(MPD_HOST).map_err(|e| format!("connect to MPD failed: {}", e))?;
+        stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| format!("set MPD read timeout failed: {}", e))?;
+        stream
+            .set_write_timeout(Some(timeout))
+            .map_err(|e| format!("set MPD write timeout failed: {}", e))?;
+
+        let mut reader = BufReader::new(
+            stream
+                .try_clone()
+                .map_err(|e| format!("clone MPD stream failed: {}", e))?,
+        );
+
+        let mut greeting = String::new();
+        reader
+            .read_line(&mut greeting)
+            .map_err(|e| format!("read MPD greeting failed: {}", e))?;
+        if !greeting.starts_with("OK MPD ") {
+            return Err("invalid MPD greeting".to_string());
+        }
+
+        writeln!(stream, "{}", command).map_err(|e| format!("write MPD command failed: {}", e))?;
+        writeln!(stream, "close").map_err(|e| format!("write MPD close failed: {}", e))?;
+        stream
+            .flush()
+            .map_err(|e| format!("flush MPD command failed: {}", e))?;
+
+        let mut lines = Vec::new();
+        loop {
+            let mut line = String::new();
+            let bytes = reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read MPD reply failed: {}", e))?;
+            if bytes == 0 {
+                break;
+            }
+            let line = line.trim_end().to_string();
+            if line == "OK" {
+                break;
+            }
+            if line.starts_with("ACK ") {
+                return Err(line);
+            }
+            lines.push(line);
+        }
+
+        Ok(lines)
+    }
+
+    fn mpd_album_art_url(song_file: &str, cache_key: &str) -> Result<Option<String>, String> {
+        let cache_path = Self::mpd_art_cache_path(cache_key)?;
+        if cache_path.exists() {
+            return Ok(Some(gio::File::for_path(&cache_path).uri().to_string()));
+        }
+
+        let Some(bytes) = Self::mpd_album_art_bytes(song_file)? else {
+            return Ok(None);
+        };
+
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("create MPD art cache failed: {}", e))?;
+        }
+        fs::write(&cache_path, bytes).map_err(|e| format!("write MPD art cache failed: {}", e))?;
+
+        Ok(Some(gio::File::for_path(&cache_path).uri().to_string()))
+    }
+
+    fn mpd_art_cache_path(cache_key: &str) -> Result<PathBuf, String> {
+        let base_dir = std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let mut hasher = Sha256::new();
+        hasher.update(cache_key.as_bytes());
+        let digest = hasher.finalize();
+        let name = digest
+            .iter()
+            .take(16)
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+
+        Ok(base_dir
+            .join(MPD_ART_CACHE_DIR)
+            .join(format!("{name}.cover")))
+    }
+
+    fn mpd_album_art_bytes(song_file: &str) -> Result<Option<Vec<u8>>, String> {
+        let quoted_file = Self::mpd_quote_arg(song_file);
+        Self::mpd_binary_query_chunks("albumart", &quoted_file)
+            .or_else(|_| Self::mpd_binary_query_chunks("readpicture", &quoted_file))
+    }
+
+    fn mpd_binary_query_chunks(
+        command: &str,
+        quoted_file: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let mut offset = 0usize;
+        let mut total_size = None;
+        let mut bytes = Vec::new();
+
+        loop {
+            let query = format!("{command} {quoted_file} {offset}");
+            let Some(chunk) = Self::mpd_binary_query(&query)? else {
+                return Ok(None);
+            };
+
+            if total_size.is_none() {
+                total_size = Some(chunk.total_size);
+            }
+            if chunk.bytes.is_empty() {
+                break;
+            }
+
+            offset += chunk.bytes.len();
+            bytes.extend(chunk.bytes);
+
+            if let Some(size) = total_size
+                && offset >= size
+            {
+                break;
+            }
+        }
+
+        if bytes.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(bytes))
+        }
+    }
+
+    fn mpd_binary_query(command: &str) -> Result<Option<MpdBinaryChunk>, String> {
+        let timeout = Duration::from_millis(MPD_TIMEOUT_MS);
+        let mut stream =
+            TcpStream::connect(MPD_HOST).map_err(|e| format!("connect to MPD failed: {}", e))?;
+        stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| format!("set MPD read timeout failed: {}", e))?;
+        stream
+            .set_write_timeout(Some(timeout))
+            .map_err(|e| format!("set MPD write timeout failed: {}", e))?;
+
+        let mut reader = BufReader::new(
+            stream
+                .try_clone()
+                .map_err(|e| format!("clone MPD stream failed: {}", e))?,
+        );
+
+        let mut greeting = String::new();
+        reader
+            .read_line(&mut greeting)
+            .map_err(|e| format!("read MPD greeting failed: {}", e))?;
+        if !greeting.starts_with("OK MPD ") {
+            return Err("invalid MPD greeting".to_string());
+        }
+
+        writeln!(stream, "{}", command).map_err(|e| format!("write MPD command failed: {}", e))?;
+        writeln!(stream, "close").map_err(|e| format!("write MPD close failed: {}", e))?;
+        stream
+            .flush()
+            .map_err(|e| format!("flush MPD command failed: {}", e))?;
+
+        let mut total_size = None;
+        loop {
+            let mut line = String::new();
+            let bytes_read = reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read MPD binary header failed: {}", e))?;
+            if bytes_read == 0 {
+                return Ok(None);
+            }
+            let line = line.trim_end();
+
+            if let Some(value) = line.strip_prefix("size: ") {
+                total_size = value.parse::<usize>().ok();
+            } else if let Some(value) = line.strip_prefix("binary: ") {
+                let chunk_size = value
+                    .parse::<usize>()
+                    .map_err(|e| format!("invalid MPD binary size: {}", e))?;
+                let mut bytes = vec![0; chunk_size];
+                reader
+                    .read_exact(&mut bytes)
+                    .map_err(|e| format!("read MPD binary payload failed: {}", e))?;
+
+                // MPD terminates the binary payload with a newline before OK.
+                let mut separator = [0; 1];
+                let _ = reader.read_exact(&mut separator);
+                Self::mpd_expect_ok(reader)?;
+
+                return Ok(Some(MpdBinaryChunk {
+                    total_size: total_size.unwrap_or(chunk_size),
+                    bytes,
+                }));
+            } else if line == "OK" {
+                return Ok(None);
+            } else if line.starts_with("ACK ") {
+                return Err(line.to_string());
+            }
+        }
+    }
+
+    fn mpd_expect_ok(mut reader: BufReader<TcpStream>) -> Result<(), String> {
+        loop {
+            let mut line = String::new();
+            let bytes_read = reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read MPD command trailer failed: {}", e))?;
+            if bytes_read == 0 {
+                return Ok(());
+            }
+            let line = line.trim_end();
+            if line == "OK" {
+                return Ok(());
+            }
+            if line.starts_with("ACK ") {
+                return Err(line.to_string());
+            }
+        }
+    }
+
+    fn mpd_quote_arg(value: &str) -> String {
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"{}\"", escaped)
+    }
+
+    fn parse_mpd_pairs(lines: &[String]) -> HashMap<String, String> {
+        lines
+            .iter()
+            .filter_map(|line| line.split_once(": "))
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    fn mpd_seconds_to_microseconds(value: &str) -> Option<i64> {
+        let seconds = value.parse::<f64>().ok()?;
+        Some((seconds * MICROSECONDS_PER_SECOND as f64).round() as i64)
     }
 
     /// Add a new player (creates proxy and subscribes to signals).
@@ -713,11 +1155,14 @@ impl MediaService {
     /// Determine which player should be active.
     fn update_active_player(self: &Rc<Self>) {
         let players = self.players.borrow();
+        let mpd_player = self.mpd_player.borrow().clone();
         let old_active = self.active_player.borrow().clone();
 
         // Honor manual selection if still valid
         if let Some(manual) = self.manual_selection.borrow().as_ref() {
-            if players.contains_key(manual) {
+            let manual_is_valid =
+                players.contains_key(manual) || (manual == MPD_PLAYER_NAME && mpd_player.is_some());
+            if manual_is_valid {
                 if old_active.as_ref() != Some(manual) {
                     debug!("Active player (manual): {}", manual);
                     self.active_player.replace(Some(manual.clone()));
@@ -730,17 +1175,19 @@ impl MediaService {
             drop(players);
             self.manual_selection.replace(None);
             let players = self.players.borrow();
-            self.select_best_player_auto(&players, &old_active);
+            let mpd_player = self.mpd_player.borrow().clone();
+            self.select_best_player_auto(&players, mpd_player.as_ref(), &old_active);
             return;
         }
 
-        self.select_best_player_auto(&players, &old_active);
+        self.select_best_player_auto(&players, mpd_player.as_ref(), &old_active);
     }
 
     /// Auto-select the best player (last playing > other playing > current paused > other paused > any).
     fn select_best_player_auto(
         self: &Rc<Self>,
         players: &HashMap<String, Rc<RefCell<MprisPlayer>>>,
+        mpd_player: Option<&MpdPlayer>,
         old_active: &Option<String>,
     ) {
         // First, check if last_playing is still playing - prefer it
@@ -751,6 +1198,17 @@ impl MediaService {
             if old_active.as_ref() != Some(last) {
                 debug!("Active player (auto, last playing): {}", last);
                 self.active_player.replace(Some(last.clone()));
+                self.on_active_player_changed();
+            }
+            return;
+        }
+        if self.last_playing.borrow().as_deref() == Some(MPD_PLAYER_NAME)
+            && mpd_player.is_some_and(|p| p.playback_status == PlaybackStatus::Playing)
+        {
+            if old_active.as_deref() != Some(MPD_PLAYER_NAME) {
+                debug!("Active player (auto, last playing): {}", MPD_PLAYER_NAME);
+                self.active_player
+                    .replace(Some(MPD_PLAYER_NAME.to_string()));
                 self.on_active_player_changed();
             }
             return;
@@ -766,6 +1224,15 @@ impl MediaService {
             if old_active.as_ref() != Some(&bus_name) {
                 debug!("Active player (auto, playing): {}", bus_name);
                 self.active_player.replace(Some(bus_name));
+                self.on_active_player_changed();
+            }
+            return;
+        }
+        if mpd_player.is_some_and(|p| p.playback_status == PlaybackStatus::Playing) {
+            if old_active.as_deref() != Some(MPD_PLAYER_NAME) {
+                debug!("Active player (auto, playing): {}", MPD_PLAYER_NAME);
+                self.active_player
+                    .replace(Some(MPD_PLAYER_NAME.to_string()));
                 self.on_active_player_changed();
             }
             return;
@@ -786,6 +1253,22 @@ impl MediaService {
                 return;
             }
         }
+        if self.last_playing.borrow().as_deref() == Some(MPD_PLAYER_NAME)
+            && mpd_player.is_some_and(|p| {
+                p.playback_status == PlaybackStatus::Paused && p.metadata.title.is_some()
+            })
+        {
+            if old_active.as_deref() != Some(MPD_PLAYER_NAME) {
+                debug!(
+                    "Active player (auto, last playing paused): {}",
+                    MPD_PLAYER_NAME
+                );
+                self.active_player
+                    .replace(Some(MPD_PLAYER_NAME.to_string()));
+                self.on_active_player_changed();
+            }
+            return;
+        }
 
         // If current player is paused with metadata, keep it (don't switch between paused players)
         if let Some(current) = old_active
@@ -795,6 +1278,13 @@ impl MediaService {
             if p.playback_status == PlaybackStatus::Paused && p.metadata.title.is_some() {
                 return;
             }
+        }
+        if old_active.as_deref() == Some(MPD_PLAYER_NAME)
+            && mpd_player.is_some_and(|p| {
+                p.playback_status == PlaybackStatus::Paused && p.metadata.title.is_some()
+            })
+        {
+            return;
         }
 
         // Find any paused player with metadata
@@ -814,6 +1304,20 @@ impl MediaService {
             }
             return;
         }
+        if mpd_player.is_some_and(|p| {
+            p.playback_status == PlaybackStatus::Paused && p.metadata.title.is_some()
+        }) {
+            if old_active.as_deref() != Some(MPD_PLAYER_NAME) {
+                debug!(
+                    "Active player (auto, paused with metadata): {}",
+                    MPD_PLAYER_NAME
+                );
+                self.active_player
+                    .replace(Some(MPD_PLAYER_NAME.to_string()));
+                self.on_active_player_changed();
+            }
+            return;
+        }
 
         // Keep current if still valid
         if let Some(current) = old_active
@@ -821,9 +1325,16 @@ impl MediaService {
         {
             return;
         }
+        if old_active.as_deref() == Some(MPD_PLAYER_NAME) && mpd_player.is_some() {
+            return;
+        }
 
         // Pick any available player
-        let any = players.keys().next().cloned();
+        let any = players
+            .keys()
+            .next()
+            .cloned()
+            .or_else(|| mpd_player.map(|_| MPD_PLAYER_NAME.to_string()));
         if any != *old_active {
             if let Some(ref bus_name) = any {
                 debug!("Active player (auto, fallback): {}", bus_name);
@@ -849,11 +1360,18 @@ impl MediaService {
 
         let should_poll = {
             let players = self.players.borrow();
+            let mpd_player = self.mpd_player.borrow();
             let active = self.active_player.borrow();
-            active
-                .as_ref()
-                .and_then(|bus| players.get(bus))
-                .is_some_and(|p| p.borrow().playback_status == PlaybackStatus::Playing)
+            if active.as_deref() == Some(MPD_PLAYER_NAME) {
+                mpd_player
+                    .as_ref()
+                    .is_some_and(|p| p.playback_status == PlaybackStatus::Playing)
+            } else {
+                active
+                    .as_ref()
+                    .and_then(|bus| players.get(bus))
+                    .is_some_and(|p| p.borrow().playback_status == PlaybackStatus::Playing)
+            }
         };
 
         if should_poll {
@@ -870,7 +1388,25 @@ impl MediaService {
     /// Build the current snapshot from active player state.
     fn build_snapshot(&self) -> MediaSnapshot {
         let players = self.players.borrow();
+        let mpd_player = self.mpd_player.borrow();
         let active_bus = self.active_player.borrow();
+
+        if active_bus.as_deref() == Some(MPD_PLAYER_NAME)
+            && let Some(p) = mpd_player.as_ref()
+        {
+            return MediaSnapshot {
+                available: true,
+                player_id: Some(MPD_PLAYER_NAME.to_string()),
+                playback_status: p.playback_status,
+                metadata: p.metadata.clone(),
+                position: p.position,
+                can_play: true,
+                can_pause: true,
+                can_go_next: true,
+                can_go_previous: true,
+                can_seek: p.can_seek,
+            };
+        }
 
         let active_player = active_bus
             .as_ref()
@@ -891,7 +1427,7 @@ impl MediaService {
                 can_seek: p.can_seek,
             },
             None => MediaSnapshot {
-                available: !players.is_empty(),
+                available: !players.is_empty() || mpd_player.is_some(),
                 ..Default::default()
             },
         }
@@ -961,11 +1497,18 @@ impl MediaService {
 
                 let should_continue = {
                     let players = this.players.borrow();
+                    let mpd_player = this.mpd_player.borrow();
                     let active = this.active_player.borrow();
-                    active
-                        .as_ref()
-                        .and_then(|bus| players.get(bus))
-                        .is_some_and(|p| p.borrow().playback_status == PlaybackStatus::Playing)
+                    if active.as_deref() == Some(MPD_PLAYER_NAME) {
+                        mpd_player
+                            .as_ref()
+                            .is_some_and(|p| p.playback_status == PlaybackStatus::Playing)
+                    } else {
+                        active
+                            .as_ref()
+                            .and_then(|bus| players.get(bus))
+                            .is_some_and(|p| p.borrow().playback_status == PlaybackStatus::Playing)
+                    }
                 };
 
                 if !should_continue {
@@ -988,6 +1531,18 @@ impl MediaService {
     }
 
     fn poll_position(self: &Rc<Self>) {
+        if self.active_player.borrow().as_deref() == Some(MPD_PLAYER_NAME) {
+            let old_position = self.mpd_player.borrow().as_ref().map(|p| p.position);
+            if let Ok(player) = Self::query_mpd_player() {
+                let changed = old_position != Some(player.position);
+                self.mpd_player.replace(Some(player));
+                if changed {
+                    self.notify_listeners();
+                }
+            }
+            return;
+        }
+
         let (bus_name, generation) = {
             let players = self.players.borrow();
             let active = self.active_player.borrow();
@@ -1082,6 +1637,14 @@ impl MediaService {
 
     /// Set absolute position (in microseconds).
     pub fn set_position(&self, position_us: i64) {
+        if self.active_player.borrow().as_deref() == Some(MPD_PLAYER_NAME) {
+            let seconds = position_us / MICROSECONDS_PER_SECOND;
+            if let Err(e) = Self::mpd_query(&format!("seekcur {}", seconds)) {
+                warn!("MPD seek failed: {}", e);
+            }
+            return;
+        }
+
         let track_id = {
             let players = self.players.borrow();
             let active = self.active_player.borrow();
@@ -1135,6 +1698,28 @@ impl MediaService {
     }
 
     fn call_player_method(&self, method: &str) {
+        if self.active_player.borrow().as_deref() == Some(MPD_PLAYER_NAME) {
+            let command = match method {
+                "PlayPause" => {
+                    let is_playing = self
+                        .mpd_player
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|p| p.playback_status == PlaybackStatus::Playing);
+                    if is_playing { "pause 1" } else { "play" }
+                }
+                "Next" => "next",
+                "Previous" => "previous",
+                "Stop" => "stop",
+                _ => return,
+            };
+
+            if let Err(e) = Self::mpd_query(command) {
+                warn!("MPD {} failed: {}", method, e);
+            }
+            return;
+        }
+
         let Some((connection, bus_name)) = self.get_active_connection() else {
             return;
         };
@@ -1170,6 +1755,9 @@ impl Drop for MediaService {
         trace!("MediaService dropping, cleaning up resources");
         self.poll_cancellable.borrow().cancel();
         if let Some(source) = self.position_poll_source.take() {
+            source.remove();
+        }
+        if let Some(source) = self.mpd_refresh_source.take() {
             source.remove();
         }
         self._name_owner_subscription.take();
@@ -1233,8 +1821,8 @@ impl MediaCli {
     }
 
     fn discover_players(&mut self) {
-        // Call ListNames to find MPRIS players
-        let result = self.connection.call_sync(
+        // Call ListNames to find currently owned MPRIS players.
+        let owned_result = self.connection.call_sync(
             Some(DBUS_NAME),
             DBUS_PATH,
             DBUS_INTERFACE,
@@ -1246,16 +1834,32 @@ impl MediaCli {
             None::<&gio::Cancellable>,
         );
 
-        let Ok(reply) = result else {
+        let Ok(owned_reply) = owned_result else {
             return;
         };
 
-        let names: Vec<String> = reply
-            .child_value(0)
-            .iter()
-            .filter_map(|v| v.get::<String>())
-            .filter(|n| n.starts_with(MPRIS_PREFIX))
-            .collect();
+        let mut names: HashSet<String> = mpris_names_from_reply(&owned_reply).into_iter().collect();
+
+        // Also include activatable services so an MPD MPRIS bridge can be found
+        // before any other client has caused it to claim its well-known name.
+        let activatable_result = self.connection.call_sync(
+            Some(DBUS_NAME),
+            DBUS_PATH,
+            DBUS_INTERFACE,
+            "ListActivatableNames",
+            None,
+            Some(glib::VariantTy::new("(as)").unwrap()),
+            gio::DBusCallFlags::NONE,
+            DBUS_CALL_TIMEOUT_MS,
+            None::<&gio::Cancellable>,
+        );
+
+        if let Ok(activatable_reply) = activatable_result {
+            names.extend(mpris_names_from_reply(&activatable_reply));
+        }
+
+        let mut names: Vec<String> = names.into_iter().collect();
+        names.sort();
 
         // Build player list with display names
         self.players = names
@@ -1266,6 +1870,13 @@ impl MediaCli {
                 (bus_name.clone(), player_name)
             })
             .collect();
+
+        if MediaService::query_mpd_player().is_ok()
+            && !self.players.iter().any(|(bus, _)| bus == MPD_PLAYER_NAME)
+        {
+            self.players
+                .push((MPD_PLAYER_NAME.to_string(), "MPD".to_string()));
+        }
 
         // Check if the panel has a selected player via state file.
         // Use the panel's active player so CLI commands control the same player shown in the UI.
@@ -1294,6 +1905,12 @@ impl MediaCli {
     }
 
     fn get_playback_status(&self, bus_name: &str) -> Option<PlaybackStatus> {
+        if bus_name == MPD_PLAYER_NAME {
+            return MediaService::query_mpd_player()
+                .ok()
+                .map(|p| p.playback_status);
+        }
+
         let result = self
             .connection
             .call_sync(
@@ -1342,6 +1959,18 @@ impl MediaCli {
             .active_player
             .as_ref()
             .ok_or_else(|| "no media player found".to_string())?;
+
+        if bus_name == MPD_PLAYER_NAME {
+            let player = MediaService::query_mpd_player()?;
+            return Ok(MediaCliStatus {
+                player_name: "MPD".to_string(),
+                playback_status: player.playback_status,
+                title: player.metadata.title,
+                artist: player.metadata.artist,
+                position: player.position,
+                length: player.metadata.length,
+            });
+        }
 
         // Get all properties at once
         let result = self
@@ -1403,6 +2032,27 @@ impl MediaCli {
             .active_player
             .as_ref()
             .ok_or_else(|| "no media player found".to_string())?;
+
+        if bus_name == MPD_PLAYER_NAME {
+            let command = match method {
+                "PlayPause" => {
+                    if MediaService::query_mpd_player()
+                        .ok()
+                        .is_some_and(|p| p.playback_status == PlaybackStatus::Playing)
+                    {
+                        "pause 1"
+                    } else {
+                        "play"
+                    }
+                }
+                "Next" => "next",
+                "Previous" => "previous",
+                "Stop" => "stop",
+                _ => return Ok(()),
+            };
+            MediaService::mpd_query(command)?;
+            return Ok(());
+        }
 
         self.connection
             .call_sync(
@@ -1488,6 +2138,27 @@ mod tests {
     }
 
     #[test]
+    fn mpd_quote_arg_escapes_protocol_strings() {
+        assert_eq!(
+            MediaService::mpd_quote_arg("simple.opus"),
+            "\"simple.opus\""
+        );
+        assert_eq!(
+            MediaService::mpd_quote_arg("artist/quote\"slash\\.opus"),
+            "\"artist/quote\\\"slash\\\\.opus\""
+        );
+    }
+
+    #[test]
+    fn mpd_seconds_to_microseconds_rounds_fractional_seconds() {
+        assert_eq!(
+            MediaService::mpd_seconds_to_microseconds("250.080"),
+            Some(250_080_000)
+        );
+        assert_eq!(MediaService::mpd_seconds_to_microseconds("nope"), None);
+    }
+
+    #[test]
     fn test_media_snapshot_default() {
         let snapshot = MediaSnapshot::default();
         assert!(!snapshot.available);
@@ -1499,11 +2170,13 @@ mod tests {
         let service = MediaService {
             connection: RefCell::new(None),
             players: RefCell::new(HashMap::new()),
+            mpd_player: RefCell::new(None),
             active_player: RefCell::new(None),
             manual_selection: RefCell::new(None),
             last_playing: RefCell::new(None),
             _name_owner_subscription: RefCell::new(None),
             position_poll_source: RefCell::new(None),
+            mpd_refresh_source: RefCell::new(None),
             poll_cancellable: RefCell::new(gio::Cancellable::new()),
             callbacks: Callbacks::new(),
         };
