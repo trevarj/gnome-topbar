@@ -17,6 +17,18 @@ use super::{
 };
 use crate::services::network::{SecurityType, WifiNetwork, objpath_to_string};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SavedWifiProfile {
+    uuid: String,
+    ssid: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WifiConnectPlan {
+    args: Vec<String>,
+    cleanup_failed_profile: bool,
+}
+
 impl NmService {
     /// Create wifi proxy - called from apply_update on main thread.
     pub(super) fn create_wifi_proxy_from_self(&self, path: &str) {
@@ -338,24 +350,15 @@ impl NmService {
             return;
         }
 
-        // Query nmcli for saved connections
-        let output = Command::new("nmcli")
-            .args(["-t", "-f", "NAME,TYPE", "connection", "show"])
-            .output();
-
         let mut ssids = HashSet::new();
-        if let Ok(output) = output
-            && let Ok(stdout) = String::from_utf8(output.stdout)
-        {
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() >= 2 {
-                    let name = parts[0];
-                    let ctype = parts[1];
-                    if ctype.contains("wifi") || ctype.contains("wireless") {
-                        ssids.insert(name.to_string());
-                    }
+        match Self::saved_wifi_profiles_sync() {
+            Ok(profiles) => {
+                for profile in profiles {
+                    ssids.insert(profile.ssid);
                 }
+            }
+            Err(e) => {
+                warn!("Failed to refresh saved Wi-Fi profiles: {}", e);
             }
         }
 
@@ -505,12 +508,20 @@ impl NmService {
         let password = password.map(|s| s.to_string());
 
         thread::spawn(move || {
-            let mut cmd = Command::new("nmcli");
-            cmd.args(["device", "wifi", "connect", &ssid]);
+            let saved_profiles = Self::saved_wifi_profiles_sync();
+            let lookup_succeeded = saved_profiles.is_ok();
+            let saved_profile = match saved_profiles {
+                Ok(profiles) => profiles.into_iter().find(|profile| profile.ssid == ssid),
+                Err(e) => {
+                    warn!("Failed to inspect saved Wi-Fi profiles: {}", e);
+                    None
+                }
+            };
+            let saved_uuid = saved_profile.as_ref().map(|profile| profile.uuid.as_str());
+            let plan = wifi_connect_plan(&ssid, password.as_deref(), saved_uuid, lookup_succeeded);
 
-            if let Some(ref pw) = password {
-                cmd.args(["password", pw]);
-            }
+            let mut cmd = Command::new("nmcli");
+            cmd.args(plan.args.iter().map(String::as_str));
 
             let success = match cmd.output() {
                 Ok(output) => {
@@ -520,11 +531,13 @@ impl NmService {
                         let stderr = String::from_utf8_lossy(&output.stderr);
                         warn!("nmcli connect failed for '{}': {}", ssid, stderr.trim());
 
-                        // Delete the failed connection profile that nmcli created.
-                        // This prevents showing "Saved" for a network that never connected.
-                        let _ = Command::new("nmcli")
-                            .args(["connection", "delete", "id", &ssid])
-                            .output();
+                        if plan.cleanup_failed_profile {
+                            // Delete only a temporary profile that nmcli created for a new
+                            // network. Never delete if a saved profile existed before the attempt.
+                            let _ = Command::new("nmcli")
+                                .args(["connection", "delete", "id", &ssid])
+                                .output();
+                        }
 
                         false
                     }
@@ -585,5 +598,188 @@ impl NmService {
             // Request refresh.
             send_nm_update(NmUpdate::RefreshNetworks);
         });
+    }
+}
+
+fn wifi_connect_plan(
+    ssid: &str,
+    password: Option<&str>,
+    saved_uuid: Option<&str>,
+    lookup_succeeded: bool,
+) -> WifiConnectPlan {
+    if password.is_none()
+        && let Some(uuid) = saved_uuid
+    {
+        return WifiConnectPlan {
+            args: vec![
+                "connection".to_string(),
+                "up".to_string(),
+                "uuid".to_string(),
+                uuid.to_string(),
+            ],
+            cleanup_failed_profile: false,
+        };
+    }
+
+    let mut args = vec![
+        "device".to_string(),
+        "wifi".to_string(),
+        "connect".to_string(),
+        ssid.to_string(),
+    ];
+    if let Some(password) = password {
+        args.push("password".to_string());
+        args.push(password.to_string());
+    }
+
+    WifiConnectPlan {
+        args,
+        cleanup_failed_profile: lookup_succeeded && saved_uuid.is_none(),
+    }
+}
+
+impl NmService {
+    fn saved_wifi_profiles_sync() -> Result<Vec<SavedWifiProfile>, String> {
+        let output = Command::new("nmcli")
+            .args(["-t", "-f", "NAME,UUID,TYPE", "connection", "show"])
+            .output()
+            .map_err(|e| format!("Failed to run nmcli connection show: {e}"))?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "nmcli connection show failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut profiles = Vec::new();
+
+        for line in stdout.lines() {
+            let fields = split_nmcli_terse_line(line);
+            if fields.len() < 3 || fields[2] != "802-11-wireless" {
+                continue;
+            }
+
+            let uuid = fields[1].clone();
+            let ssid_output = Command::new("nmcli")
+                .args([
+                    "-g",
+                    "802-11-wireless.ssid",
+                    "connection",
+                    "show",
+                    "uuid",
+                    &uuid,
+                ])
+                .output()
+                .map_err(|e| format!("Failed to inspect Wi-Fi profile {uuid}: {e}"))?;
+
+            if !ssid_output.status.success() {
+                return Err(format!(
+                    "nmcli profile inspect failed for '{}': {}",
+                    uuid,
+                    String::from_utf8_lossy(&ssid_output.stderr).trim()
+                ));
+            }
+
+            let ssid = strip_trailing_newlines(String::from_utf8_lossy(&ssid_output.stdout));
+            if !ssid.is_empty() {
+                profiles.push(SavedWifiProfile { uuid, ssid });
+            }
+        }
+
+        Ok(profiles)
+    }
+}
+
+fn split_nmcli_terse_line(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut escaped = false;
+
+    for ch in line.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == ':' {
+            fields.push(current);
+            current = String::new();
+        } else {
+            current.push(ch);
+        }
+    }
+
+    if escaped {
+        current.push('\\');
+    }
+    fields.push(current);
+    fields
+}
+
+fn strip_trailing_newlines(text: std::borrow::Cow<'_, str>) -> String {
+    text.trim_end_matches(['\r', '\n']).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_profile_connect_uses_connection_uuid() {
+        let plan = wifi_connect_plan("Cafe", None, Some("profile-uuid"), true);
+
+        assert_eq!(
+            plan.args,
+            ["connection", "up", "uuid", "profile-uuid"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert!(!plan.cleanup_failed_profile);
+    }
+
+    #[test]
+    fn unknown_open_network_uses_device_wifi_connect_and_allows_cleanup() {
+        let plan = wifi_connect_plan("Cafe", None, None, true);
+
+        assert_eq!(
+            plan.args,
+            ["device", "wifi", "connect", "Cafe"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert!(plan.cleanup_failed_profile);
+    }
+
+    #[test]
+    fn password_connect_uses_device_wifi_connect() {
+        let plan = wifi_connect_plan("Cafe", Some("secret"), None, true);
+
+        assert_eq!(
+            plan.args,
+            ["device", "wifi", "connect", "Cafe", "password", "secret"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert!(plan.cleanup_failed_profile);
+    }
+
+    #[test]
+    fn failed_profile_cleanup_requires_successful_lookup() {
+        let plan = wifi_connect_plan("Cafe", None, None, false);
+
+        assert!(!plan.cleanup_failed_profile);
+    }
+
+    #[test]
+    fn splits_nmcli_terse_escaped_fields() {
+        assert_eq!(
+            split_nmcli_terse_line(r"Name\:with\:colon:uuid:802-11-wireless"),
+            vec!["Name:with:colon", "uuid", "802-11-wireless"]
+        );
     }
 }
