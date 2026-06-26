@@ -170,6 +170,7 @@ mod ws_container_imp {
     pub struct WorkspaceContainer {
         pub(super) children: RefCell<Vec<Widget>>,
         pub(super) gap: Cell<i32>,
+        pub(super) reserved_width: Cell<i32>,
     }
 
     #[glib::object_subclass]
@@ -208,9 +209,12 @@ mod ws_container_imp {
             }
             if orientation == gtk4::Orientation::Horizontal {
                 // Each child's width is owned by Rust via set_size_request, so
-                // the sum of measured natural widths is exact — no rounding
-                // drift to absorb.
+                // the sum of measured natural widths is exact. Keep the
+                // measured width at least as large as the resting target width
+                // for the current workspace set, so adjacent widgets don't move
+                // while active/inactive pills animate internally.
                 let w = sum_children_widths(&children, self.gap.get());
+                let w = w.max(self.reserved_width.get());
                 (w, w, -1, -1)
             } else {
                 let mut max_min = 0i32;
@@ -270,6 +274,13 @@ impl WorkspaceContainer {
         self.imp().gap.set(gap);
     }
 
+    fn set_reserved_width(&self, width: i32) {
+        if self.imp().reserved_width.get() != width {
+            self.imp().reserved_width.set(width);
+            self.queue_resize();
+        }
+    }
+
     fn add_child(&self, child: &Widget) {
         child.set_parent(self);
         self.imp().children.borrow_mut().push(child.clone());
@@ -279,6 +290,7 @@ impl WorkspaceContainer {
         for child in self.imp().children.borrow_mut().drain(..) {
             child.unparent();
         }
+        self.set_reserved_width(0);
     }
 
     /// Remove a specific child widget by reference. Order-preserving.
@@ -1213,6 +1225,37 @@ fn retarget_all_widths(labels: &HashMap<i32, Widget>, widths: &HashMap<i32, Indi
     }
 }
 
+fn reserved_workspace_width(
+    indicators: impl IntoIterator<Item = (bool, Option<i32>)>,
+    gap: i32,
+) -> i32 {
+    let mut count = 0i32;
+    let mut total = 0i32;
+    for (is_active, long_content_width) in indicators {
+        count += 1;
+        total += indicator_target_width(is_active, long_content_width);
+    }
+
+    if count > 1 {
+        total += (count - 1) * gap;
+    }
+    total
+}
+
+fn update_reserved_width(container: &WorkspaceContainer, labels: &HashMap<i32, Widget>) {
+    let gap = container.imp().gap.get();
+    let reserved = reserved_workspace_width(
+        labels.values().map(|indicator| {
+            (
+                indicator.has_css_class(widget::ACTIVE),
+                long_content_width(indicator),
+            )
+        }),
+        gap,
+    );
+    container.set_reserved_width(reserved);
+}
+
 // ---------------------------------------------------------------------------
 // StructuralChange — classifies how the visible workspace set changed.
 // ---------------------------------------------------------------------------
@@ -1618,7 +1661,8 @@ fn update_indicators(
     // ── Drive each indicator's width to its target (active/inactive/long). ──
     // Runs after classes and labels are set so active state and long content
     // width are current. Rust owns the width frame-by-frame from here.
-    if ws_container.is_some() {
+    if let Some(wsc) = ws_container {
+        update_reserved_width(wsc, &labels);
         retarget_all_widths(&labels, &widths_cell.borrow());
     } else {
         // Non-animated mode: apply resting widths directly. There are no
@@ -2173,5 +2217,44 @@ mod tests {
             assert!(cur >= prev, "target not monotonic at content={content}");
             prev = cur;
         }
+    }
+
+    #[test]
+    fn test_reserved_workspace_width_short_active_moves_without_resizing() {
+        let gap = 8;
+        let first_active =
+            reserved_workspace_width([(true, None), (false, None), (false, None)], gap);
+        let second_active =
+            reserved_workspace_width([(false, None), (true, None), (false, None)], gap);
+        let third_active =
+            reserved_workspace_width([(false, None), (false, None), (true, None)], gap);
+
+        assert_eq!(first_active, second_active);
+        assert_eq!(second_active, third_active);
+        assert_eq!(
+            first_active,
+            INDICATOR_ACTIVE_WIDTH_PX + 2 * INDICATOR_INACTIVE_WIDTH_PX + 2 * gap
+        );
+    }
+
+    #[test]
+    fn test_reserved_workspace_width_long_active_moves_without_resizing() {
+        let gap = 5;
+        let widths = [Some(20), Some(80), Some(35)];
+        let first_active = reserved_workspace_width(
+            [(true, widths[0]), (false, widths[1]), (false, widths[2])],
+            gap,
+        );
+        let second_active = reserved_workspace_width(
+            [(false, widths[0]), (true, widths[1]), (false, widths[2])],
+            gap,
+        );
+        let third_active = reserved_workspace_width(
+            [(false, widths[0]), (false, widths[1]), (true, widths[2])],
+            gap,
+        );
+
+        assert_eq!(first_active, second_active);
+        assert_eq!(second_active, third_active);
     }
 }
