@@ -929,30 +929,27 @@ fn create_single_indicator(
         let fraction = state_for_area.fraction.get().clamp(0.0, 1.0);
         let fill_width = (width * fraction).round().clamp(0.0, width);
 
+        // Fill the rounded silhouette directly instead of clip()+paint():
+        // Cairo clip edges are not antialiased, so clipping to the rounded
+        // rect left the pill's rounded ends looking jagged. Filling the path
+        // lets Cairo antialias the outer edge smoothly.
         let _ = cr.save();
-        draw_rounded_rect(cr, 0.0, 0.0, width, height, radius);
-        cr.clip();
 
-        if fill_width <= 0.0 {
+        if fill_width <= 0.0 || fill_width >= width {
             set_cairo_source_rgba(cr, track_color);
-            cr.paint().unwrap_or(());
+            draw_rounded_rect(cr, 0.0, 0.0, width, height, radius);
+            let _ = cr.fill();
             let _ = cr.restore();
             return;
         }
 
-        if fill_width >= width {
-            set_cairo_source_rgba(cr, track_color);
-            cr.paint().unwrap_or(());
-            let _ = cr.restore();
-            return;
-        }
-
-        // Paint the fill as the base layer, then punch the track out of it.
-        // This keeps the left rounded fill edge from antialiasing over the
-        // white active track while still giving the inner fill edge a rounded
-        // cap against the remaining track.
+        // Fill the whole rounded pill with the fill color as the antialiased
+        // base layer, then punch the track out of it. The shared outer path
+        // keeps both colors bounded by the same smooth silhouette while the
+        // even-odd difference gives the inner fill edge a rounded cap.
         set_cairo_source_rgba(cr, fill_color);
-        cr.paint().unwrap_or(());
+        draw_rounded_rect(cr, 0.0, 0.0, width, height, radius);
+        let _ = cr.fill();
 
         let fill_radius = radius.min(fill_width / 2.0);
         set_cairo_source_rgba(cr, track_color);

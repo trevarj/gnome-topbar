@@ -311,6 +311,8 @@ overlay.workspace-indicator {{
 }}
 
 .workspace-indicator.active {{
+    /* Active pill is thicker than inactive dots to match GNOME. */
+    min-height: 8px;
     color: var(--color-foreground-primary);
     background-color: transparent;
 }}
