@@ -12,7 +12,7 @@
   (list
    gcc-toolchain
    gnu-make
-   clang-toolchain-21
+   clang-toolchain-22
    binutils
    pkg-config
    (rustup "nightly-2026-03-14"
