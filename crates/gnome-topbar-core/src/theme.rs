@@ -538,6 +538,10 @@ impl ThemePalette {
 
     /* Foreground */
     --color-foreground-primary: {fg_primary};
+    /* Secondary: bright de-emphasized tier just below primary. Derived from the
+     * already mode-correct primary/muted vars so it stays near-white on dark
+     * (matching GNOME Shell's panel) without a separate per-mode value. */
+    --color-foreground-secondary: color-mix(in srgb, var(--color-foreground-primary) 85%, var(--color-foreground-muted));
     --color-foreground-muted: {fg_muted};
     --color-foreground-disabled: {fg_disabled};
     --color-foreground-faint: {fg_faint};
@@ -633,6 +637,10 @@ impl ThemePalette {
 
     /* ===== Foreground Colors ===== */
     --color-foreground-primary: {fg_primary};
+    /* Secondary: bright de-emphasized tier just below primary. Derived from the
+     * already mode-correct primary/muted vars so it stays near-white on dark
+     * (matching GNOME Shell's panel) without a separate per-mode value. */
+    --color-foreground-secondary: color-mix(in srgb, var(--color-foreground-primary) 85%, var(--color-foreground-muted));
     --color-foreground-muted: {fg_muted};
     --color-foreground-disabled: {fg_disabled};
     --color-foreground-faint: {fg_faint};
