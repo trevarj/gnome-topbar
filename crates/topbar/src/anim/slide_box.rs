@@ -1,18 +1,18 @@
-//! A container that reveals its child by sliding it down out of the edge.
+//! A container that slides its child in from its own top edge.
 //!
-//! A toast arrives from behind the bar and the banners under it move down to
-//! make room; when one goes, they close the gap. Both halves of that are the
-//! same thing: a box whose *measured* height is a fraction of its child's, with
-//! the child pinned to the bottom of what is left, so the visible part grows
-//! downwards while everything below it is pushed by the ordinary layout.
+//! A banner arrives from behind the bar: it is drawn part-way out of its slot
+//! and slides down into it. Like [`ScaleBox`](super::ScaleBox) — and for the
+//! same reason — that is done entirely at draw time. The child is always
+//! *measured* and *allocated* at full size, so the slot a banner occupies is
+//! its final size from the first frame; only where the child is painted inside
+//! that slot changes, and changing it costs a `queue_draw` and nothing else.
 //!
-//! The child is always allocated its full natural height — nothing inside it
-//! reflows mid-animation, so a wrapped body never re-wraps as the banner grows
-//! — and `overflow: hidden` clips the part that has not arrived yet.
-//!
-//! Unlike [`ScaleBox`](super::ScaleBox) this does queue a resize per frame, and
-//! it has to: making room for a banner *is* a layout change. The cost is
-//! bounded by there being at most three of them, on a surface of their own.
+//! This matters more here than anywhere else in the panel. The banners live on
+//! a layer-shell surface that sizes itself to its content, so a container whose
+//! *measured* height changed every frame would ask the compositor to
+//! reconfigure the surface every frame — and a configure is a round trip. In
+//! practice the animation then stalls part-way and leaves a banner permanently
+//! half-drawn, which is exactly what the first version of this widget did.
 
 use std::cell::Cell;
 
@@ -24,7 +24,7 @@ mod imp {
     use super::*;
 
     pub struct SlideBox {
-        /// How much of the child is on screen, `0.0..=1.0`.
+        /// How much of the child is in its slot, `0.0..=1.0`.
         pub(super) reveal: Cell<f64>,
         /// The single child.
         pub(super) child: glib::WeakRef<gtk4::Widget>,
@@ -53,8 +53,8 @@ mod imp {
     impl ObjectImpl for SlideBox {
         fn constructed(&self) {
             self.parent_constructed();
-            // The whole illusion is the clip: without it the child simply
-            // draws over the banner above.
+            // The whole illusion is the clip: without it a child drawn above
+            // its slot simply paints over the banner and the bar above it.
             self.obj().set_overflow(gtk4::Overflow::Hidden);
         }
 
@@ -67,51 +67,60 @@ mod imp {
 
     impl WidgetImpl for SlideBox {
         fn request_mode(&self) -> gtk4::SizeRequestMode {
-            gtk4::SizeRequestMode::HeightForWidth
+            self.child
+                .upgrade()
+                .map_or(gtk4::SizeRequestMode::ConstantSize, |child| {
+                    child.request_mode()
+                })
         }
 
         fn measure(&self, orientation: gtk4::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
-            let Some(child) = self.child.upgrade() else {
-                return (0, 0, -1, -1);
-            };
-            let (min, natural, _, _) = child.measure(orientation, for_size);
-            if orientation == gtk4::Orientation::Horizontal {
-                return (min, natural, -1, -1);
+            // Always the child's own size, whatever the reveal: the slot is
+            // its final size from the first frame. See the module docs.
+            match self.child.upgrade() {
+                Some(child) => child.measure(orientation, for_size),
+                None => (0, 0, -1, -1),
             }
-            // Baselines are dropped on purpose: a baseline halfway through a
-            // slide would drag the banners either side of it around.
-            let revealed = self.revealed(natural);
-            (revealed.min(min), revealed, -1, -1)
         }
 
-        fn size_allocate(&self, width: i32, height: i32, _baseline: i32) {
+        fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+            if let Some(child) = self.child.upgrade() {
+                child.allocate(width, height, baseline, None);
+            }
+        }
+
+        fn snapshot(&self, snapshot: &gtk4::Snapshot) {
             let Some(child) = self.child.upgrade() else {
                 return;
             };
-            let (_, natural, _, _) = child.measure(gtk4::Orientation::Vertical, width);
-            // Pin the child to the bottom edge: as `height` grows from 0 the
-            // child slides down into view rather than being squashed.
-            let offset = (height - natural) as f32;
-            let transform =
-                gtk4::gsk::Transform::new().translate(&gtk4::graphene::Point::new(0.0, offset));
-            child.allocate(width, natural, -1, Some(transform));
-        }
-    }
+            let reveal = self.reveal.get();
+            if reveal <= 0.0 {
+                return;
+            }
 
-    impl SlideBox {
-        /// How much of `natural` is on screen right now.
-        fn revealed(&self, natural: i32) -> i32 {
-            (f64::from(natural) * self.reveal.get()).round() as i32
+            let widget = self.obj();
+            if reveal >= 1.0 {
+                widget.snapshot_child(&child, snapshot);
+                return;
+            }
+
+            // Sitting `(1 - reveal)` of its own height above the slot, clipped
+            // to it: the banner appears to come down out of the bar.
+            let offset = -(1.0 - reveal) as f32 * widget.height() as f32;
+            snapshot.save();
+            snapshot.translate(&gtk4::graphene::Point::new(0.0, offset));
+            widget.snapshot_child(&child, snapshot);
+            snapshot.restore();
         }
     }
 }
 
 glib::wrapper! {
-    /// A one-child container that slides its child in from the top edge.
+    /// A one-child container that slides its child down into its own slot.
     ///
-    /// See the module docs for why this reallocates and [`ScaleBox`] does not.
-    ///
-    /// [`ScaleBox`]: super::ScaleBox
+    /// The child keeps its full allocation at every reveal; only where it is
+    /// painted changes. See the module docs for why that is not negotiable on
+    /// a layer surface.
     pub struct SlideBox(ObjectSubclass<imp::SlideBox>)
         @extends gtk4::Widget,
         @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
@@ -129,7 +138,7 @@ impl SlideBox {
         glib::Object::builder().build()
     }
 
-    /// Set how much of the child is on screen, clamped to `0.0..=1.0`.
+    /// Set how much of the child is in its slot, clamped to `0.0..=1.0`.
     pub fn set_reveal(&self, reveal: f64) {
         let imp = self.imp();
         let reveal = reveal.clamp(0.0, 1.0);
@@ -137,9 +146,7 @@ impl SlideBox {
             return;
         }
         imp.reveal.set(reveal);
-        // A resize, not a redraw: the point of this widget is that the
-        // banners below it move.
-        self.queue_resize();
+        self.queue_draw();
     }
 
     /// Parent `child`, replacing whatever was there.

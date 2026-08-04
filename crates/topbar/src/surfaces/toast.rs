@@ -12,6 +12,13 @@
 //! all of them at once. The surface is unmapped whenever it is empty, which is
 //! what keeps a transparent window from eating clicks on the desktop.
 //!
+//! A banner's slot is its final size the moment it exists; the arrival and
+//! departure are drawn inside that slot (see [`SlideBox`]). The surface
+//! therefore reconfigures once per banner rather than once per frame — which
+//! on a layer surface is the difference between motion and a stall, because a
+//! configure is a round trip to the compositor. The gap left by a banner
+//! leaving closes in one step for the same reason.
+//!
 //! **The timer is not here.** Which banners exist, and how long each has left,
 //! belongs to the service; hovering one is a `pause_toast` call rather than a
 //! local `SourceId`. A banner replaced over D-Bus mid-hover therefore cannot
@@ -25,10 +32,11 @@ use gtk4::{Align, Button, Label, Orientation, Window, gdk, pango};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use topbar_core::Config;
 use topbar_services::{NotifState, Services, ToastView};
+use tracing::debug;
 
 use crate::anim::{Animation, AnimationParams, Easing, SlideBox};
 use crate::bridge::{self, ActionScope, BindingGuard};
-use crate::style::classes;
+use crate::style::{self, classes};
 use crate::surfaces::layer_popover;
 use crate::wayland::activation;
 use crate::widgets::notifications::{TOAST_ICON, icon, markup};
@@ -45,6 +53,18 @@ const SLIDE_MS: u64 = 150;
 const MAX_ACTIONS: usize = 3;
 /// Where a banner's own failures are reported.
 const SCOPE: ActionScope = ActionScope::Toast { widget: "toast" };
+
+/// How far below the top edge the banners sit, in pixels.
+///
+/// Stated outright rather than left to the compositor. A popover asks for an
+/// exclusive zone of zero and lands below the bar because both are on the Top
+/// layer; banners are on Overlay, and niri does not carry the bar's zone across
+/// layers, so a banner asking the same question lands *behind* the panel. The
+/// margin is therefore the bar's own height plus the gap popovers use, and the
+/// surface ignores exclusive zones entirely.
+pub fn top_margin(config: &Config) -> i32 {
+    style::window_height(config) + layer_popover::window_top(config)
+}
 
 /// Which monitor should be showing banners.
 ///
@@ -68,6 +88,8 @@ pub struct ToastSurface {
     cards: Rc<RefCell<Vec<Card>>>,
     services: Services,
     connector: String,
+    /// How far below the top edge the stack sits. See [`top_margin`].
+    top_margin: i32,
     /// Subscriptions that keep this surface in step with the services.
     bindings: RefCell<Vec<BindingGuard>>,
 }
@@ -82,7 +104,7 @@ impl ToastSurface {
         config: &Config,
         services: &Services,
     ) -> Rc<Self> {
-        let window = build_window(monitor, layer_popover::window_top(config));
+        let window = build_window(monitor, top_margin(config));
 
         let stack = gtk4::Box::new(Orientation::Vertical, GAP);
         stack.add_css_class(classes::TOAST_STACK);
@@ -99,6 +121,7 @@ impl ToastSurface {
             cards: Rc::new(RefCell::new(Vec::new())),
             services: services.clone(),
             connector: connector.to_string(),
+            top_margin: top_margin(config),
             bindings: RefCell::new(Vec::new()),
         });
 
@@ -173,14 +196,38 @@ impl ToastSurface {
 
         // The surface stays mapped while the last banner slides away, then
         // gets out of the desktop's way entirely.
-        let occupied = !self.cards.borrow().is_empty();
-        if occupied != self.window.is_visible() {
-            if occupied {
-                self.window.present();
-            } else {
-                self.window.set_visible(false);
-            }
+        if self.cards.borrow().is_empty() {
+            self.window.set_visible(false);
+        } else {
+            self.show();
         }
+    }
+
+    /// Size the surface to its banners and map it, if it is not up already.
+    ///
+    /// The height is measured and passed explicitly rather than left as `-1`.
+    /// The surface is anchored to one edge only — that is what centres it —
+    /// so layer-shell stretches it on neither axis and takes both from the
+    /// toplevel's default size. A toplevel that has never been given one maps
+    /// at zero height, which puts a banner on screen clipped to nothing and
+    /// leaves it there, because the window is not resizable and so never
+    /// renegotiates.
+    fn show(&self) {
+        let width = WIDTH + 2 * SHADOW_MARGIN;
+        let (_, height, _, _) = self.stack.measure(Orientation::Vertical, width);
+        debug!("banner surface: {width}x{height} at +{}", self.top_margin);
+        self.window.set_default_size(width, height.max(1));
+
+        // Re-asserted around every map. A layer surface's geometry is part of
+        // the state the compositor reads when it is created, and one set at
+        // construction is not always the state it reads — a banner that lands
+        // behind the bar and rights itself a configure later reads as a
+        // glitch, so it is stated on both sides of the map.
+        self.window.set_margin(Edge::Top, self.top_margin);
+        if !self.window.is_visible() {
+            self.window.present();
+        }
+        self.window.set_margin(Edge::Top, self.top_margin);
     }
 
     /// Start the leaving animation for every banner that is no longer wanted.
@@ -229,9 +276,7 @@ impl ToastSurface {
 
         // Present before animating: a banner sliding in on an unmapped surface
         // finishes its run before the compositor ever shows it.
-        if !self.window.is_visible() {
-            self.window.present();
-        }
+        self.show();
         card.slide.set_reveal(0.0);
         card.card.set_opacity(0.0);
         card.slide(1.0, || {});
@@ -554,9 +599,9 @@ fn build_window(monitor: &gdk::Monitor, top_margin: i32) -> Window {
     // popovers are the only other thing the panel puts on Top.
     window.set_layer(Layer::Overlay);
     window.set_monitor(Some(monitor));
-    // Zero rather than -1, so the compositor anchors the surface below the
-    // bar's own exclusive zone instead of behind it.
-    window.set_exclusive_zone(0);
+    // -1: exclusive zones are ignored and the placement is the panel's own.
+    // See `top_margin` for why the compositor cannot be left to do it.
+    window.set_exclusive_zone(-1);
     // Top alone: anchoring one edge of an axis centres the surface on the
     // other, which is where a banner belongs.
     window.set_anchor(Edge::Top, true);
@@ -571,6 +616,22 @@ mod tests {
 
     fn outputs(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    #[test]
+    fn banners_hang_below_the_bar_rather_than_behind_it() {
+        let mut config = Config::default();
+        config.bar.size = 36;
+        config.bar.padding = 0;
+        config.bar.popover_offset = 1;
+        assert_eq!(top_margin(&config), 37);
+
+        // A padded, opaque bar is taller, and the banners follow it down.
+        config.bar.padding = 4;
+        assert_eq!(top_margin(&config), 45);
+
+        config.bar.popover_offset = 12;
+        assert_eq!(top_margin(&config), 56);
     }
 
     #[test]
