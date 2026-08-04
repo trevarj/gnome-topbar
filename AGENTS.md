@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Working agreement for agents and humans on gnome-topbar v2.
+Working agreement for agents and humans on topbar v2.
 
 ## System
 
@@ -22,8 +22,14 @@ shell.
 ## Design
 
 v2 is a GNOME Shell top bar, not a status-bar toolkit. When a decision is
-ambiguous, ask what GNOME Shell does.
+ambiguous, ask what GNOME Shell does. GNOME Shell is the design inspiration
+only; the project is not affiliated with the GNOME Project.
 
+- **The name is `topbar`, always lowercase.** Prose, headings, sentence
+  starts, `--help`, log lines, and the notification server's name all use it
+  verbatim — never capitalised, not even to open a sentence. `TOPBAR_*`
+  environment variables are the sole exception, and Rust types keep Rust's own
+  naming conventions.
 - **Quiet.** Widgets that have nothing to say are invisible. `system_monitor`
   shows nothing while the machine is healthy; the mic indicator appears only
   while a source is in use.
@@ -74,7 +80,7 @@ ambiguous, ask what GNOME Shell does.
 - `nix develop -c ./scripts/visual-smoke-niri.sh` — nested niri + `grim`
   screenshot. Local only: niri has no headless backend, so CI cannot run it.
 - UI milestones also need a run on the live niri session against
-  `~/.config/gnome-topbar/config.toml`.
+  `~/.config/topbar/config.toml`.
 
 ## Commits
 

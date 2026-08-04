@@ -1,9 +1,10 @@
-# gnome-topbar
+# topbar
 
 A GNOME Shell-style top bar for [niri](https://github.com/YaLTeR/niri), built
-with GTK4 and `gtk4-layer-shell`.
+with GTK4 and `gtk4-layer-shell`. GNOME Shell is the design inspiration only —
+topbar is not affiliated with or endorsed by the GNOME Project.
 
-![gnome-topbar](assets/screenshots/gnome-topbar.png)
+![topbar](assets/screenshots/topbar.png)
 
 One solid, full-width panel pinned to the top of every monitor: workspaces and
 script indicators on the left, clock and weather in the center, tray, alerts,
@@ -18,18 +19,19 @@ the weather forecast.
 
 ## Configuration
 
-Configuration lives at `~/.config/gnome-topbar/config.toml`. Every key is
-optional; anything you leave out falls back to the built-in default.
+Configuration lives at `~/.config/topbar/config.toml`. Every key is optional;
+anything you leave out falls back to the built-in default.
 
 ```sh
-gnome-topbar --print-example-config > ~/.config/gnome-topbar/config.toml
-gnome-topbar --check-config
+topbar --print-example-config > ~/.config/topbar/config.toml
+topbar --check-config
 ```
 
-The lookup order is `$XDG_CONFIG_HOME/gnome-topbar/config.toml`, then
-`~/.config/gnome-topbar/config.toml`, then `./config.toml`. Pass `--config PATH`
-to use a specific file (it must exist), and `--strict` to turn configuration
-warnings into errors.
+The lookup order is `$XDG_CONFIG_HOME/topbar/config.toml`, then
+`~/.config/topbar/config.toml`, then the same two under the project's former
+`gnome-topbar` name, then `./config.toml`. Pass `--config PATH` to use a
+specific file (it must exist), and `--strict` to turn configuration warnings
+into errors.
 
 v1 config files load unchanged. Keys whose feature the rewrite removed are
 accepted with a specific explanation of what happened to them.
@@ -41,13 +43,13 @@ The flake exposes a package and an overlay for `x86_64-linux`.
 ```nix
 # flake.nix
 {
-  inputs.gnome-topbar.url = "github:trevarj/gnome-topbar/v2";
+  inputs.topbar.url = "github:trevarj/topbar/v2";
 
-  outputs = { nixpkgs, gnome-topbar, ... }: {
+  outputs = { nixpkgs, topbar, ... }: {
     nixosConfigurations.yourhost = nixpkgs.lib.nixosSystem {
       modules = [
-        { nixpkgs.overlays = [ gnome-topbar.overlays.default ]; }
-        { environment.systemPackages = [ pkgs.gnome-topbar ]; }
+        { nixpkgs.overlays = [ topbar.overlays.default ]; }
+        { environment.systemPackages = [ pkgs.topbar ]; }
       ];
     };
   };
@@ -57,7 +59,7 @@ The flake exposes a package and an overlay for `x86_64-linux`.
 Or run it without installing:
 
 ```sh
-nix run github:trevarj/gnome-topbar/v2
+nix run github:trevarj/topbar/v2
 ```
 
 ## Running under niri
@@ -65,20 +67,43 @@ nix run github:trevarj/gnome-topbar/v2
 Add to `~/.config/niri/config.kdl`:
 
 ```kdl
-spawn-at-startup "gnome-topbar"
+spawn-at-startup "topbar"
 
 // Media keys route through the panel so they show an OSD.
 binds {
-    XF86AudioRaiseVolume  allow-when-locked=true { spawn "gnome-topbar" "volume" "inc" "5"; }
-    XF86AudioLowerVolume  allow-when-locked=true { spawn "gnome-topbar" "volume" "dec" "5"; }
-    XF86AudioMute         allow-when-locked=true { spawn "gnome-topbar" "volume" "toggle-mute"; }
-    XF86MonBrightnessUp                          { spawn "gnome-topbar" "brightness" "inc" "5"; }
-    XF86MonBrightnessDown                        { spawn "gnome-topbar" "brightness" "dec" "5"; }
+    XF86AudioRaiseVolume  allow-when-locked=true { spawn "topbar" "volume" "inc" "5"; }
+    XF86AudioLowerVolume  allow-when-locked=true { spawn "topbar" "volume" "dec" "5"; }
+    XF86AudioMute         allow-when-locked=true { spawn "topbar" "volume" "toggle-mute"; }
+    XF86MonBrightnessUp                          { spawn "topbar" "brightness" "inc" "5"; }
+    XF86MonBrightnessDown                        { spawn "topbar" "brightness" "dec" "5"; }
 }
 ```
 
 The panel reserves an exclusive zone, so niri lays windows out beneath it
 automatically.
+
+## Upgrading from gnome-topbar
+
+v2 renamed the project to topbar. Everything the panel owns moved with it:
+
+- **Binary, package, and flake outputs** are `topbar`. `pkgs.gnome-topbar`
+  becomes `pkgs.topbar`, and every `spawn "gnome-topbar" …` keybind in
+  `config.kdl` becomes `spawn "topbar" …`.
+- **Layer-shell namespaces** dropped the prefix: `gnome-topbar` is now
+  `topbar`, and the popover, toast, and tooltip surfaces are `topbar-popover`,
+  `topbar-toast`, and `topbar-tooltip`. **Any niri `layer-rule` that matches on
+  the old namespace stops matching and has to be updated**, for example
+  `layer-rule { match namespace="^gnome-topbar$" … }` →
+  `match namespace="^topbar$"`.
+- **Configuration** should move to `~/.config/topbar/config.toml`.
+  `~/.config/gnome-topbar/config.toml` still loads, with one warning per start
+  telling you to move it. An explicit `--config PATH` never warns.
+- **Runtime state** moves itself: `$XDG_STATE_HOME/gnome-topbar/` is renamed to
+  `$XDG_STATE_HOME/topbar/` on the first start, unless the new directory
+  already exists.
+- **The socket and lock file** are `$XDG_RUNTIME_DIR/topbar.sock` and
+  `topbar.lock`.
+- **Environment variables** are `TOPBAR_*`, not `GNOME_TOPBAR_*`.
 
 ## Development
 
