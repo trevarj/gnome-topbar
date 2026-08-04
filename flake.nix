@@ -44,6 +44,11 @@
         nativeBuildInputs = with pkgs; [
           pkg-config
           wrapGAppsHook4
+          # `dbus-daemon`, for the notification daemon's bus tests. They stand
+          # up a private bus per test rather than touching the session's, so
+          # the tool has to be on PATH at *test* time, which strictDeps makes
+          # a nativeBuildInputs job rather than a buildInputs one.
+          dbus
         ];
         buildInputs = with pkgs; [
           gtk4
@@ -139,6 +144,10 @@
           grim
           headsetcontrol
           brightnessctl
+          # `notify-send`, for driving the notification daemon by hand. Always
+          # inside `dbus-run-session`: the panel under test must never be
+          # pointed at the session bus the developer is logged into.
+          libnotify
         ];
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         shellHook = pre-commit.shellHook;

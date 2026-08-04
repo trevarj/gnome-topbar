@@ -12,6 +12,8 @@ use niri_ipc::socket::SOCKET_PATH_ENV;
 use tokio::runtime;
 
 use crate::niri::Niri;
+use crate::notifications::Notifications;
+use crate::state_store::StateStore;
 
 static RUNTIME: OnceLock<runtime::Runtime> = OnceLock::new();
 
@@ -47,6 +49,8 @@ impl Runtime {
 pub struct Services {
     /// The niri compositor service.
     pub niri: Niri,
+    /// The notification daemon.
+    pub notifications: Notifications,
 }
 
 impl Services {
@@ -57,8 +61,12 @@ impl Services {
     pub fn start() -> Self {
         let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
         Runtime::handle().block_on(async move {
+            // The state file is read once, here, so every service that
+            // restores something starts from one consistent document.
+            let (state, store) = StateStore::open();
             Self {
                 niri: Niri::start(niri_socket),
+                notifications: Notifications::start(state.notifications, store, None),
             }
         })
     }

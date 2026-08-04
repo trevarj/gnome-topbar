@@ -28,6 +28,25 @@ pub enum SvcError {
     /// The compositor answered with something we cannot read.
     #[error("unreadable reply from niri: {0}")]
     Protocol(String),
+
+    /// The session bus could not be reached, or refused a request.
+    ///
+    /// Carries the detail as text rather than a `zbus::Error` because it is
+    /// published through a watch channel, and every value in one has to clone.
+    #[error("session bus error: {0}")]
+    Bus(String),
+
+    /// Another process owns a well-known name the panel needs.
+    #[error("{0} is owned by another process")]
+    NameTaken(String),
+
+    /// The notification the panel was asked to act on has gone.
+    #[error("notification {0} no longer exists")]
+    GoneNotification(u32),
+
+    /// A service task has stopped, so its commands go nowhere.
+    #[error("the {0} service is not running")]
+    ServiceStopped(&'static str),
 }
 
 impl SvcError {
@@ -40,6 +59,10 @@ impl SvcError {
             Self::NoNiriSocket | Self::Io(_) | Self::Timeout(_) => "Could not reach the compositor",
             Self::Rejected(_) => "The compositor refused the request",
             Self::Protocol(_) => "The compositor sent an unexpected reply",
+            Self::Bus(_) => "Could not reach the session bus",
+            Self::NameTaken(_) => "Another notification daemon is running",
+            Self::GoneNotification(_) => "That notification is no longer available",
+            Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
     }
 }
@@ -56,11 +79,19 @@ mod tests {
             SvcError::Timeout(Duration::from_secs(2)),
             SvcError::Rejected("no such workspace".into()),
             SvcError::Protocol("expected Handled".into()),
+            SvcError::Bus("connection refused".into()),
+            SvcError::NameTaken("org.freedesktop.Notifications".into()),
+            SvcError::GoneNotification(7),
+            SvcError::ServiceStopped("notifications"),
         ];
         for error in errors {
             let message = error.user_message();
             assert!(message.len() < 60, "{message} is too long for a toast");
             assert!(!message.contains("niri"), "{message} leaks the transport");
+            assert!(
+                !message.contains("org.freedesktop"),
+                "{message} leaks a bus name"
+            );
             assert!(!message.is_empty());
         }
     }

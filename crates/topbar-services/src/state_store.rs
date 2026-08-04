@@ -1,0 +1,299 @@
+//! The panel's runtime state file.
+//!
+//! Anything the panel has to remember across restarts but must never write
+//! back into the user's `config.toml` lives in
+//! `$XDG_STATE_HOME/gnome-topbar/state.json`: the notification history and the
+//! Do Not Disturb flag today, the crypto widget's runtime entries and the
+//! weather coordinates later.
+//!
+//! One task owns the file. Callers hand it *edits* rather than whole
+//! documents, so two services updating different sections cannot clobber each
+//! other the way v1's read-modify-write-the-world `save()` could. Writes are
+//! debounced and atomic (write a sibling temp file, then rename), so a burst
+//! of notifications costs one write and a crash mid-write leaves the previous
+//! state intact rather than a truncated file.
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+use tracing::{debug, warn};
+
+use crate::notifications::PersistedNotifications;
+
+/// How long the writer collects further edits before it touches the disk.
+const DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// Directory the state file lives in, under `$XDG_STATE_HOME`.
+const STATE_DIR: &str = "gnome-topbar";
+/// Name of the state file itself.
+const STATE_FILE: &str = "state.json";
+
+/// Everything the panel remembers across restarts.
+///
+/// Every field is `#[serde(default)]`, so a state file written by an older
+/// build — or one with a section this build does not know about — still loads.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PersistedState {
+    /// Notification history and the Do Not Disturb flag.
+    pub notifications: PersistedNotifications,
+}
+
+/// One queued change to the state document.
+type Edit = Box<dyn FnOnce(&mut PersistedState) + Send>;
+
+/// A handle to the panel's state file.
+///
+/// Cloning is cheap and every clone writes through the same task, which is
+/// what makes "single writer" true no matter how many services hold one.
+#[derive(Clone)]
+pub struct StateStore {
+    edits: mpsc::UnboundedSender<Edit>,
+}
+
+impl StateStore {
+    /// Read the state file and start its writer task.
+    ///
+    /// Must be called from inside the service runtime. The read is blocking
+    /// and one-shot: it happens during start-up, before GTK exists, and a
+    /// missing or corrupt file simply yields defaults.
+    pub fn open() -> (PersistedState, Self) {
+        Self::open_at(state_path())
+    }
+
+    /// The same, for a caller that chooses the path — tests, chiefly.
+    pub fn open_at(path: PathBuf) -> (PersistedState, Self) {
+        let state = read(&path);
+        let (edits, queue) = mpsc::unbounded_channel();
+        tokio::spawn(write_loop(path, state.clone(), queue));
+        (state, Self { edits })
+    }
+
+    /// Queue a change to the state document.
+    ///
+    /// Deliberately infallible: nothing the user does should fail because the
+    /// panel could not remember something. A broken state file is a log line,
+    /// not a toast.
+    pub fn update(&self, edit: impl FnOnce(&mut PersistedState) + Send + 'static) {
+        if self.edits.send(Box::new(edit)).is_err() {
+            warn!("the state writer has stopped; runtime state will not be saved");
+        }
+    }
+}
+
+/// Apply edits as they arrive, writing at most once per [`DEBOUNCE`] window.
+async fn write_loop(
+    path: PathBuf,
+    mut state: PersistedState,
+    mut edits: mpsc::UnboundedReceiver<Edit>,
+) {
+    let mut written = Some(state.clone());
+
+    while let Some(edit) = edits.recv().await {
+        edit(&mut state);
+
+        // Absorb everything that arrives while the window is open. A hundred
+        // notifications in a second cost one write, not a hundred. The loop
+        // ends when the window elapses or the last handle goes away; either
+        // way what is in hand is what belongs on disk.
+        while let Ok(Some(edit)) = tokio::time::timeout(DEBOUNCE, edits.recv()).await {
+            edit(&mut state);
+        }
+
+        if written.as_ref() == Some(&state) {
+            continue;
+        }
+        write(&path, &state);
+        written = Some(state.clone());
+    }
+}
+
+/// `$XDG_STATE_HOME/gnome-topbar/state.json`, or its `$HOME` fallback.
+fn state_path() -> PathBuf {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME").map_or_else(std::env::temp_dir, PathBuf::from);
+            home.join(".local").join("state")
+        });
+    base.join(STATE_DIR).join(STATE_FILE)
+}
+
+/// Load `path`, falling back to defaults for anything unreadable.
+fn read(path: &Path) -> PersistedState {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            debug!("no state file at {}; starting fresh", path.display());
+            return PersistedState::default();
+        }
+        Err(error) => {
+            warn!("could not read {}: {error}", path.display());
+            return PersistedState::default();
+        }
+    };
+
+    match serde_json::from_str(&contents) {
+        Ok(state) => {
+            debug!("loaded state from {}", path.display());
+            state
+        }
+        Err(error) => {
+            // Keeping the broken file would mean losing the same state on
+            // every start; overwriting it silently is the lesser evil, and the
+            // next successful write does exactly that.
+            warn!(
+                "{} is not valid state JSON ({error}); ignoring it",
+                path.display()
+            );
+            PersistedState::default()
+        }
+    }
+}
+
+/// Write `state` to `path` atomically.
+///
+/// The temp file is a sibling so the rename stays within one filesystem, and
+/// it carries the pid so two panels racing each other cannot share one.
+fn write(path: &Path, state: &PersistedState) {
+    let Some(parent) = path.parent() else {
+        warn!("{} has no parent directory", path.display());
+        return;
+    };
+    if let Err(error) = std::fs::create_dir_all(parent) {
+        warn!("could not create {}: {error}", parent.display());
+        return;
+    }
+
+    let json = match serde_json::to_string_pretty(state) {
+        Ok(json) => json,
+        Err(error) => {
+            warn!("could not serialise runtime state: {error}");
+            return;
+        }
+    };
+
+    let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    if let Err(error) = std::fs::write(&temp, json) {
+        warn!("could not write {}: {error}", temp.display());
+        let _ = std::fs::remove_file(&temp);
+        return;
+    }
+    if let Err(error) = std::fs::rename(&temp, path) {
+        warn!("could not replace {}: {error}", path.display());
+        let _ = std::fs::remove_file(&temp);
+        return;
+    }
+    debug!("saved state to {}", path.display());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::notifications::PersistedNotification;
+
+    /// A unique state-file path for one test.
+    fn temp_path(label: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("gnome-topbar-state-{}-{label}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join(STATE_FILE)
+    }
+
+    /// Wait for `path` to hold state satisfying `predicate`.
+    async fn wait_for(path: &Path, predicate: impl Fn(&PersistedState) -> bool) -> PersistedState {
+        for _ in 0..200 {
+            let state = read(path);
+            if predicate(&state) {
+                return state;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!(
+            "state at {} never reached the expected value",
+            path.display()
+        );
+    }
+
+    fn entry(id: u32, summary: &str) -> PersistedNotification {
+        PersistedNotification {
+            id,
+            summary: summary.to_string(),
+            ..PersistedNotification::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_file_loads_as_defaults() {
+        let path = temp_path("missing");
+        let (state, _store) = StateStore::open_at(path.clone());
+        assert_eq!(state, PersistedState::default());
+        assert!(!path.exists(), "reading must not create the file");
+    }
+
+    #[tokio::test]
+    async fn state_survives_a_round_trip() {
+        let path = temp_path("round-trip");
+        let (_, store) = StateStore::open_at(path.clone());
+
+        store.update(|state| {
+            state.notifications.dnd = true;
+            state.notifications.next_id = 42;
+            state.notifications.history = vec![entry(7, "hello"), entry(6, "older")];
+        });
+
+        wait_for(&path, |state| state.notifications.next_id == 42).await;
+
+        // A second store reading the same path sees exactly what was written.
+        let (reloaded, _store) = StateStore::open_at(path.clone());
+        assert!(reloaded.notifications.dnd);
+        assert_eq!(reloaded.notifications.history.len(), 2);
+        assert_eq!(reloaded.notifications.history[0].summary, "hello");
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_edits_collapses_into_one_document() {
+        let path = temp_path("burst");
+        let (_, store) = StateStore::open_at(path.clone());
+
+        for id in 1..=50u32 {
+            store.update(move |state| state.notifications.next_id = id);
+        }
+
+        let settled = wait_for(&path, |state| state.notifications.next_id == 50).await;
+        assert_eq!(settled.notifications.next_id, 50);
+    }
+
+    #[tokio::test]
+    async fn corrupt_json_loads_as_defaults_rather_than_failing() {
+        let path = temp_path("corrupt");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&path, "{ this is not json").expect("write");
+
+        let (state, store) = StateStore::open_at(path.clone());
+        assert_eq!(state, PersistedState::default());
+
+        // And the next write repairs the file rather than leaving it broken.
+        store.update(|state| state.notifications.dnd = true);
+        let repaired = wait_for(&path, |state| state.notifications.dnd).await;
+        assert!(repaired.notifications.dnd);
+    }
+
+    #[tokio::test]
+    async fn no_temp_files_are_left_behind() {
+        let path = temp_path("atomic");
+        let (_, store) = StateStore::open_at(path.clone());
+        store.update(|state| state.notifications.next_id = 3);
+        wait_for(&path, |state| state.notifications.next_id == 3).await;
+
+        let leftovers: Vec<_> = std::fs::read_dir(path.parent().expect("parent"))
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name())
+            .filter(|name| name.to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "left {leftovers:?} behind");
+    }
+}

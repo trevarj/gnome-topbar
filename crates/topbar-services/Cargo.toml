@@ -12,6 +12,7 @@ authors.workspace = true
 topbar-core = { workspace = true }
 futures-util = { workspace = true }
 niri-ipc = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

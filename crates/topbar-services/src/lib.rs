@@ -11,7 +11,9 @@
 
 pub mod error;
 pub mod niri;
+pub mod notifications;
 pub mod runtime;
+pub mod state_store;
 
 /// The channel type every service publishes its state through.
 ///
@@ -22,4 +24,9 @@ pub use tokio::sync::watch;
 
 pub use error::SvcError;
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
+pub use notifications::{
+    Action, CloseReason, GroupView, IconSource, ImageData, NotifState, NotificationView,
+    Notifications, NotificationsHandle, ToastView, Urgency,
+};
 pub use runtime::{Runtime, Services};
+pub use state_store::StateStore;
