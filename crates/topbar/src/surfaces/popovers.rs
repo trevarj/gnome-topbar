@@ -29,7 +29,11 @@ const SMOKE_ENV: &str = "GNOME_TOPBAR_SMOKE_OPEN";
 /// How long the smoke hook waits for the bar to settle before opening.
 const SMOKE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 /// Gap between toggles when the smoke hook is asked for repeat cycles.
-const SMOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(750);
+///
+/// Comfortably longer than either animation: the nested niri the smoke test
+/// runs in renders in software, and a screenshot of a half-drawn popover
+/// proves nothing.
+const SMOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// The content of one widget's popover.
 ///
@@ -289,10 +293,11 @@ fn live_entries() -> Vec<Rc<Entry>> {
 /// an *open* popover gets taken before M8's IPC server exists.
 ///
 /// The value is `<widget>` to open it a second after start-up and leave it
-/// open, or `<widget>:<n>` to run `n` open/close cycles [`SMOKE_INTERVAL`]
-/// apart and end closed, which is what proves a popover tears itself down and
-/// reopens onto its retained content. Debug builds only; the packaged binary
-/// ignores the variable entirely.
+/// open, or `<widget>:<n>` for `n` toggles [`SMOKE_INTERVAL`] apart. An even
+/// count ends closed, which is how teardown is checked; an odd one ends open,
+/// which is how the reopen-onto-retained-content path is caught in a
+/// screenshot without having to race the animation. Debug builds only; the
+/// packaged binary ignores the variable entirely.
 pub fn install_smoke_hook() {
     if !cfg!(debug_assertions) {
         return;
@@ -305,19 +310,17 @@ pub fn install_smoke_hook() {
         return;
     };
 
-    let (widget, cycles) = match value.split_once(':') {
+    let (widget, toggles) = match value.split_once(':') {
         Some((widget, count)) => match count.parse::<u32>() {
-            Ok(cycles) => (widget.to_string(), cycles),
-            Err(_) => {
-                warn!("{SMOKE_ENV}={value}: `{count}` is not a cycle count");
+            Ok(0) | Err(_) => {
+                warn!("{SMOKE_ENV}={value}: `{count}` is not a positive toggle count");
                 return;
             }
+            Ok(toggles) => (widget.to_string(), toggles),
         },
-        None => (value.to_string(), 0),
+        None => (value.to_string(), 1),
     };
 
-    // One toggle to open and stay open, or two per requested cycle.
-    let toggles = if cycles == 0 { 1 } else { cycles * 2 };
     info!("{SMOKE_ENV}={value}: {toggles} toggle(s) of `{widget}`, from {SMOKE_DELAY:?}");
 
     gtk4::glib::timeout_add_local_once(SMOKE_DELAY, move || {

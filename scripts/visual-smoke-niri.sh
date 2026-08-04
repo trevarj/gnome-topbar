@@ -15,9 +15,11 @@
 #                               is what this script builds.
 #
 #                                 clock    open it a second in, leave it open
-#                                 clock:3  three open/close cycles 750ms
-#                                          apart, ending closed — for checking
-#                                          teardown and the reopen path
+#                                 clock:6  six toggles 1.5s apart. An even
+#                                          count ends closed (check teardown:
+#                                          `niri msg layers` should list only
+#                                          the bar); an odd one ends reopened
+#                                          onto retained content.
 set -eu
 
 artifact_dir="${1:-target/visual-smoke}"
