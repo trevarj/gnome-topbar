@@ -104,17 +104,24 @@ impl Card {
         let art = RoundedPicture::new(ART_SIZE, ART_RADIUS);
         art.add_css_class(classes::MEDIA_ART);
 
+        // The placeholder is the *measured* child, so the slot is exactly one
+        // square whether or not there is a cover; the icon and the art are
+        // overlays on top of it, which is what keeps a card with no art the
+        // same shape as one with art. Nothing here expands: an expanding child
+        // would push the square out to the width of the whole card.
         let placeholder = gtk4::Box::new(Orientation::Vertical, 0);
         placeholder.add_css_class(classes::MEDIA_ART_PLACEHOLDER);
         placeholder.set_size_request(ART_SIZE, ART_SIZE);
+
         let placeholder_icon = Image::from_icon_name(ART_PLACEHOLDER);
-        placeholder_icon.set_vexpand(true);
-        placeholder_icon.set_hexpand(true);
-        placeholder.append(&placeholder_icon);
+        placeholder_icon.set_halign(Align::Center);
+        placeholder_icon.set_valign(Align::Center);
 
         let art_slot = gtk4::Overlay::new();
         art_slot.set_child(Some(&placeholder));
+        art_slot.add_overlay(&placeholder_icon);
         art_slot.add_overlay(&art);
+        art_slot.set_halign(Align::Start);
         art_slot.set_valign(Align::Start);
 
         // --- text and transport --------------------------------------------
@@ -341,11 +348,7 @@ impl Card {
 
     /// Draw one button per player, unless there is only one player.
     fn render_switcher(self: &Rc<Self>, state: &MediaState) {
-        let players: Vec<String> = state
-            .players
-            .iter()
-            .map(|view| view.bus_name.clone())
-            .collect();
+        let players: Vec<String> = state.players.iter().map(switcher_key).collect();
         self.switcher.set_visible(players.len() > 1);
         if players.len() < 2 {
             self.switcher_players.replace(players);
@@ -673,6 +676,21 @@ fn remember_texture(key: u64, texture: &gdk::Texture) {
 fn decode(path: &std::path::Path, size: i32) -> Option<gdk::Texture> {
     let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file_at_scale(path, size, size, true).ok()?;
     Some(gdk::Texture::for_pixbuf(&pixbuf))
+}
+
+/// What a player's switcher button is drawn from.
+///
+/// The name is in it as well as the bus name, because a player is added to the
+/// row the moment its name appears on the bus and only says what it is called
+/// a moment later — a button rebuilt on bus name alone would keep the
+/// stand-in initial for as long as the player ran.
+fn switcher_key(view: &PlayerView) -> String {
+    format!(
+        "{}\u{1}{}\u{1}{}",
+        view.bus_name,
+        view.identity,
+        view.desktop_entry.as_deref().unwrap_or_default()
+    )
 }
 
 /// One transport button and the icon inside it.

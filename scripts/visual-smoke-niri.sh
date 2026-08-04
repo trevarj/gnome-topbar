@@ -29,9 +29,15 @@
 #   TOPBAR_SMOKE_DRIVER   a shell script run inside the nested session once
 #                         the panel is up, instead of the default "wait,
 #                         then take one screenshot". It is given
-#                         $SMOKE_ARTIFACTS and may call notify-send, gdbus,
-#                         and grim against the private bus, which is how the
-#                         notification matrix is driven.
+#                         $SMOKE_ARTIFACTS, $SMOKE_PANEL_PID (for reading
+#                         VmRSS out of /proc) and, when it was built,
+#                         $SMOKE_FAKE_PLAYER. It may call notify-send,
+#                         gdbus, and grim against the private bus, which is
+#                         how the notification and media matrices are driven.
+#   TOPBAR_SMOKE_PLAYERS  build `topbar-fake-player` and hand the driver its
+#                         path in $SMOKE_FAKE_PLAYER. Off by default: it is
+#                         a second binary to link and only the media driver
+#                         wants it.
 #   TOPBAR_SMOKE_TIMEOUT  seconds before the session is killed (30).
 set -eu
 
@@ -54,7 +60,18 @@ trap 'rm -rf "$xdg_box"' EXIT INT TERM
 export XDG_STATE_HOME="$xdg_box/state"
 export XDG_CACHE_HOME="$xdg_box/cache"
 export XDG_CONFIG_HOME="$xdg_box/config"
-mkdir -p "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME"
+mkdir -p "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME/niri"
+
+# The nested compositor gets a config of its own, for one reason: niri's
+# "Important Hotkeys" overlay opens on top of everything at startup and sits
+# in the middle of every screenshot, which is precisely where the panel's
+# popovers are.
+cat >"$XDG_CONFIG_HOME/niri/config.kdl" <<'KDL'
+// Written by scripts/visual-smoke-niri.sh for the nested session.
+hotkey-overlay {
+    skip-at-startup
+}
+KDL
 
 for tool in niri grim cargo timeout dbus-run-session; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -64,6 +81,12 @@ for tool in niri grim cargo timeout dbus-run-session; do
 done
 
 cargo build -p topbar
+
+player_abs=""
+if [ -n "${TOPBAR_SMOKE_PLAYERS:-}" ]; then
+  cargo build -p topbar-services --features fake-player --bin topbar-fake-player
+  player_abs=$(pwd)/target/debug/topbar-fake-player
+fi
 
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
@@ -78,8 +101,11 @@ fi
 timeout "${timeout_s}s" dbus-run-session --config-file="$bus_config" -- niri -- sh -c '
 set -eu
 export SMOKE_ARTIFACTS="$3"
+export SMOKE_FAKE_PLAYER="$5"
 "$1" --config "$2" -v >"$3/panel.log" 2>&1 &
 panel_pid=$!
+# The driver reads /proc/$SMOKE_PANEL_PID/status to watch the panel grow.
+export SMOKE_PANEL_PID="$panel_pid"
 sleep 2
 if [ -n "$4" ]; then
   sh "$4" || echo "smoke driver failed with status $?" >&2
@@ -89,7 +115,7 @@ fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
-' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs"
+' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs"
 
 echo "--- panel log ---"
 cat "$artifact_dir_abs/panel.log" 2>/dev/null || true

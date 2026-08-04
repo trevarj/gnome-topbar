@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::watch;
+use zbus::zvariant::ObjectPath;
 
 use super::fake::{FakePlayer, Recipe};
 use super::*;
@@ -35,6 +36,18 @@ trait FakeControl {
     fn set_status(&self, status: &str) -> zbus::Result<()>;
 
     fn set_capability(&self, name: &str, allowed: bool) -> zbus::Result<()>;
+}
+
+/// The player's own interface, as another client sees it.
+///
+/// Used to move a player about behind the panel's back, which is what a media
+/// key or the player's own window does.
+#[zbus::proxy(
+    interface = "org.mpris.MediaPlayer2.Player",
+    default_path = "/org/mpris/MediaPlayer2"
+)]
+trait Playback {
+    fn set_position(&self, track_id: &ObjectPath<'_>, position: i64) -> zbus::Result<()>;
 }
 
 /// A control proxy for one fake player.
@@ -379,14 +392,24 @@ async fn a_command_reaches_the_player_it_is_meant_for() {
 }
 
 #[tokio::test]
-async fn the_position_is_read_when_the_panel_starts_looking() {
+async fn the_position_is_polled_only_while_the_panel_is_looking() {
     let bus = private_bus!();
     let mut started = recipe("seeking");
     started.status = "Playing".to_string();
     started.position_us = 42_000_000;
-    let _player = FakePlayer::start(&started, Some(bus.address()))
+    let player = FakePlayer::start(&started, Some(bus.address()))
         .await
         .expect("a playing player");
+
+    // A client moving the player about behind the panel's back, which is what
+    // a keyboard shortcut or the player's own window does.
+    let playback = PlaybackProxy::builder(&bus.connect().await)
+        .destination(player.bus_name().to_string())
+        .expect("a well-formed bus name")
+        .build()
+        .await
+        .expect("the player's playback interface");
+    let track = ObjectPath::try_from("/io/github/trevarj/topbar/track/1").expect("a track path");
 
     let media = Media::start(Some(bus.address().to_string()));
     let mut state = media.state();
@@ -400,6 +423,17 @@ async fn the_position_is_read_when_the_panel_starts_looking() {
     // it must not do is keep asking while nothing is looking at the answer.
     assert_eq!(settled.active().expect("active").position_us, 42_000_000);
 
+    playback
+        .set_position(&track, 90_000_000)
+        .await
+        .expect("the player jumps");
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(
+        state.borrow().active().expect("active").position_us,
+        42_000_000,
+        "with no popover open the panel never asked, so it never noticed"
+    );
+
     media
         .handle()
         .set_position_tracking(true)
@@ -411,17 +445,27 @@ async fn the_position_is_read_when_the_panel_starts_looking() {
     let settled = wait_for(&mut state, "an immediate poll", |state| {
         state
             .active()
-            .is_some_and(|view| view.position_us == 42_000_000)
+            .is_some_and(|view| view.position_us == 90_000_000)
     })
     .await;
     let view = settled.active().expect("active");
-    assert!(view.position_at(std::time::Instant::now()) >= 42_000_000);
+    assert!(view.position_at(std::time::Instant::now()) >= 90_000_000);
 
     media
         .handle()
         .set_position_tracking(false)
         .await
         .expect("tracking is switched off");
+    playback
+        .set_position(&track, 5_000_000)
+        .await
+        .expect("the player jumps again");
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(
+        state.borrow().active().expect("active").position_us,
+        90_000_000,
+        "closing the popover stops the polling again"
+    );
 }
 
 #[tokio::test]
