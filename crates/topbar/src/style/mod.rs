@@ -3,4 +3,4 @@
 pub mod classes;
 mod stylesheet;
 
-pub use stylesheet::{apply, font_size, generate, window_height};
+pub use stylesheet::{POPOVER_RADIUS, apply, font_size, generate, surface_border, window_height};

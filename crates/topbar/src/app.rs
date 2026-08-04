@@ -13,6 +13,7 @@ use tracing::{error, info};
 use crate::anim;
 use crate::bar::{BarManager, SharedConfig};
 use crate::style;
+use crate::surfaces;
 
 /// The GApplication id.
 const APP_ID: &str = "com.github.trevarj.gnome-topbar";
@@ -72,6 +73,7 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
     let manager = BarManager::new(app, &display, config.clone(), services.clone());
     manager.sync();
     manager.watch_monitors();
+    surfaces::popovers::install_smoke_hook();
     info!(
         "gnome-topbar is running (motion {})",
         if anim::motion_enabled() {

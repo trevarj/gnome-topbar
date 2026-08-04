@@ -16,6 +16,7 @@ path = "src/main.rs"
 topbar-core = { workspace = true }
 topbar-services = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 clap = { workspace = true }
 gtk4 = { workspace = true }
 gtk4-layer-shell = { workspace = true }

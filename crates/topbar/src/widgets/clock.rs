@@ -5,7 +5,7 @@
 //! displayed time never lags the wall clock and re-aligns itself after the
 //! machine resumes from sleep.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
@@ -16,29 +16,44 @@ use gtk4::{Label, glib};
 use topbar_core::config::ClockConfig;
 use tracing::warn;
 
+use crate::bar::BarContext;
 use crate::style::classes;
+use crate::surfaces::popovers::{self, PopoverContent, PopoverHandle};
 use crate::surfaces::tooltip::TooltipHandle;
+use crate::widgets::control_panel::ControlPanel;
 use crate::widgets::shell::WidgetShell;
 
+/// Widget name, for CSS classes and the popover registry.
+const WIDGET_NAME: &str = "clock";
 /// Format used for the tooltip: the full date the bar has no room for.
 const TOOLTIP_FORMAT: &str = "%A, %B %-d, %Y";
 /// Fallback when the configured format string cannot be rendered.
 const FALLBACK_FORMAT: &str = "%a %b %-d  %H:%M";
+
+/// Something that re-renders when the clock crosses a minute boundary.
+///
+/// The control panel shows the same wall clock the bar does. A timer of its
+/// own would drift against the bar's — one would repaint a fraction of a
+/// second after the other, which is visible when they sit on the same screen —
+/// so it hangs off the clock's already-aligned tick instead.
+pub trait MinuteListener {
+    /// The minute just changed to `now`.
+    fn on_minute(&self, now: DateTime<Local>);
+}
 
 /// The clock widget.
 pub struct ClockWidget {
     shell: WidgetShell,
     /// Holds the ticking state; dropping it cancels the timer.
     _inner: Rc<ClockInner>,
+    /// The control panel's claim on the popover host, when it has one.
+    _popover: Option<PopoverHandle>,
 }
 
 impl ClockWidget {
     /// Build a clock from `[widgets.clock]`.
-    pub fn new(config: &ClockConfig) -> Self {
+    pub fn new(config: &ClockConfig, context: &BarContext) -> Self {
         let shell = WidgetShell::new(classes::CLOCK);
-        // The clock opens the notifications and calendar panel from M3, so it
-        // is a button from the start.
-        shell.make_interactive();
 
         let label = Label::new(None);
         shell.content().append(&label);
@@ -49,12 +64,31 @@ impl ClockWidget {
             format: config.format.clone(),
             per_second: needs_seconds(&config.format),
             timer: RefCell::new(None),
+            minute: Cell::new(u32::MAX),
+            listeners: RefCell::new(Vec::new()),
         });
         inner.tick();
+
+        // A clock with no control panel is a label: it must not offer a
+        // pointer cursor or light up under the mouse.
+        let popover = config.control_panel.then(|| {
+            shell.make_interactive();
+            let settings = config.clone();
+            let clock = Rc::downgrade(&inner);
+            popovers::attach(context, WIDGET_NAME, shell.root(), move || {
+                let panel = ControlPanel::new(&settings);
+                if let Some(clock) = clock.upgrade() {
+                    let listener: Rc<dyn MinuteListener> = Rc::clone(&panel) as _;
+                    clock.listeners.borrow_mut().push(Rc::downgrade(&listener));
+                }
+                panel as Rc<dyn PopoverContent>
+            })
+        });
 
         Self {
             shell,
             _inner: inner,
+            _popover: popover,
         }
     }
 
@@ -70,6 +104,11 @@ struct ClockInner {
     format: String,
     per_second: bool,
     timer: RefCell<Option<glib::SourceId>>,
+    /// The minute the listeners were last told about.
+    minute: Cell<u32>,
+    /// Surfaces sharing this clock's tick. Held weakly: they belong to
+    /// whatever built them, and a closed popover must not keep one alive.
+    listeners: RefCell<Vec<Weak<dyn MinuteListener>>>,
 }
 
 impl ClockInner {
@@ -77,7 +116,28 @@ impl ClockInner {
     fn tick(self: &Rc<Self>) {
         let now = Local::now();
         self.render(now);
+        self.notify(now);
         self.schedule(now);
+    }
+
+    /// Pass a minute boundary on to whoever is sharing this tick.
+    ///
+    /// A clock formatted with seconds ticks every second; the listeners still
+    /// only hear about minutes, which is all any of them display.
+    fn notify(&self, now: DateTime<Local>) {
+        if self.minute.replace(now.minute()) == now.minute() {
+            return;
+        }
+        // Upgrade first, then call: a listener is free to do whatever it likes
+        // while the list is not borrowed, including subscribing another one.
+        let live: Vec<Rc<dyn MinuteListener>> = {
+            let mut listeners = self.listeners.borrow_mut();
+            listeners.retain(|listener| listener.strong_count() > 0);
+            listeners.iter().filter_map(Weak::upgrade).collect()
+        };
+        for listener in live {
+            listener.on_minute(now);
+        }
     }
 
     /// Update the label, but only when the string actually changed — a

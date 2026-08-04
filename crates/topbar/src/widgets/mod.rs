@@ -1,6 +1,7 @@
 //! Panel widgets and the shell they all share.
 
 mod clock;
+mod control_panel;
 mod keyboard_layout;
 mod shell;
 mod workspaces;
@@ -42,7 +43,7 @@ impl MountedWidget {
 pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<MountedWidget> {
     match name {
         "clock" => {
-            let clock = clock::ClockWidget::new(&config.widgets.clock);
+            let clock = clock::ClockWidget::new(&config.widgets.clock, context);
             Some(MountedWidget::new(clock.root(), clock))
         }
         "workspaces" => {

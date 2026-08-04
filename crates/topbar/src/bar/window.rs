@@ -21,6 +21,9 @@ const LAYER_NAMESPACE: &str = "gnome-topbar";
 pub struct BarWindow {
     window: ApplicationWindow,
     /// Mounted widgets, kept alive for as long as the bar exists.
+    ///
+    /// Anything a widget put on screen goes with it, including the popover
+    /// host: the last handle to it lives in a widget's keep-alive box.
     _widgets: Vec<MountedWidget>,
 }
 
@@ -34,11 +37,7 @@ impl BarWindow {
         services: &Services,
     ) -> Self {
         let height = style::window_height(config);
-        let context = BarContext {
-            connector: connector.to_string(),
-            monitor: monitor.clone(),
-            services: services.clone(),
-        };
+        let context = BarContext::new(connector, monitor, config, services);
 
         let window = ApplicationWindow::builder()
             .application(app)

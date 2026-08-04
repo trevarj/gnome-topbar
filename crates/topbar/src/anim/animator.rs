@@ -58,8 +58,15 @@ pub enum Easing {
     Linear,
     /// Cubic ease-out: quick start, gentle settle (`1 - (1-t)^3`).
     ///
-    /// The default for micro-interactions such as the panel-button hover fade.
+    /// The default for micro-interactions such as the panel-button hover fade,
+    /// and for anything appearing — a popover opening.
     EaseOutCubic,
+    /// Cubic ease-in: gentle start, quick finish (`t^3`).
+    ///
+    /// The mirror of [`Easing::EaseOutCubic`], for anything leaving. A popover
+    /// closes on this curve so it holds still for a moment before it goes,
+    /// which reads as dismissal rather than as a dropped frame.
+    EaseInCubic,
 }
 
 impl Easing {
@@ -72,6 +79,7 @@ impl Easing {
         match self {
             Easing::Linear => t,
             Easing::EaseOutCubic => 1.0 - (1.0 - t).powi(3),
+            Easing::EaseInCubic => t.powi(3),
         }
     }
 }
@@ -212,7 +220,7 @@ impl Animation {
 mod tests {
     use super::*;
 
-    const CURVES: [Easing; 2] = [Easing::Linear, Easing::EaseOutCubic];
+    const CURVES: [Easing; 3] = [Easing::Linear, Easing::EaseOutCubic, Easing::EaseInCubic];
 
     #[test]
     fn easing_endpoints_are_exact() {
@@ -240,6 +248,23 @@ mod tests {
     #[test]
     fn ease_out_is_ahead_of_linear() {
         assert!(Easing::EaseOutCubic.apply(0.5) > 0.5);
+    }
+
+    #[test]
+    fn ease_in_is_behind_linear() {
+        assert!(Easing::EaseInCubic.apply(0.5) < 0.5);
+    }
+
+    #[test]
+    fn ease_in_mirrors_ease_out() {
+        for step in 0..=100 {
+            let t = f64::from(step) / 100.0;
+            let mirrored = 1.0 - Easing::EaseOutCubic.apply(1.0 - t);
+            assert!(
+                (Easing::EaseInCubic.apply(t) - mirrored).abs() < 1e-12,
+                "at {t}"
+            );
+        }
     }
 
     #[test]

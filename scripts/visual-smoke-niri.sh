@@ -4,6 +4,20 @@
 #
 # Local only — niri has no headless backend, so CI cannot run this.
 # Run it from the dev shell: nix develop -c ./scripts/visual-smoke-niri.sh
+#
+# Environment:
+#   GNOME_TOPBAR_VISUAL_CONFIG  panel config to run (default ./config.toml)
+#   GNOME_TOPBAR_SMOKE_OPEN     open a widget's popover without a pointer.
+#                               There is no synthetic input in the dev shell,
+#                               so this is how an *open* popover gets
+#                               screenshotted before M8's `gnome-topbar
+#                               popover show` exists. Debug builds only, which
+#                               is what this script builds.
+#
+#                                 clock    open it a second in, leave it open
+#                                 clock:3  three open/close cycles 750ms
+#                                          apart, ending closed — for checking
+#                                          teardown and the reopen path
 set -eu
 
 artifact_dir="${1:-target/visual-smoke}"

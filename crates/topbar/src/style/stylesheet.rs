@@ -22,6 +22,18 @@ use topbar_core::theme::{Rgb, parse_hex_color};
 const SURFACE_BASE: Rgb = Rgb::new(0x1e, 0x1e, 0x22);
 /// Tooltips stay near-opaque: they must be readable before blur exists.
 const SURFACE_OPACITY: f64 = 0.92;
+/// Popovers are derived from pure black, which is what a translucent GNOME
+/// menu over a bright window has to be to keep white text readable.
+const POPOVER_BASE: Rgb = Rgb::new(0, 0, 0);
+/// Alpha of the hairline border every elevated surface carries.
+const SURFACE_BORDER_ALPHA: f64 = 0.08;
+
+/// Corner radius of a popover surface, in pixels.
+///
+/// The popover's grow-in clips to a rounded rectangle drawn from Rust (see
+/// [`crate::anim::ScaleBox`]), so this value has to exist outside the
+/// stylesheet as well — the two would drift apart as separate constants.
+pub const POPOVER_RADIUS: u32 = 16;
 /// Fallback widget surface color when `widgets.background_color` is unset.
 const WIDGET_BASE: Rgb = Rgb::new(0x1e, 0x1e, 0x22);
 /// Panel foreground, GNOME Shell style: plain white on a black panel.
@@ -97,6 +109,21 @@ fn tinted(color: Rgb, opacity: f64) -> String {
     }
 }
 
+/// The hairline border of an elevated surface, as GDK sees it.
+///
+/// `--color-surface-border` is generated from the same value. The popover
+/// needs it in Rust because its border is drawn on the animating clip boundary
+/// rather than by the child's CSS — see [`crate::anim::ScaleBox`].
+pub fn surface_border() -> gdk::RGBA {
+    let Rgb { r, g, b } = FOREGROUND;
+    gdk::RGBA::new(
+        f32::from(r) / 255.0,
+        f32::from(g) / 255.0,
+        f32::from(b) / 255.0,
+        SURFACE_BORDER_ALPHA as f32,
+    )
+}
+
 /// Parse a configured hex color, falling back when it is not a hex value.
 ///
 /// Config validation already rejects malformed colors, so the fallback only
@@ -140,6 +167,8 @@ fn root_block(config: &Config) -> String {
     --radius-bar: {radius_bar}px;
     --radius-widget: {radius_widget};
     --radius-surface: {radius_surface}px;
+    --radius-popover: {radius_popover}px;
+    --radius-card: 12px;
 
     /* Typography */
     --font-family: {font_family};
@@ -151,6 +180,9 @@ fn root_block(config: &Config) -> String {
     --color-widget-background: {widget_background};
     --color-surface: {surface};
     --color-surface-border: {surface_border};
+    --color-popover: {popover};
+    --color-popover-shadow: {popover_shadow};
+    --color-card: {card};
 
     /* Panel-button states */
     --color-widget-hover: {hover};
@@ -177,6 +209,7 @@ fn root_block(config: &Config) -> String {
         radius_bar = bar.border_radius,
         radius_widget = widget_radius(config),
         radius_surface = (bar.size / 3).max(6),
+        radius_popover = POPOVER_RADIUS,
         font_family = theme.typography.font_family,
         font_size = font_size(bar.size),
         icon_size = round_to_even((f64::from(bar.size) * ICON_SCALE) as u32),
@@ -186,7 +219,18 @@ fn root_block(config: &Config) -> String {
         ),
         widget_background = tinted(widget_background, widgets.background_opacity),
         surface = SURFACE_BASE.to_rgba(SURFACE_OPACITY),
-        surface_border = FOREGROUND.to_rgba(0.08),
+        surface_border = FOREGROUND.to_rgba(SURFACE_BORDER_ALPHA),
+        // A popover with no opacity of its own follows the bar: an opaque
+        // panel means opaque menus, which is what a user who turned
+        // translucency off is asking for.
+        popover = tinted(
+            POPOVER_BASE,
+            widgets
+                .popover_background_opacity
+                .unwrap_or(bar.background_opacity)
+        ),
+        popover_shadow = POPOVER_BASE.to_rgba(0.5),
+        card = FOREGROUND.to_rgba(0.06),
         hover = FOREGROUND.to_rgba(0.1),
         pressed = FOREGROUND.to_rgba(0.15),
         checked = FOREGROUND.to_rgba(0.18),
@@ -252,8 +296,12 @@ sectioned-bar.bar {
     background-color: var(--color-widget-pressed);
 }
 
-/* Exactly one widget is checked at a time: the one whose popover is open. */
-.widget-wrapper.checked .widget-fill {
+/* Exactly one widget is checked at a time: the one whose popover is open.
+   It paints on the surface rather than on the fill, because the fill's opacity
+   belongs to the hover animation and sits at zero while the pointer is away —
+   a checked button has to stay lit whether or not it is hovered. Hover then
+   layers on top, which is what GNOME does with an open menu under the mouse. */
+.widget-wrapper.checked .widget {
     background-color: var(--color-widget-checked);
 }
 
@@ -307,6 +355,114 @@ workspace-strip {
 
 .keyboard-layout-icon {
     -gtk-icon-size: var(--icon-size);
+}
+
+/* ===== Popovers ===== */
+
+/* Both layer surfaces are invisible: the popover paints, the catcher does not
+   paint at all — it exists only to turn a click into a dismissal. */
+window.popover-window,
+window.click-catcher-window,
+.popover-wrapper,
+.click-catcher {
+    background: transparent;
+}
+
+.popover-surface {
+    background-color: var(--color-popover);
+    border: 1px solid var(--color-surface-border);
+    border-radius: var(--radius-popover);
+    box-shadow: 0 2px 6px var(--color-popover-shadow);
+    color: var(--color-foreground);
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    font-weight: 400;
+    padding: 16px;
+}
+
+/* While a popover grows in, its outline is drawn on the animating clip (see
+   anim::ScaleBox) because this border sits outside it until the last frame. */
+.popover-surface.borderless {
+    border-color: transparent;
+}
+
+/* ===== Control panel ===== */
+
+/* The columns are fixed width so nothing reflows as content arrives; the
+   widths live in Rust beside the layout that depends on them. */
+.control-panel-column {
+    background: transparent;
+}
+
+.control-panel-divider {
+    background-color: var(--color-surface-border);
+}
+
+.control-panel-card {
+    background-color: var(--color-card);
+    border-radius: var(--radius-card);
+    padding: 12px 14px;
+}
+
+.control-panel-title {
+    font-size: 1.05em;
+    font-weight: 700;
+}
+
+.control-panel-time {
+    font-size: 2.4em;
+    font-weight: 700;
+    font-feature-settings: "tnum";
+}
+
+.control-panel-date {
+    font-size: 1.05em;
+    font-weight: 700;
+    color: var(--color-foreground-muted);
+}
+
+.world-clock-row {
+    min-height: 22px;
+}
+
+.world-clock-name {
+    font-weight: 500;
+}
+
+.world-clock-zone {
+    color: var(--color-foreground-muted);
+}
+
+.world-clock-time {
+    font-weight: 600;
+    font-feature-settings: "tnum";
+}
+
+/* An empty column is a designed state, not a hole: a large dimmed icon and a
+   line of text, centred, exactly as GNOME's own notification list does it. */
+.empty-state-icon {
+    -gtk-icon-size: 48px;
+    opacity: 0.4;
+}
+
+.empty-state-label {
+    font-size: 1.05em;
+    font-weight: 500;
+    color: var(--color-foreground-muted);
+}
+
+.dnd-row {
+    min-height: 32px;
+    margin-top: 6px;
+}
+
+.dnd-label {
+    font-weight: 500;
+}
+
+/* Reserved space for a later milestone's content. */
+.placeholder {
+    color: var(--color-foreground-disabled);
 }
 
 /* ===== Tooltip ===== */
@@ -386,6 +542,8 @@ mod tests {
     --radius-bar: 0px;
     --radius-widget: 9999px;
     --radius-surface: 12px;
+    --radius-popover: 16px;
+    --radius-card: 12px;
 
     /* Typography */
     --font-family: NotoSans, Iosevka SS12, Symbols Nerd Font Mono, Symbols Nerd Font;
@@ -397,6 +555,9 @@ mod tests {
     --color-widget-background: transparent;
     --color-surface: rgba(30, 30, 34, 0.92);
     --color-surface-border: rgba(255, 255, 255, 0.08);
+    --color-popover: rgba(0, 0, 0, 0.76);
+    --color-popover-shadow: rgba(0, 0, 0, 0.5);
+    --color-card: rgba(255, 255, 255, 0.06);
 
     /* Panel-button states */
     --color-widget-hover: rgba(255, 255, 255, 0.1);
@@ -494,6 +655,34 @@ mod tests {
         assert_eq!(font_size(36), 14);
         assert!(widget_height(48) > widget_height(36));
         assert!(font_size(48) > font_size(36));
+    }
+
+    #[test]
+    fn popover_opacity_falls_back_to_the_bar() {
+        // The live config asks for 0.76; an unset value follows the bar, so
+        // turning panel translucency off turns it off for menus too.
+        let mut config = Config::default();
+        assert_eq!(config.widgets.popover_background_opacity, None);
+        assert!(root_block(&config).contains("--color-popover: #000000;"));
+
+        config.bar.background_opacity = 0.5;
+        assert!(root_block(&config).contains("--color-popover: rgba(0, 0, 0, 0.5);"));
+
+        config.widgets.popover_background_opacity = Some(0.76);
+        assert!(root_block(&config).contains("--color-popover: rgba(0, 0, 0, 0.76);"));
+    }
+
+    #[test]
+    fn the_animated_outline_matches_the_css_border() {
+        // The popover draws its border twice — in CSS at rest, from Rust while
+        // it grows — and the two must be the same color.
+        let border = surface_border();
+        assert!((f64::from(border.alpha()) - SURFACE_BORDER_ALPHA).abs() < 1e-6);
+        assert_eq!(border.red(), f32::from(FOREGROUND.r) / 255.0);
+        assert!(root_block(&Config::default()).contains(&format!(
+            "--color-surface-border: {};",
+            FOREGROUND.to_rgba(SURFACE_BORDER_ALPHA)
+        )));
     }
 
     #[test]
