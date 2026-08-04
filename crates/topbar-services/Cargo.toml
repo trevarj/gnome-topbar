@@ -16,6 +16,10 @@ fake-player = []
 # The same arrangement for the tray: `topbar-fake-sni` puts a
 # StatusNotifierItem with a real dbusmenu on the smoke run's private bus.
 fake-sni = []
+# And for power: `topbar-fake-power` serves a UPower and a power-profiles
+# daemon, because the real ones live on the *system* bus and a smoke run must
+# never so much as look at that.
+fake-power = []
 
 [[bin]]
 name = "topbar-fake-player"
@@ -26,6 +30,11 @@ required-features = ["fake-player"]
 name = "topbar-fake-sni"
 path = "src/bin/fake_sni.rs"
 required-features = ["fake-sni"]
+
+[[bin]]
+name = "topbar-fake-power"
+path = "src/bin/fake_power.rs"
+required-features = ["fake-power"]
 
 [dependencies]
 topbar-core = { workspace = true }

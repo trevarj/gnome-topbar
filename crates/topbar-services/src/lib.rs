@@ -10,6 +10,7 @@
 #![warn(missing_docs)]
 
 pub mod audio;
+pub mod battery;
 pub mod brightness;
 pub mod change;
 pub mod connectivity;
@@ -21,6 +22,8 @@ pub mod logind;
 pub mod media;
 pub mod niri;
 pub mod notifications;
+pub mod power;
+pub mod power_profiles;
 pub mod refresh;
 pub mod runtime;
 pub mod state_store;
@@ -38,6 +41,7 @@ mod private_bus;
 pub use tokio::sync::watch;
 
 pub use audio::{Audio, AudioHandle, AudioState, DeviceView};
+pub use battery::{Battery, BatteryHandle, BatteryState, BatteryStatus, Thresholds};
 pub use brightness::{Brightness, BrightnessHandle, BrightnessState};
 pub use change::{Change, ChangeSource};
 pub use connectivity::{Connectivity, ConnectivityState};
@@ -50,6 +54,8 @@ pub use notifications::{
     Action, CloseReason, GroupView, IconSource, ImageData, NotifState, NotificationView,
     Notifications, NotificationsHandle, ToastView, Urgency,
 };
+pub use power::{Power, PowerAction};
+pub use power_profiles::{PowerProfiles, PowerProfilesHandle, PowerProfilesState, ProfileView};
 pub use runtime::{Runtime, Services};
 pub use state_store::StateStore;
 pub use tray::{

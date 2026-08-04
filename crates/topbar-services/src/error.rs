@@ -96,6 +96,27 @@ pub enum SvcError {
     #[error("logind refused the idle inhibitor: {0}")]
     Inhibitor(String),
 
+    /// The power-profiles daemon refused a profile, or is not there.
+    #[error("the power-profiles daemon refused the profile: {0}")]
+    PowerProfile(String),
+
+    /// The charge limit could not be read or written.
+    #[error("the charge limit could not be set: {0}")]
+    Battery(String),
+
+    /// logind refused to shut down, restart or suspend the machine.
+    #[error("logind refused the power action: {0}")]
+    PowerAction(String),
+
+    /// A command the user configured could not be started.
+    #[error("could not run `{command}`: {reason}")]
+    Command {
+        /// What was being run.
+        command: String,
+        /// Why it did not start, or how it ended.
+        reason: String,
+    },
+
     /// A service task has stopped, so its commands go nowhere.
     #[error("the {0} service is not running")]
     ServiceStopped(&'static str),
@@ -124,6 +145,10 @@ impl SvcError {
             Self::AudioDevice(_) => "No audio device is available",
             Self::NoBacklight => "This screen has no adjustable backlight",
             Self::Inhibitor(_) => "Could not change the idle inhibitor",
+            Self::PowerProfile(_) => "Could not change the power mode",
+            Self::Battery(_) => "Could not change the charge limit",
+            Self::PowerAction(_) => "The system refused that power action",
+            Self::Command { .. } => "That command could not be run",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
     }
@@ -154,6 +179,13 @@ mod tests {
             SvcError::AudioDevice("output"),
             SvcError::NoBacklight,
             SvcError::Inhibitor("Interactive authentication required".into()),
+            SvcError::PowerProfile("no power-profiles daemon is running".into()),
+            SvcError::Battery("start 90% must be below stop 80%".into()),
+            SvcError::PowerAction("Interactive authentication required".into()),
+            SvcError::Command {
+                command: "loginctl lock-session".into(),
+                reason: "No such file or directory".into(),
+            },
             SvcError::ServiceStopped("notifications"),
         ];
         for error in errors {

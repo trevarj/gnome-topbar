@@ -13,6 +13,7 @@ use tokio::runtime;
 use topbar_core::Config;
 
 use crate::audio::Audio;
+use crate::battery::Battery;
 use crate::brightness::Brightness;
 use crate::connectivity::Connectivity;
 use crate::crypto::Crypto;
@@ -21,6 +22,8 @@ use crate::ipc::Ipc;
 use crate::media::Media;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
+use crate::power::Power;
+use crate::power_profiles::PowerProfiles;
 use crate::state_store::StateStore;
 use crate::tray::{DEFAULT_ICON_SIZE, Tray};
 use crate::weather::Weather;
@@ -77,8 +80,36 @@ pub struct Services {
     pub brightness: Brightness,
     /// The idle inhibitor.
     pub inhibitor: Inhibitor,
+    /// The battery, and its charge limit.
+    pub battery: Battery,
+    /// The power-profiles daemon, when there is one.
+    pub power_profiles: PowerProfiles,
+    /// Shutting down, restarting and suspending.
+    pub power: Power,
     /// The socket `topbar` commands arrive on.
     pub ipc: Ipc,
+}
+
+/// Points the battery and power-profiles clients at a bus of a test's own.
+///
+/// Debug builds only, and read once at start-up. The nested-niri smoke run
+/// puts a stand-in UPower and power-profiles daemon on its private session
+/// bus, because there is no way to fake the *system* bus inside the sandbox
+/// and pointing the panel at the real one would mean a screenshot taken by
+/// changing the developer's machine. logind is deliberately not covered: the
+/// idle inhibitor keeps talking to the real one, as it has since M8.
+const SMOKE_BUS: &str = "TOPBAR_SMOKE_POWER_BUS";
+/// The same, for `/sys/class/power_supply`.
+const SMOKE_SYSFS: &str = "TOPBAR_SMOKE_POWER_SYSFS";
+
+/// A smoke override, in debug builds only.
+fn smoke(variable: &str) -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var(variable)
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 impl Services {
@@ -98,6 +129,8 @@ impl Services {
             .pixmap_icon_size
             .map_or(DEFAULT_ICON_SIZE, |size| size as i32);
         let allow_overdrive = config.audio.allow_overdrive;
+        let power_bus = smoke(SMOKE_BUS);
+        let power_sysfs = smoke(SMOKE_SYSFS).map(PathBuf::from);
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -116,6 +149,9 @@ impl Services {
                 audio: Audio::start(allow_overdrive),
                 brightness: Brightness::start(None),
                 inhibitor: Inhibitor::start(None),
+                battery: Battery::start(power_bus.clone(), power_sysfs),
+                power_profiles: PowerProfiles::start(power_bus),
+                power: Power::new(None),
                 ipc: Ipc::start(),
                 connectivity,
             }

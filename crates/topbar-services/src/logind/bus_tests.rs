@@ -41,6 +41,9 @@ pub(crate) struct Journal {
     /// The read end of every lock handed out, kept so the test can watch it.
     pub(crate) locks: Vec<StdOwnedFd>,
     pub(crate) brightness: Vec<(String, String, u32)>,
+    /// Every power action asked for: the method name and its `interactive`
+    /// flag. A test that expects *nothing* to have happened reads this too.
+    pub(crate) power: Vec<(String, bool)>,
 }
 
 /// A shared journal.
@@ -87,6 +90,43 @@ impl FakeManager {
 
     fn list_sessions(&self) -> Vec<(String, u32, String, String, OwnedObjectPath)> {
         Vec::new()
+    }
+
+    #[zbus(name = "PowerOff")]
+    fn power_off(&self, interactive: bool) {
+        self.record("PowerOff", interactive);
+    }
+
+    fn reboot(&self, interactive: bool) {
+        self.record("Reboot", interactive);
+    }
+
+    fn suspend(&self, interactive: bool) {
+        self.record("Suspend", interactive);
+    }
+
+    #[zbus(name = "CanPowerOff")]
+    fn can_power_off(&self) -> String {
+        "yes".to_string()
+    }
+
+    fn can_reboot(&self) -> String {
+        "challenge".to_string()
+    }
+
+    /// Deliberately unavailable, so the disabled-row path has something real
+    /// to be driven by.
+    fn can_suspend(&self) -> String {
+        "na".to_string()
+    }
+}
+
+impl FakeManager {
+    /// Note a power action rather than carrying one out.
+    fn record(&self, method: &str, interactive: bool) {
+        journal(&self.log)
+            .power
+            .push((method.to_string(), interactive));
     }
 }
 

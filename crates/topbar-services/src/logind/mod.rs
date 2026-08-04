@@ -36,6 +36,27 @@ pub(crate) trait Manager {
 
     /// Every session: id, uid, user, seat, object path.
     fn list_sessions(&self) -> zbus::Result<Vec<(String, u32, String, String, OwnedObjectPath)>>;
+
+    /// Shut the machine down. `interactive` is always false here: the panel
+    /// has already asked, by making the user hold the row down.
+    #[zbus(name = "PowerOff")]
+    fn power_off(&self, interactive: bool) -> zbus::Result<()>;
+
+    /// Restart it.
+    fn reboot(&self, interactive: bool) -> zbus::Result<()>;
+
+    /// Suspend it.
+    fn suspend(&self, interactive: bool) -> zbus::Result<()>;
+
+    /// Whether shutting down is allowed: `yes`, `no`, `challenge` or `na`.
+    #[zbus(name = "CanPowerOff")]
+    fn can_power_off(&self) -> zbus::Result<String>;
+
+    /// The same, for restarting.
+    fn can_reboot(&self) -> zbus::Result<String>;
+
+    /// The same, for suspending.
+    fn can_suspend(&self) -> zbus::Result<String>;
 }
 
 /// A session, trimmed to the one method the panel calls on it.
