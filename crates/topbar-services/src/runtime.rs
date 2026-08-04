@@ -1,11 +1,17 @@
-//! The tokio runtime every service task shares.
+//! The tokio runtime every service task shares, and the bundle of handles the
+//! panel holds onto.
 //!
-//! The runtime is created once, before GTK starts, and handed out as a
-//! `tokio::runtime::Handle`. Service bundles are added here from M2 onward.
+//! [`Services::start`] runs before GTK is initialised and returns only handles
+//! — watch receivers and `Clone` command handles. Nothing in the bundle can
+//! reach a widget, and nothing a widget holds can block a service.
 
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use niri_ipc::socket::SOCKET_PATH_ENV;
 use tokio::runtime;
+
+use crate::niri::Niri;
 
 static RUNTIME: OnceLock<runtime::Runtime> = OnceLock::new();
 
@@ -30,6 +36,31 @@ impl Runtime {
             })
             .handle()
             .clone()
+    }
+}
+
+/// Every running service, as handles the GTK side can hold.
+///
+/// New services become fields here; `start` is the one place that knows the
+/// start-up order, so `main` does not change again as milestones land.
+#[derive(Clone)]
+pub struct Services {
+    /// The niri compositor service.
+    pub niri: Niri,
+}
+
+impl Services {
+    /// Start every service. Call once, from `main`, before GTK.
+    ///
+    /// Blocking here is deliberate and momentary: services are spawned onto
+    /// the runtime, not awaited, so this returns as soon as their tasks exist.
+    pub fn start() -> Self {
+        let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
+        Runtime::handle().block_on(async move {
+            Self {
+                niri: Niri::start(niri_socket),
+            }
+        })
     }
 }
 

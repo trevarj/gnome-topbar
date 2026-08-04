@@ -6,12 +6,13 @@
 //! impossible for a service task to touch a widget. State leaves this crate as
 //! `Send + Clone` handles and `Arc<Snapshot>` values; the GTK crate subscribes
 //! to them from the main thread.
-//!
-//! M0 only establishes the crate and its toolchain (tokio + zbus link cleanly);
-//! the services themselves land from M2 onward.
 
 #![warn(missing_docs)]
 
+pub mod error;
+pub mod niri;
 pub mod runtime;
 
-pub use runtime::Runtime;
+pub use error::SvcError;
+pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
+pub use runtime::{Runtime, Services};
