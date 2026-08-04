@@ -322,6 +322,12 @@ impl WorkspaceStrip {
             imp.current_rects()
         };
 
+        // Nothing to slide: the snapshot changed in some way that does not
+        // move an indicator (a window opened on a workspace that was already
+        // shown). Restarting the transfer would buy twelve frames of redraw
+        // that paint the same thing.
+        let settled = !structural && *imp.to.borrow() == target && imp.progress.get() >= 1.0;
+
         let is_urgent = draw_slots.iter().any(|slot| slot.is_urgent);
         *imp.slots.borrow_mut() = draw_slots;
         *imp.from.borrow_mut() = start;
@@ -329,9 +335,12 @@ impl WorkspaceStrip {
 
         if structural {
             imp.progress.set(1.0);
+            // Seed the fade before the first frame of it, or a new slot flashes
+            // at full size for one frame and then shrinks in.
+            imp.appear.set(0.0);
             self.queue_resize();
             self.grow_in();
-        } else {
+        } else if !settled {
             imp.progress.set(0.0);
             self.transfer();
         }

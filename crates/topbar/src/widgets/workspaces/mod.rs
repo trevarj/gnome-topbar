@@ -67,16 +67,12 @@ impl WorkspacesWidget {
             niri: context.services.niri.handle().clone(),
         });
 
-        let options = SlotOptions {
-            connector: &context.connector,
-            filter_by_output: settings.filter_by_output,
-            show_unoccupied: settings.show_unoccupied,
-            label_type: LabelType::parse(&settings.label_type),
-        };
+        // `SlotOptions` borrows the connector name, so the closure keeps its
+        // own copy of the string rather than the options struct.
         let connector = context.connector.clone();
-        let filter_by_output = options.filter_by_output;
-        let show_unoccupied = options.show_unoccupied;
-        let label_type = options.label_type;
+        let filter_by_output = settings.filter_by_output;
+        let show_unoccupied = settings.show_unoccupied;
+        let label_type = LabelType::parse(&settings.label_type);
 
         let wrapper = shell.root().clone();
         let binding = bridge::bind_state(&strip, context.services.niri.workspaces(), {
