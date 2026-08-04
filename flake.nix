@@ -157,6 +157,12 @@
           # happened to be on the developer's PATH.
           imagemagick
           python3
+          # `pulseaudio` and `pactl`, for the OSD smoke run. It starts a
+          # sound server of its *own* inside the sandbox, with a null sink and
+          # a PULSE_RUNTIME_PATH under the run's XDG box, and points both the
+          # panel and the CLI at it. The developer's real PipeWire is on the
+          # session they are logged into and must never hear from a test.
+          pulseaudio
         ];
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         shellHook = pre-commit.shellHook;

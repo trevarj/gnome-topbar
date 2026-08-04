@@ -15,9 +15,16 @@ use topbar_core::ipc::{
 };
 
 /// Message printed whenever the panel cannot be reached.
-pub const UNREACHABLE: &str = "could not reach topbar IPC socket (is the panel running?)";
+pub const UNREACHABLE: &str = "could not reach topbar (is the panel running?)";
 
-const TIMEOUT: Duration = Duration::from_secs(2);
+/// How long to wait for the panel to answer.
+///
+/// Matches the panel's own answer timeout, so a command that the panel gave up
+/// on and one the client gave up on cannot disagree about which happened.
+/// Two seconds was not enough: building a control panel for the first time is
+/// real work, and `topbar popover show clock` was timing out on a popover that
+/// then opened perfectly well.
+const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Path of the panel's IPC socket.
 pub fn socket_path() -> Option<PathBuf> {

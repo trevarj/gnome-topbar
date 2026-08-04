@@ -61,6 +61,9 @@ const OVERDRIVE_FROM: u32 = 100;
 /// What the capsule says when there is nothing to play out of.
 const NO_OUTPUT: &str = "No output device";
 
+/// The brightness the smoke hook shows, having no backlight to read one from.
+const SMOKE_BRIGHTNESS: u32 = 60;
+
 /// Icons, all Adwaita symbolic.
 const VOLUME_MUTED: &str = "audio-volume-muted-symbolic";
 const VOLUME_LOW: &str = "audio-volume-low-symbolic";
@@ -70,6 +73,8 @@ const BRIGHTNESS_OFF: &str = "display-brightness-off-symbolic";
 const BRIGHTNESS_LOW: &str = "display-brightness-low-symbolic";
 const BRIGHTNESS_MEDIUM: &str = "display-brightness-medium-symbolic";
 const BRIGHTNESS_HIGH: &str = "display-brightness-high-symbolic";
+/// The ungraded name, for a theme without the graded set.
+const BRIGHTNESS_FALLBACK: &str = "display-brightness-symbolic";
 const INHIBIT_ON: &str = "my-caffeine-on-symbolic";
 const INHIBIT_OFF: &str = "my-caffeine-off-symbolic";
 /// What the caffeine icons fall back to on a theme that has no `my-caffeine-*`.
@@ -171,11 +176,18 @@ impl OsdEvent {
     }
 
     /// The icon to draw when the theme has never heard of [`Self::icon`].
+    ///
+    /// Two names need one. The caffeine pair is GNOME-extension territory
+    /// rather than stock Adwaita, and the graded `display-brightness-*` set is
+    /// recent enough that an older icon theme has only the ungraded name —
+    /// which is exactly what the smoke run caught: a capsule with a
+    /// missing-image square where the brightness icon should have been.
     fn fallback_icon(self) -> Option<&'static str> {
         match self {
             Self::Inhibitor { active: true } => Some(INHIBIT_ON_FALLBACK),
             Self::Inhibitor { active: false } => Some(INHIBIT_OFF_FALLBACK),
-            _ => None,
+            Self::Brightness { .. } => Some(BRIGHTNESS_FALLBACK),
+            Self::Volume { .. } | Self::NoOutput => None,
         }
     }
 
@@ -423,6 +435,19 @@ impl OsdSurface {
         *surface.bindings.borrow_mut() = vec![audio, brightness, inhibitor];
 
         register(&surface);
+        // There is no backlight in a nested compositor, so the brightness
+        // capsule has no way to be photographed from a real event. This feeds
+        // it a synthetic one; debug builds only, like every other smoke hook.
+        crate::surfaces::popovers::register_smoke_action("osd-brightness", {
+            let surface = Rc::downgrade(&surface);
+            move || {
+                if let Some(surface) = surface.upgrade() {
+                    surface.raise(OsdEvent::Brightness {
+                        percent: SMOKE_BRIGHTNESS,
+                    });
+                }
+            }
+        });
         Some(surface)
     }
 
@@ -498,6 +523,7 @@ impl OsdSurface {
         // that was never given a default size maps at nothing.
         let (_, width, _, _) = self.capsule.measure(Orientation::Horizontal, -1);
         let (_, height, _, _) = self.capsule.measure(Orientation::Vertical, width);
+        debug!("OSD capsule: {width}x{height} on {}", self.connector);
         self.window
             .set_default_size(width + 2 * SHADOW_MARGIN, height + 2 * SHADOW_MARGIN);
 
@@ -515,7 +541,20 @@ impl OsdSurface {
             return;
         }
         self.shown.set(true);
-        self.fade(1.0, ENTER_MS, Easing::EaseOutCubic);
+
+        // One main-loop turn after the map, not during it. The fade is driven
+        // by the shell's frame clock, and a widget that has not been realised
+        // yet does not have one — a run started here would register a tick
+        // callback that never ticks and leave the capsule mapped at zero
+        // opacity, which is a surface on screen that draws nothing at all.
+        let surface = Rc::downgrade(self);
+        gtk4::glib::idle_add_local_once(move || {
+            if let Some(surface) = surface.upgrade()
+                && surface.shown.get()
+            {
+                surface.fade(1.0, ENTER_MS, Easing::EaseOutCubic);
+            }
+        });
     }
 
     /// Fade the capsule out and unmap it when it has gone.
@@ -552,6 +591,7 @@ impl OsdSurface {
         let distance = (target - start).abs();
         let duration = (duration_ms as f64 * distance).round() as u64;
 
+        debug!("OSD fade {start} -> {target} over {duration}ms");
         self.animation.start(
             AnimationParams::new(duration).with_easing(easing),
             Box::new(move |progress| {
@@ -794,6 +834,31 @@ mod tests {
         assert_eq!(OsdEvent::NoOutput.icon(), VOLUME_MUTED);
         assert_eq!(OsdEvent::Inhibitor { active: true }.icon(), INHIBIT_ON);
         assert_eq!(OsdEvent::Inhibitor { active: false }.icon(), INHIBIT_OFF);
+    }
+
+    #[test]
+    fn every_icon_a_theme_may_not_have_has_a_stock_one_behind_it() {
+        // The volume names are stock Adwaita and always resolve; the other two
+        // are not, and a capsule with a missing-image square in it is worse
+        // than one drawn with a plainer icon.
+        for event in [
+            OsdEvent::Brightness { percent: 50 },
+            OsdEvent::Inhibitor { active: true },
+            OsdEvent::Inhibitor { active: false },
+        ] {
+            let fallback = event.fallback_icon().expect("a fallback");
+            assert!(fallback.ends_with("-symbolic"), "{fallback}");
+            assert_ne!(fallback, event.icon());
+        }
+        assert_eq!(
+            OsdEvent::Volume {
+                percent: 50,
+                muted: false,
+                max: 100
+            }
+            .fallback_icon(),
+            None
+        );
     }
 
     #[test]

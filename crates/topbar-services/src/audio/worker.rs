@@ -140,8 +140,6 @@ struct State {
     input_indexes: HashSet<u32>,
     /// Recording clients that are neither corked nor muted.
     recording: HashSet<u32>,
-    /// Set by the context state callback when the server goes away.
-    lost: bool,
 }
 
 impl State {
@@ -308,21 +306,16 @@ fn connected(
         // The state callback is installed *before* connecting so the first
         // transition — including a straight-to-Failed on a missing socket — is
         // seen rather than raced.
+        //
+        // It does exactly one thing: post a message. It must not look at the
+        // context, because `connect` invokes it synchronously, on this thread,
+        // while this very function holds the context's mutex — and a second
+        // lock of a `std::sync::Mutex` from the thread already holding it is a
+        // deadlock, not a re-entry. That mistake cost the audio service its
+        // whole first connection, silently, with no log line to show for it.
         let inject_for_cb = inject.clone();
-        let state_for_cb = Arc::clone(state);
-        let context_for_cb = Arc::clone(context);
         let mut ctx = lock(context);
         ctx.set_state_callback(Some(Box::new(move || {
-            // Reading the context here is safe: the callback runs on the
-            // mainloop thread with the mainloop already locked, and the guard
-            // this takes is only ever held for the length of a `get_state`.
-            let dead = matches!(
-                lock(&context_for_cb).get_state(),
-                ContextState::Failed | ContextState::Terminated
-            );
-            if dead {
-                lock(&state_for_cb).lost = true;
-            }
             let _ = inject_for_cb.send(Request::CheckContext);
         })));
         if ctx.connect(None, ContextFlagSet::NOFLAGS, None).is_err() {
@@ -436,7 +429,7 @@ fn serve(
         match request {
             Request::Shutdown => return Outcome::Shutdown,
             Request::CheckContext => {
-                if lock(state).lost || !is_ready(mainloop, context) {
+                if !is_ready(mainloop, context) {
                     return Outcome::Lost;
                 }
             }

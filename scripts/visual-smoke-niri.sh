@@ -55,7 +55,16 @@
 #                         run can begin from state a previous session
 #                         remembered — a saved weather location, say. The copy
 #                         lands inside the sandbox and nowhere else.
+#   TOPBAR_SMOKE_PULSE    start a PulseAudio of the run's own, with a null
+#                         sink, inside the sandbox, and point the panel and the
+#                         CLI at it through $PULSE_SERVER. The developer's real
+#                         sound server is on the session they are logged into
+#                         and must never hear from a test — so this is how the
+#                         volume OSD gets driven by real volume changes.
 #   TOPBAR_SMOKE_TIMEOUT  seconds before the session is killed (30).
+#
+# The driver is also given $SMOKE_TOPBAR, the panel binary, so it can run
+# `topbar volume set 30` and the rest against the session it is inside.
 set -eu
 
 artifact_dir="${1:-target/visual-smoke}"
@@ -78,6 +87,23 @@ export XDG_STATE_HOME="$xdg_box/state"
 export XDG_CACHE_HOME="$xdg_box/cache"
 export XDG_CONFIG_HOME="$xdg_box/config"
 mkdir -p "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME/niri"
+
+# The runtime directory is boxed too, so the panel's single-instance lock and
+# its IPC socket land inside the run and nowhere near a real panel's. The host
+# compositor's socket is linked in first, because the nested niri finds it
+# through exactly this variable.
+host_runtime="${XDG_RUNTIME_DIR:-}"
+export XDG_RUNTIME_DIR="$xdg_box/run"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+if [ -n "$host_runtime" ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  for suffix in "" ".lock"; do
+    if [ -e "$host_runtime/$WAYLAND_DISPLAY$suffix" ]; then
+      ln -sf "$host_runtime/$WAYLAND_DISPLAY$suffix" \
+        "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY$suffix"
+    fi
+  done
+fi
 
 if [ -n "${TOPBAR_SMOKE_STATE:-}" ]; then
   mkdir -p "$XDG_STATE_HOME/topbar"
@@ -131,20 +157,49 @@ set -eu
 export SMOKE_ARTIFACTS="$3"
 export SMOKE_FAKE_PLAYER="$5"
 export SMOKE_FAKE_SNI="$6"
+export SMOKE_TOPBAR="$1"
+export SMOKE_CONFIG="$2"
+
+pulse_pid=""
+if [ -n "$7" ]; then
+  # A sound server of this run only: its own runtime path inside the sandbox,
+  # no default configuration script, one null sink to change the volume of.
+  PULSE_RUNTIME_PATH="$XDG_RUNTIME_DIR/pulse"
+  export PULSE_RUNTIME_PATH
+  mkdir -p "$PULSE_RUNTIME_PATH"
+  pulseaudio --daemonize=no --exit-idle-time=-1 -n \
+    --load="module-native-protocol-unix" \
+    --load="module-null-sink sink_name=topbar_smoke sink_properties=device.description=Smoke_Output" \
+    --load="module-null-source source_name=topbar_smoke_mic" \
+    --log-target=file:"$3/pulse.log" &
+  pulse_pid=$!
+  export PULSE_SERVER="unix:$PULSE_RUNTIME_PATH/native"
+  waited=0
+  while [ ! -S "$PULSE_RUNTIME_PATH/native" ] && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+fi
+
 "$1" --config "$2" -v >"$3/panel.log" 2>&1 &
 panel_pid=$!
 # The driver reads /proc/$SMOKE_PANEL_PID/status to watch the panel grow.
 export SMOKE_PANEL_PID="$panel_pid"
 sleep 2
 if [ -n "$4" ]; then
-  sh "$4" || echo "smoke driver failed with status $?" >&2
+  # niri detaches the stdio of what it spawns, so the driver is captured the
+  # same way the panel is. A driver that failed silently was how a broken
+  # screenshot went unnoticed for a whole run.
+  sh "$4" >"$3/driver.log" 2>&1 || echo "smoke driver failed with status $?" >>"$3/driver.log"
 else
   grim "$3/topbar.png"
 fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
+[ -n "$pulse_pid" ] && kill "$pulse_pid" 2>/dev/null
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
-' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs" "$sni_abs"
+' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs" "$sni_abs" \
+  "${TOPBAR_SMOKE_PULSE:-}"
 
 echo "--- panel log ---"
 cat "$artifact_dir_abs/panel.log" 2>/dev/null || true
