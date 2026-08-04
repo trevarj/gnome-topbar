@@ -165,16 +165,11 @@ impl RoundedPicture {
         picture
     }
 
-    /// Show `paintable` at once, with no crossfade.
-    pub fn set_paintable(&self, paintable: Option<&impl IsA<Paintable>>) {
-        let paintable = paintable.map(|paintable| paintable.as_ref().clone());
-        self.imp().previous.replace(None);
-        self.imp().fade.set(1.0);
-        self.imp().paintable.replace(paintable);
-        self.queue_draw();
-    }
-
     /// Start a crossfade to `paintable`, driving it with [`Self::set_fade`].
+    ///
+    /// There is deliberately no instant setter: a run with motion switched off
+    /// jumps straight to `set_fade(1.0)` (see [`crate::anim::Animation`]), so
+    /// this is the instant path too.
     ///
     /// The outgoing picture is held until the fade finishes, which is the only
     /// thing this widget retains: one extra texture for 150ms.
@@ -197,10 +192,5 @@ impl RoundedPicture {
             self.imp().previous.replace(None);
         }
         self.queue_draw();
-    }
-
-    /// Whether there is anything to draw.
-    pub fn is_empty(&self) -> bool {
-        self.imp().paintable.borrow().is_none()
     }
 }

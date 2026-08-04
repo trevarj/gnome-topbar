@@ -58,7 +58,8 @@ const SCOPE: ActionScope = ActionScope::Toast { widget: "media" };
 pub struct Card {
     root: gtk4::Box,
     art: RoundedPicture,
-    /// The art currently drawn, so the same cover is never decoded twice.
+    /// The cover the card has asked for, so the same one is never decoded
+    /// twice and a cover that cannot be read is not retried every second.
     art_key: Cell<Option<u64>>,
     /// Bumped by every art load, so a slow decode cannot overwrite a newer one.
     art_generation: Rc<Cell<u64>>,
@@ -437,7 +438,10 @@ impl Card {
     /// window, and the panel's main thread has a frame to draw.
     fn render_art(self: &Rc<Self>, art: Option<&ArtRef>) {
         let key = art.map(|art| art.key);
-        if self.art_key.get() == key && (key.is_none() || !self.art.is_empty()) {
+        // The key of the cover that was *asked for*, not the one on screen: a
+        // decode that is still running, or one that failed, must not be
+        // started again by the next position poll a second later.
+        if self.art_key.get() == key {
             return;
         }
         self.art_key.set(key);
