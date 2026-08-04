@@ -28,8 +28,7 @@
       src = lib.cleanSourceWith {
         src = ./.;
         filter =
-          path: type:
-          (craneLib.filterCargoSources path type) || (builtins.baseNameOf path == "config.toml");
+          path: type: (craneLib.filterCargoSources path type) || (builtins.baseNameOf path == "config.toml");
       };
 
       commonArgs = {
