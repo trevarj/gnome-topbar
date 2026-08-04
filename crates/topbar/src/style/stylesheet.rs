@@ -574,6 +574,236 @@ button.calendar-day.calendar-today {
     font-weight: 700;
 }
 
+/* ===== Weather ===== */
+
+/* Tabular figures so the label does not shuffle sideways every time the
+   temperature crosses ten degrees. */
+.weather label {
+    font-feature-settings: "tnum";
+}
+
+.weather-icon {
+    -gtk-icon-size: var(--icon-size);
+}
+
+/* ===== Forecast ===== */
+
+/* The same component is the control panel's last card and the whole of the
+   weather widget's popover, so it carries no padding of its own: the card
+   class supplies it in one mount and the popover surface in the other. */
+.forecast {
+    min-width: 300px;
+}
+
+/* The gear sits tight against the card's padding, as the calendar's chevrons
+   do, so the title line is not pushed in by a button's own box. */
+.forecast-header {
+    margin-right: -6px;
+}
+
+.forecast-days {
+    margin-top: 2px;
+}
+
+.forecast-location {
+    color: var(--color-foreground-muted);
+}
+
+button.forecast-configure {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground-muted);
+    -gtk-icon-size: 16px;
+}
+
+button.forecast-configure:hover {
+    background-color: var(--color-widget-hover);
+    color: var(--color-foreground);
+}
+
+button.forecast-configure:active {
+    background-color: var(--color-widget-pressed);
+}
+
+.forecast-current {
+    margin: 4px 0 2px 0;
+}
+
+.forecast-current-icon {
+    -gtk-icon-size: 32px;
+}
+
+.forecast-current-temp {
+    font-size: 1.8em;
+    font-weight: 700;
+    font-feature-settings: "tnum";
+}
+
+.forecast-current-condition {
+    color: var(--color-foreground-muted);
+}
+
+.forecast-row {
+    min-height: 22px;
+}
+
+.forecast-day {
+    font-weight: 600;
+}
+
+.forecast-icon {
+    -gtk-icon-size: 16px;
+    color: var(--color-foreground-muted);
+}
+
+.forecast-condition {
+    color: var(--color-foreground-muted);
+}
+
+.forecast-temps {
+    font-feature-settings: "tnum";
+}
+
+/* Dimmer than the temperatures: a chance of rain is a footnote to the row,
+   and the droplet in front of it already carries the meaning. */
+.forecast-precipitation {
+    color: var(--color-foreground-disabled);
+    font-size: 0.9em;
+    -gtk-icon-size: 12px;
+}
+
+.forecast-stale {
+    margin-top: 4px;
+    color: var(--color-foreground-disabled);
+    font-size: 0.9em;
+}
+
+button.forecast-retry {
+    min-height: 20px;
+    padding: 0 8px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-accent);
+    font-size: 0.9em;
+}
+
+button.forecast-retry:hover {
+    background-color: var(--color-widget-hover);
+}
+
+/* ===== Location dialog ===== */
+
+/* The window is only a transparent frame; the dialog inside it is what is
+   painted, and the backdrop is a separate full-screen surface under it. */
+.location-window {
+    background: transparent;
+}
+
+.location-backdrop {
+    background-color: rgba(0, 0, 0, 0.45);
+}
+
+.location-dialog {
+    background-color: var(--color-popover);
+    border: 1px solid var(--color-surface-border);
+    border-radius: var(--radius-popover);
+    box-shadow: 0 8px 24px var(--color-popover-shadow);
+    padding: 16px;
+}
+
+.location-title {
+    font-size: 1.2em;
+    font-weight: 700;
+}
+
+entry.location-search,
+entry.location-coordinate {
+    min-height: 32px;
+    padding: 4px 10px;
+    background-color: var(--color-card);
+    border: 1px solid transparent;
+    border-radius: var(--radius-card);
+    box-shadow: none;
+    color: var(--color-foreground);
+}
+
+entry.location-search:focus-within,
+entry.location-coordinate:focus-within {
+    border-color: var(--color-accent);
+    outline: none;
+}
+
+/* The rows sit just under the entry, closer than the dialog's own spacing. */
+.location-results {
+    margin-top: -4px;
+}
+
+button.location-result {
+    min-height: 30px;
+    padding: 2px 10px;
+    background: none;
+    border: 1px solid transparent;
+    box-shadow: none;
+    border-radius: var(--radius-card);
+    color: var(--color-foreground);
+}
+
+button.location-result:hover {
+    background-color: var(--color-widget-hover);
+}
+
+/* The border is on every row, transparent until one is picked, so choosing
+   a place cannot change the height of the list. */
+button.location-result-selected {
+    background-color: var(--color-widget-checked);
+    border-color: var(--color-accent);
+}
+
+.location-error {
+    color: var(--color-foreground-muted);
+    font-size: 0.9em;
+}
+
+.location-advanced {
+    color: var(--color-foreground-muted);
+}
+
+.location-actions {
+    margin-top: 4px;
+}
+
+button.dialog-button {
+    min-height: 30px;
+    padding: 2px 16px;
+    background-color: var(--color-card);
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground);
+}
+
+button.dialog-button:hover {
+    background-color: var(--color-widget-hover);
+}
+
+button.dialog-button-primary {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+    font-weight: 700;
+}
+
+button.dialog-button-primary:hover {
+    background-color: var(--color-accent);
+    opacity: 0.9;
+}
+
 /* ===== Media ===== */
 
 /* The card is hidden outright when no player is on the bus, so it needs no

@@ -7,6 +7,7 @@ mod keyboard_layout;
 pub mod notifications;
 mod rounded_picture;
 mod shell;
+mod weather;
 mod workspaces;
 
 use std::any::Any;
@@ -52,6 +53,10 @@ pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<Mounte
         "workspaces" => {
             let workspaces = workspaces::WorkspacesWidget::new(config, context);
             Some(MountedWidget::new(workspaces.root(), workspaces))
+        }
+        "weather" => {
+            let weather = weather::WeatherWidget::new(&config.widgets.weather, context);
+            Some(MountedWidget::new(weather.root(), weather))
         }
         "keyboard_layout" => {
             let layout = keyboard_layout::KeyboardLayoutWidget::new(

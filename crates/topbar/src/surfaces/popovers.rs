@@ -286,6 +286,50 @@ fn with_entry(widget: &str, connector: Option<&str>, action: impl Fn(&Entry)) ->
     true
 }
 
+/// One thing the smoke hook can open that is not a popover.
+type SmokeAction = (String, Rc<dyn Fn()>);
+
+thread_local! {
+    /// Things the smoke hook can open that are not popovers.
+    ///
+    /// The location dialog is a modal on a layer surface of its own, so it is
+    /// not in the popover registry and `TOPBAR_SMOKE_OPEN` has no other way to
+    /// reach it. Later milestones with their own surfaces register here too.
+    static SMOKE_ACTIONS: RefCell<Vec<SmokeAction>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Let `TOPBAR_SMOKE_OPEN=<name>` run `action`.
+///
+/// Debug builds only, and the last registration for a name wins — with two
+/// monitors there are two weather widgets, and either one's dialog is as good
+/// as the other's for a screenshot.
+pub fn register_smoke_action(name: &str, action: impl Fn() + 'static) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    SMOKE_ACTIONS.with_borrow_mut(|actions| {
+        actions.retain(|(registered, _)| registered != name);
+        actions.push((name.to_string(), Rc::new(action)));
+    });
+}
+
+/// Run a registered smoke action, if `name` names one.
+fn smoke_action(name: &str) -> bool {
+    let action = SMOKE_ACTIONS.with_borrow(|actions| {
+        actions
+            .iter()
+            .find(|(registered, _)| registered == name)
+            .map(|(_, action)| Rc::clone(action))
+    });
+    match action {
+        Some(action) => {
+            action();
+            true
+        }
+        None => false,
+    }
+}
+
 /// Every popover whose widget is still alive.
 fn live_entries() -> Vec<Rc<Entry>> {
     REGISTRY.with_borrow(|registry| {
@@ -334,6 +378,11 @@ pub fn install_smoke_hook() {
     info!("{SMOKE_ENV}={value}: {toggles} toggle(s) of `{widget}`, from {SMOKE_DELAY:?}");
 
     gtk4::glib::timeout_add_local_once(SMOKE_DELAY, move || {
+        // Registered actions first: `weather-setup` is a dialog, not a
+        // popover, and there is nothing to toggle afterwards.
+        if smoke_action(&widget) {
+            return;
+        }
         if !dispatch(&PopoverAction::Show(widget.clone()), None) {
             warn!("{SMOKE_ENV}: `{widget}` has no popover");
             return;

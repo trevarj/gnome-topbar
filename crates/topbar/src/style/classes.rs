@@ -50,6 +50,75 @@ pub const WORKSPACES: &str = "workspaces";
 /// CSS name of the custom widget that draws the workspace indicators.
 pub const WORKSPACE_STRIP: &str = "workspace-strip";
 
+/// The weather widget.
+pub const WEATHER: &str = "weather";
+/// The condition icon in it.
+pub const WEATHER_ICON: &str = "weather-icon";
+
+/// The forecast component, in the control panel and in the popover.
+pub const FORECAST: &str = "forecast";
+/// Its header row: the title, the place, and the gear.
+pub const FORECAST_HEADER: &str = "forecast-header";
+/// The place the forecast is for.
+pub const FORECAST_LOCATION: &str = "forecast-location";
+/// The gear that opens the location dialog.
+pub const FORECAST_CONFIGURE: &str = "forecast-configure";
+/// The line of current conditions.
+pub const FORECAST_CURRENT: &str = "forecast-current";
+/// Its icon.
+pub const FORECAST_CURRENT_ICON: &str = "forecast-current-icon";
+/// The temperature, which is the biggest thing on the card.
+pub const FORECAST_CURRENT_TEMP: &str = "forecast-current-temp";
+/// The condition and the feels-like under it.
+pub const FORECAST_CURRENT_CONDITION: &str = "forecast-current-condition";
+/// The column of days.
+pub const FORECAST_DAYS: &str = "forecast-days";
+/// One day.
+pub const FORECAST_ROW: &str = "forecast-row";
+/// Its weekday.
+pub const FORECAST_DAY: &str = "forecast-day";
+/// Its condition icon.
+pub const FORECAST_ICON: &str = "forecast-icon";
+/// Its condition in words.
+pub const FORECAST_CONDITION: &str = "forecast-condition";
+/// Its high and low.
+pub const FORECAST_TEMPS: &str = "forecast-temps";
+/// Its chance of precipitation.
+pub const FORECAST_PRECIPITATION: &str = "forecast-precipitation";
+/// The dimmed row saying how old a stale reading is.
+pub const FORECAST_STALE: &str = "forecast-stale";
+/// The button that asks for a fresh one.
+pub const FORECAST_RETRY: &str = "forecast-retry";
+
+/// The location dialog's layer-shell window.
+pub const LOCATION_WINDOW: &str = "location-window";
+/// The dimmed surface behind it.
+pub const LOCATION_BACKDROP: &str = "location-backdrop";
+/// The dialog itself.
+pub const LOCATION_DIALOG: &str = "location-dialog";
+/// Its heading.
+pub const LOCATION_TITLE: &str = "location-title";
+/// The search entry.
+pub const LOCATION_SEARCH: &str = "location-search";
+/// The list of places the search found.
+pub const LOCATION_RESULTS: &str = "location-results";
+/// One of them.
+pub const LOCATION_RESULT: &str = "location-result";
+/// Set on the row the user picked.
+pub const LOCATION_RESULT_SELECTED: &str = "location-result-selected";
+/// The line explaining why nothing happened.
+pub const LOCATION_ERROR: &str = "location-error";
+/// The Advanced expander holding the coordinate entries.
+pub const LOCATION_ADVANCED: &str = "location-advanced";
+/// A coordinate entry.
+pub const LOCATION_COORDINATE: &str = "location-coordinate";
+/// The Cancel/Save row.
+pub const LOCATION_ACTIONS: &str = "location-actions";
+/// A dialog button.
+pub const DIALOG_BUTTON: &str = "dialog-button";
+/// The one that commits.
+pub const DIALOG_BUTTON_PRIMARY: &str = "dialog-button-primary";
+
 /// The keyboard-layout widget.
 pub const KEYBOARD_LAYOUT: &str = "keyboard-layout";
 /// The keyboard-layout widget's icon.
@@ -157,6 +226,11 @@ pub const DND_ROW: &str = "dnd-row";
 /// Its label.
 pub const DND_LABEL: &str = "dnd-label";
 /// Text standing in for content a later milestone fills in.
+///
+/// Unused between milestones — M6 took the last placeholder out of the control
+/// panel — but the rule and the constant stay, because every milestone that
+/// reserves a card needs them again.
+#[allow(dead_code)]
 pub const PLACEHOLDER: &str = "placeholder";
 
 /// The notifications column's header row.
@@ -244,6 +318,39 @@ pub const ALL: &[&str] = &[
     CLOCK_DND,
     WORKSPACES,
     WORKSPACE_STRIP,
+    WEATHER,
+    WEATHER_ICON,
+    FORECAST,
+    FORECAST_HEADER,
+    FORECAST_LOCATION,
+    FORECAST_CONFIGURE,
+    FORECAST_CURRENT,
+    FORECAST_CURRENT_ICON,
+    FORECAST_CURRENT_TEMP,
+    FORECAST_CURRENT_CONDITION,
+    FORECAST_DAYS,
+    FORECAST_ROW,
+    FORECAST_DAY,
+    FORECAST_ICON,
+    FORECAST_CONDITION,
+    FORECAST_TEMPS,
+    FORECAST_PRECIPITATION,
+    FORECAST_STALE,
+    FORECAST_RETRY,
+    LOCATION_WINDOW,
+    LOCATION_BACKDROP,
+    LOCATION_DIALOG,
+    LOCATION_TITLE,
+    LOCATION_SEARCH,
+    LOCATION_RESULTS,
+    LOCATION_RESULT,
+    LOCATION_RESULT_SELECTED,
+    LOCATION_ERROR,
+    LOCATION_ADVANCED,
+    LOCATION_COORDINATE,
+    LOCATION_ACTIONS,
+    DIALOG_BUTTON,
+    DIALOG_BUTTON_PRIMARY,
     KEYBOARD_LAYOUT,
     KEYBOARD_LAYOUT_ICON,
     POPOVER_WINDOW,
