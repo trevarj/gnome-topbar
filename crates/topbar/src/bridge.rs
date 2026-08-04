@@ -82,11 +82,13 @@ pub enum ActionScope {
         /// Widget that started the action, for the log line.
         widget: &'static str,
     },
-    /// Announce it inside the row that started it — Quick Settings (M9), where
-    /// a toast would be redundant with the control that just reverted.
-    #[allow(dead_code)]
+    /// Announce it inside the row that started it — a Quick Settings row,
+    /// where a toast would be redundant with the control that just reverted.
+    ///
+    /// `widget` names a slot registered by [`crate::surfaces::inline`]; see
+    /// its `names` module for the list.
     Inline {
-        /// Widget that started the action, for the log line.
+        /// The inline slot to write into, and the log line's subject.
         widget: &'static str,
     },
 }
@@ -168,12 +170,17 @@ pub fn notifications() -> Option<NotificationsHandle> {
 fn report(scope: ActionScope, error: &SvcError) {
     warn!("{}: {} ({error})", scope.widget(), error.user_message());
 
-    // Inline reporting lands in M9 with the Quick Settings rows that need it;
-    // until then the log line above is what an inline failure gets, because a
-    // toast would be redundant with the control the user is looking at.
-    let ActionScope::Toast { .. } = scope else {
+    // An inline failure belongs under the control that caused it. When the row
+    // has gone — the panel was closed and rebuilt while the call was in flight
+    // — it falls through to a banner rather than disappearing, because a
+    // failure the user cannot see is the defect this whole path exists to
+    // prevent.
+    if let ActionScope::Inline { widget } = scope
+        && crate::surfaces::inline::report(widget, error.user_message())
+    {
         return;
-    };
+    }
+
     let Some(handle) = notifications() else {
         return;
     };

@@ -398,6 +398,96 @@ pub const OSD_CAPTION: &str = "osd-caption";
 /// The numeric percentage, shown only when `[osd] show_value` is on.
 pub const OSD_VALUE: &str = "osd-value";
 
+/// The Quick Settings bar button.
+pub const QUICK_SETTINGS: &str = "quick-settings";
+/// The row of status icons inside it.
+pub const QS_INDICATOR: &str = "qs-indicator";
+/// One of those icons.
+pub const QS_ICON: &str = "qs-icon";
+/// Set on the battery icon when it is low and nothing is charging it.
+pub const QS_ICON_URGENT: &str = "qs-icon-urgent";
+/// The dot that says a microphone is live.
+pub const QS_PRIVACY_DOT: &str = "qs-privacy-dot";
+
+/// The Quick Settings panel's content.
+pub const QS_PANEL: &str = "qs-panel";
+/// The scroller inside it, which is what stops a tall panel overflowing.
+pub const QS_SCROLL: &str = "qs-scroll";
+/// The column of blocks inside the scroller.
+pub const QS_CONTENT: &str = "qs-content";
+/// One expandable section's slot, below the row that opens it.
+pub const QS_SECTION: &str = "qs-section";
+
+/// The header row: the battery pill, the lock button and the power button.
+pub const QS_HEADER: &str = "qs-header";
+/// The battery pill.
+pub const QS_BATTERY_PILL: &str = "qs-battery-pill";
+/// Its percentage.
+pub const QS_BATTERY_PERCENT: &str = "qs-battery-percent";
+/// A round icon button in the header.
+pub const QS_ROUND_BUTTON: &str = "qs-round-button";
+
+/// The block of sliders.
+pub const QS_SLIDERS: &str = "qs-sliders";
+/// One slider's row.
+pub const QS_SLIDER_ROW: &str = "qs-slider-row";
+/// The slider itself.
+pub const QS_SLIDER: &str = "qs-slider";
+/// The icon beside it, which is also the mute button where there is one.
+pub const QS_SLIDER_ICON: &str = "qs-slider-icon";
+/// The chevron that opens a device list.
+pub const QS_CHOOSER: &str = "qs-chooser";
+/// A list of output devices.
+pub const QS_DEVICE_LIST: &str = "qs-device-list";
+/// One device in it.
+pub const QS_DEVICE_ROW: &str = "qs-device-row";
+/// Its name.
+pub const QS_DEVICE_NAME: &str = "qs-device-name";
+/// The checkmark against the device in use.
+pub const QS_DEVICE_MARK: &str = "qs-device-mark";
+
+/// The grid of toggle pills.
+pub const QS_GRID: &str = "qs-grid";
+/// One row of two pills.
+pub const QS_GRID_ROW: &str = "qs-grid-row";
+/// One pill.
+pub const QS_TOGGLE: &str = "qs-toggle";
+/// Its icon.
+pub const QS_TOGGLE_ICON: &str = "qs-toggle-icon";
+/// Its label.
+pub const QS_TOGGLE_LABEL: &str = "qs-toggle-label";
+/// The dimmer line under it.
+pub const QS_TOGGLE_SUBTITLE: &str = "qs-toggle-subtitle";
+/// The chevron on an expandable pill.
+pub const QS_TOGGLE_EXPAND: &str = "qs-toggle-expand";
+/// One row of a radio list, e.g. a power profile.
+pub const QS_RADIO_ROW: &str = "qs-radio-row";
+/// Its mark.
+pub const QS_RADIO_MARK: &str = "qs-radio-mark";
+
+/// A card inside the panel, e.g. battery health.
+pub const QS_CARD: &str = "qs-card";
+/// Its heading.
+pub const QS_CARD_TITLE: &str = "qs-card-title";
+/// A line of detail in it.
+pub const QS_CARD_LINE: &str = "qs-card-line";
+/// The row of charge-limit buttons.
+pub const QS_LIMIT_ROW: &str = "qs-limit-row";
+/// One of them.
+pub const QS_LIMIT_BUTTON: &str = "qs-limit-button";
+/// A dimmed explanation under a control that cannot be used.
+pub const QS_HINT: &str = "qs-hint";
+
+/// One power action's row.
+pub const QS_POWER_ROW: &str = "qs-power-row";
+/// The accent fill that grows across it while it is held.
+pub const QS_POWER_FILL: &str = "qs-power-fill";
+/// Set on a row that is being held down.
+pub const CONFIRMING: &str = "confirming";
+
+/// A failure reported under the control that caused it.
+pub const INLINE_ERROR: &str = "inline-error";
+
 /// The shared tooltip's layer-shell window.
 pub const TOOLTIP_WINDOW: &str = "tooltip-window";
 /// The tooltip's painted surface.
@@ -590,6 +680,47 @@ pub const ALL: &[&str] = &[
     OSD_BAR,
     OSD_CAPTION,
     OSD_VALUE,
+    QUICK_SETTINGS,
+    QS_INDICATOR,
+    QS_ICON,
+    QS_ICON_URGENT,
+    QS_PRIVACY_DOT,
+    QS_PANEL,
+    QS_SCROLL,
+    QS_CONTENT,
+    QS_SECTION,
+    QS_HEADER,
+    QS_BATTERY_PILL,
+    QS_BATTERY_PERCENT,
+    QS_ROUND_BUTTON,
+    QS_SLIDERS,
+    QS_SLIDER_ROW,
+    QS_SLIDER,
+    QS_SLIDER_ICON,
+    QS_CHOOSER,
+    QS_DEVICE_LIST,
+    QS_DEVICE_ROW,
+    QS_DEVICE_NAME,
+    QS_DEVICE_MARK,
+    QS_GRID,
+    QS_GRID_ROW,
+    QS_TOGGLE,
+    QS_TOGGLE_ICON,
+    QS_TOGGLE_LABEL,
+    QS_TOGGLE_SUBTITLE,
+    QS_TOGGLE_EXPAND,
+    QS_RADIO_ROW,
+    QS_RADIO_MARK,
+    QS_CARD,
+    QS_CARD_TITLE,
+    QS_CARD_LINE,
+    QS_LIMIT_ROW,
+    QS_LIMIT_BUTTON,
+    QS_HINT,
+    QS_POWER_ROW,
+    QS_POWER_FILL,
+    CONFIRMING,
+    INLINE_ERROR,
     TOOLTIP_WINDOW,
     TOOLTIP_SURFACE,
     TOOLTIP_LABEL,

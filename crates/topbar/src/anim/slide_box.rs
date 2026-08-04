@@ -138,6 +138,14 @@ impl SlideBox {
         glib::Object::builder().build()
     }
 
+    /// How much of the child is in its slot.
+    ///
+    /// Read by an animation that is reversing, so a section closing part-way
+    /// through opening starts from where it got to rather than from the top.
+    pub fn reveal(&self) -> f64 {
+        self.imp().reveal.get()
+    }
+
     /// Set how much of the child is in its slot, clamped to `0.0..=1.0`.
     pub fn set_reveal(&self, reveal: f64) {
         let imp = self.imp();

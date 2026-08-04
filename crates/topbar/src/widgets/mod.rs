@@ -6,6 +6,7 @@ mod control_panel;
 mod crypto;
 mod keyboard_layout;
 pub mod notifications;
+mod quick_settings;
 mod rounded_picture;
 mod shell;
 mod tray;
@@ -68,6 +69,10 @@ pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<Mounte
         "tray" => {
             let tray = tray::TrayWidget::new(config, context);
             Some(MountedWidget::new(tray.root(), tray))
+        }
+        "quick_settings" => {
+            let quick_settings = quick_settings::QuickSettingsWidget::new(config, context);
+            Some(MountedWidget::new(quick_settings.root(), quick_settings))
         }
         "keyboard_layout" => {
             let layout = keyboard_layout::KeyboardLayoutWidget::new(

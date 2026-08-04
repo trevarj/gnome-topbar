@@ -1547,6 +1547,402 @@ osd-bar {
     color: var(--color-foreground);
     font-variant-numeric: tabular-nums;
 }
+
+/* ===== Quick Settings — the bar button ===== */
+
+.qs-indicator {
+    /* The gap between status icons is tighter than the gap between widgets:
+       they are one pill's worth of information, not a row of buttons. */
+    margin: 0;
+}
+
+.qs-indicator > * {
+    margin-right: 4px;
+}
+
+.qs-indicator > *:last-child {
+    margin-right: 0;
+}
+
+.qs-icon {
+    -gtk-icon-size: var(--icon-size);
+    color: var(--color-foreground);
+}
+
+/* A battery that is low and on nothing but itself. */
+.qs-icon-urgent {
+    color: var(--color-state-urgent);
+}
+
+/* The microphone-in-use dot. Not an icon: a dot is what GNOME draws, and it
+   has to read at a glance on a 36px bar. */
+.qs-privacy-dot {
+    background-color: var(--color-state-warning);
+    border-radius: 9999px;
+    min-width: 8px;
+    min-height: 8px;
+}
+
+/* ===== Quick Settings — the panel ===== */
+
+.qs-panel {
+    padding: 0;
+}
+
+.qs-scroll {
+    background: transparent;
+}
+
+.qs-content {
+    padding: 12px;
+}
+
+.qs-content > * {
+    margin-bottom: 8px;
+}
+
+.qs-content > *:last-child {
+    margin-bottom: 0;
+}
+
+/* An expandable section's slot. The clip is what lets its content be drawn
+   part-way out of it while the reveal runs — see anim/slide_box.rs. */
+.qs-section {
+    background: transparent;
+}
+
+/* --- Header --- */
+
+.qs-header {
+    min-height: 40px;
+}
+
+/* Every button in the panel is drawn from scratch.
+ *
+ * Adwaita gives `button` a `background-image` and a `box-shadow`, and a
+ * background *image* paints on top of a background *colour* — so a rule that
+ * sets only `background-color` leaves the theme's own grey on screen and
+ * changes nothing visible. It cost an afternoon: the charge-limit buttons
+ * carried the accent class, the class matched, and the pill stayed grey.
+ * Clearing both on the base rule of each button is what makes the colours
+ * below the ones that actually land, in every state. */
+.qs-battery-pill,
+.qs-round-button,
+.qs-slider-icon,
+.qs-chooser,
+.qs-device-row,
+.qs-toggle,
+.qs-toggle-expand,
+.qs-radio-row,
+.qs-limit-button {
+    background-image: none;
+    box-shadow: none;
+    text-shadow: none;
+    outline: none;
+}
+
+.qs-battery-pill {
+    background-color: var(--color-card);
+    border: none;
+    border-radius: 9999px;
+    padding: 6px 12px;
+    color: var(--color-foreground);
+}
+
+.qs-battery-pill:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-battery-pill.checked {
+    background-color: var(--color-widget-checked);
+}
+
+.qs-battery-percent {
+    font-variant-numeric: tabular-nums;
+    margin-left: 6px;
+}
+
+.qs-round-button {
+    background-color: var(--color-card);
+    border: none;
+    border-radius: 9999px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 4px;
+    color: var(--color-foreground);
+    -gtk-icon-size: var(--icon-size);
+}
+
+.qs-round-button:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-round-button:active,
+.qs-round-button.checked {
+    background-color: var(--color-widget-checked);
+}
+
+/* --- Sliders --- */
+
+/* The block sits a little away from the header above it: the sliders are a
+   different kind of control and reading them as one group matters. */
+.qs-sliders {
+    margin-top: 4px;
+}
+
+.qs-slider-row {
+    min-height: 36px;
+}
+
+.qs-slider-icon {
+    background: transparent;
+    border: none;
+    border-radius: 9999px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 4px;
+    color: var(--color-foreground);
+    -gtk-icon-size: var(--icon-size);
+}
+
+.qs-slider-icon:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-slider-icon:disabled {
+    color: var(--color-foreground-disabled);
+}
+
+.qs-slider trough {
+    background-color: var(--color-card);
+    border-radius: 9999px;
+    min-height: 6px;
+}
+
+.qs-slider highlight {
+    background-color: var(--color-accent);
+    border-radius: 9999px;
+    min-height: 6px;
+}
+
+.qs-slider slider {
+    background-color: var(--color-foreground);
+    border-radius: 9999px;
+    min-width: 16px;
+    min-height: 16px;
+    margin: -6px;
+}
+
+.qs-slider:disabled highlight {
+    background-color: var(--color-foreground-disabled);
+}
+
+.qs-chooser {
+    background: transparent;
+    border: none;
+    border-radius: 9999px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 2px;
+    color: var(--color-foreground-muted);
+    -gtk-icon-size: var(--icon-size);
+}
+
+.qs-chooser:hover {
+    background-color: var(--color-widget-hover);
+    color: var(--color-foreground);
+}
+
+.qs-device-list {
+    padding: 4px 0 4px 40px;
+}
+
+.qs-device-row {
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-card);
+    padding: 8px 10px;
+    color: var(--color-foreground);
+}
+
+.qs-device-row:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-device-name {
+    color: inherit;
+}
+
+.qs-device-mark {
+    color: var(--color-accent);
+    -gtk-icon-size: var(--icon-size);
+}
+
+/* --- Toggle grid --- */
+
+.qs-grid {
+    margin-top: 4px;
+}
+
+.qs-grid-row {
+    min-height: 48px;
+}
+
+.qs-toggle {
+    background-color: var(--color-card);
+    border: none;
+    border-radius: 24px;
+    min-height: 48px;
+    padding: 4px 12px;
+    color: var(--color-foreground);
+}
+
+.qs-toggle:hover {
+    background-color: var(--color-widget-hover);
+}
+
+/* Checked is the accent fill, which is how every GNOME quick-settings toggle
+   says it is on — the icon does not change. */
+.qs-toggle.checked {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+}
+
+.qs-toggle:disabled {
+    color: var(--color-foreground-disabled);
+}
+
+.qs-toggle-icon {
+    -gtk-icon-size: var(--icon-size);
+    color: inherit;
+    margin-right: 8px;
+}
+
+.qs-toggle-label {
+    color: inherit;
+    font-weight: 700;
+}
+
+.qs-toggle-subtitle {
+    color: inherit;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.qs-toggle-expand {
+    background: transparent;
+    border: none;
+    border-radius: 9999px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    color: inherit;
+    -gtk-icon-size: var(--icon-size);
+}
+
+.qs-toggle-expand:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-radio-row {
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-card);
+    padding: 8px 12px;
+    color: var(--color-foreground);
+}
+
+.qs-radio-row:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-radio-mark {
+    color: var(--color-accent);
+    -gtk-icon-size: var(--icon-size);
+}
+
+/* --- Cards --- */
+
+.qs-card {
+    background-color: var(--color-card);
+    border-radius: var(--radius-card);
+    padding: 12px;
+}
+
+.qs-card-title {
+    color: var(--color-foreground);
+    font-weight: 700;
+}
+
+.qs-card-line {
+    color: var(--color-foreground-muted);
+}
+
+.qs-limit-row {
+    margin-top: 4px;
+}
+
+.qs-limit-button {
+    background-color: var(--color-widget-hover);
+    border: none;
+    border-radius: 9999px;
+    padding: 6px 14px;
+    color: var(--color-foreground);
+}
+
+.qs-limit-button:hover {
+    background-color: var(--color-widget-checked);
+}
+
+.qs-limit-button.checked {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+}
+
+.qs-limit-button:disabled {
+    background-color: var(--color-card);
+    color: var(--color-foreground-disabled);
+}
+
+.qs-hint {
+    color: var(--color-foreground-disabled);
+    font-size: 12px;
+}
+
+/* --- Power section --- */
+
+.qs-power-row {
+    background-color: var(--color-card);
+    border-radius: var(--radius-card);
+    min-height: 44px;
+    padding: 0;
+    color: var(--color-foreground);
+}
+
+.qs-power-row:hover {
+    background-color: var(--color-widget-hover);
+}
+
+/* The fill's width is set from Rust, a frame at a time; CSS only says what
+   colour it is and that it is clipped to the row's corners. */
+.qs-power-fill {
+    background-color: var(--color-accent);
+    border-radius: var(--radius-card);
+}
+
+/* With motion off there is no fill to watch, so the row itself carries the
+   confirming state for the same 650ms. */
+.qs-power-row.confirming {
+    background-color: var(--color-state-warning-fill);
+}
+
+/* --- Inline failures --- */
+
+.inline-error {
+    color: var(--color-state-urgent);
+    font-size: 12px;
+    margin-top: 2px;
+}
 "#;
 
 thread_local! {
