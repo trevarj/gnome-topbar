@@ -47,7 +47,8 @@ impl MountedWidget {
 pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<MountedWidget> {
     match name {
         "clock" => {
-            let clock = clock::ClockWidget::new(&config.widgets.clock, context);
+            let clock =
+                clock::ClockWidget::new(&config.widgets.clock, &config.widgets.weather, context);
             Some(MountedWidget::new(clock.root(), clock))
         }
         "workspaces" => {

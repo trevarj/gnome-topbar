@@ -13,7 +13,7 @@ use std::time::Duration;
 use chrono::{DateTime, Local, Timelike};
 use gtk4::prelude::*;
 use gtk4::{Image, Label, glib};
-use topbar_core::config::ClockConfig;
+use topbar_core::config::{ClockConfig, WeatherConfig};
 use tracing::warn;
 
 use crate::bar::BarContext;
@@ -57,7 +57,11 @@ pub struct ClockWidget {
 
 impl ClockWidget {
     /// Build a clock from `[widgets.clock]`.
-    pub fn new(config: &ClockConfig, context: &BarContext) -> Self {
+    ///
+    /// `weather` comes along because the control panel's last card is the
+    /// forecast, and the date menu shows it whether or not the weather widget
+    /// is in the bar.
+    pub fn new(config: &ClockConfig, weather: &WeatherConfig, context: &BarContext) -> Self {
         let shell = WidgetShell::new(classes::CLOCK);
 
         let label = Label::new(None);
@@ -97,10 +101,11 @@ impl ClockWidget {
         let popover = config.control_panel.then(|| {
             shell.make_interactive();
             let settings = config.clone();
+            let weather = weather.clone();
             let services = context.services.clone();
             let clock = Rc::downgrade(&inner);
             popovers::attach(context, WIDGET_NAME, shell.root(), move || {
-                let panel = ControlPanel::new(&settings, &services);
+                let panel = ControlPanel::new(&settings, &weather, &services);
                 if let Some(clock) = clock.upgrade() {
                     let listener: Rc<dyn MinuteListener> = Rc::clone(&panel) as _;
                     clock.listeners.borrow_mut().push(Rc::downgrade(&listener));

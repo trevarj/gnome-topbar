@@ -20,13 +20,14 @@ use std::rc::Rc;
 use chrono::{DateTime, Local, Utc};
 use gtk4::prelude::*;
 use gtk4::{Align, Label, Orientation};
-use topbar_core::config::ClockConfig;
+use topbar_core::config::{ClockConfig, WeatherConfig};
 use topbar_services::Services;
 
 use crate::style::classes;
 use crate::surfaces::popovers::PopoverContent;
 use crate::widgets::clock::MinuteListener;
 use crate::widgets::control_panel::calendar::Calendar;
+use crate::widgets::weather::forecast::Forecast;
 
 /// Width of the notifications column, in pixels.
 const LEFT_WIDTH: i32 = 380;
@@ -36,9 +37,6 @@ const RIGHT_WIDTH: i32 = 360;
 const COLUMN_GAP: i32 = 12;
 /// Vertical gap between the cards in a column.
 const CARD_GAP: i32 = 10;
-/// Height reserved for the forecast M6 will draw, so the column is already
-/// its final size.
-const FORECAST_HEIGHT: i32 = 110;
 
 /// Format of the large local time.
 const TIME_FORMAT: &str = "%H:%M";
@@ -53,12 +51,17 @@ pub struct ControlPanel {
     clocks: Vec<world_clock::Row>,
     media: Rc<media::Card>,
     calendar: Rc<Calendar>,
+    forecast: Rc<Forecast>,
     notifications: Rc<notifications::Column>,
 }
 
 impl ControlPanel {
     /// Build the panel from `[widgets.clock]`.
-    pub fn new(config: &ClockConfig, services: &Services) -> Rc<Self> {
+    ///
+    /// `weather` is `[widgets.weather]`, which the forecast card needs even
+    /// though the weather widget itself may not be in the bar at all: GNOME's
+    /// date menu shows the forecast either way.
+    pub fn new(config: &ClockConfig, weather: &WeatherConfig, services: &Services) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Horizontal, COLUMN_GAP);
         root.add_css_class(classes::CONTROL_PANEL);
         root.set_size_request(LEFT_WIDTH + 2 * COLUMN_GAP + 1 + RIGHT_WIDTH, -1);
@@ -100,10 +103,16 @@ impl ControlPanel {
         // outright while no player is on the bus.
         let media = media::Card::new(services);
 
+        // The same component the weather widget's popover mounts, reading the
+        // same cache. There is no second fetch and no second cache — which is
+        // the whole point of the shape M6 gave the service.
+        let forecast = Forecast::new(weather, services);
+        forecast.root().add_css_class(classes::CARD);
+
         right.append(&time_card(&time, &date, &clocks));
         right.append(media.root());
         right.append(calendar.root());
-        right.append(&forecast_card());
+        right.append(forecast.root());
 
         root.append(left);
         root.append(&divider);
@@ -116,6 +125,7 @@ impl ControlPanel {
             clocks,
             media,
             calendar,
+            forecast,
             notifications,
         })
     }
@@ -146,6 +156,9 @@ impl PopoverContent for ControlPanel {
         self.calendar.reset(now.date_naive());
         self.notifications.refresh();
         self.media.refresh();
+        // "Updated 2h ago" is only true for an hour, and nothing is published
+        // while the panel is closed for it to be corrected by.
+        self.forecast.refresh();
     }
 
     fn closed(&self) {
@@ -181,29 +194,6 @@ fn time_card(time: &Label, date: &Label, clocks: &[world_clock::Row]) -> gtk4::B
         zones.append(clock.root());
     }
     card.append(&zones);
-    card
-}
-
-/// The forecast card M6 fills in.
-///
-/// It is here now, at its final size, so adding the forecast later does not
-/// move the calendar above it.
-fn forecast_card() -> gtk4::Box {
-    let card = gtk4::Box::new(Orientation::Vertical, 6);
-    card.add_css_class(classes::CARD);
-
-    let title = Label::new(Some("Weather"));
-    title.add_css_class(classes::CARD_TITLE);
-    title.set_xalign(0.0);
-
-    let body = Label::new(Some("No forecast yet"));
-    body.add_css_class(classes::PLACEHOLDER);
-    body.set_xalign(0.0);
-    body.set_valign(Align::Start);
-    body.set_size_request(-1, FORECAST_HEIGHT);
-
-    card.append(&title);
-    card.append(&body);
     card
 }
 
