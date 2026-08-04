@@ -78,7 +78,11 @@ const BRIGHTNESS_FALLBACK: &str = "display-brightness-symbolic";
 const INHIBIT_ON: &str = "my-caffeine-on-symbolic";
 const INHIBIT_OFF: &str = "my-caffeine-off-symbolic";
 /// What the caffeine icons fall back to on a theme that has no `my-caffeine-*`.
-const INHIBIT_ON_FALLBACK: &str = "preferences-desktop-screensaver-symbolic";
+///
+/// A sun and a moon: awake, and allowed to sleep. Adwaita has no coffee cup,
+/// and `preferences-desktop-screensaver-symbolic` — the obvious-looking choice
+/// — is a picture of the very thing being *suppressed*, which reads backwards.
+const INHIBIT_ON_FALLBACK: &str = "weather-clear-symbolic";
 const INHIBIT_OFF_FALLBACK: &str = "weather-clear-night-symbolic";
 
 /// Where a capsule sits.

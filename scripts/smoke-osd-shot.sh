@@ -91,10 +91,13 @@ case "$scenario" in
     ;;
 
   inhibit)
-    # (e) the icon-only capsule. There is no logind on the run's private bus,
-    # so the command is expected to fail, and its message is the evidence.
+    # (e) the icon-only capsule: no bar at all, just the state the toggle
+    # landed on. logind is on the *system* bus, which no sandbox here can box,
+    # so this takes a real inhibitor for the second or two the session lasts
+    # and the kernel drops it when the panel is killed.
     say inhibit-toggle inhibit toggle
-    grim "$art/after-inhibit.png"
+    shot capsule-inhibit topbar-osd
+    say inhibit-again inhibit toggle
     ;;
 
   popover)
