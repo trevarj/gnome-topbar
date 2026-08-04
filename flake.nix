@@ -23,17 +23,19 @@
       lib = pkgs.lib;
       craneLib = crane.mkLib pkgs;
 
-      # crane's filter keeps Rust and TOML sources only. Two other things are
-      # compiled in with include_str! and have to survive it: the example
-      # config, which is the binary's --print-example-config output, and the
-      # recorded protocol fixtures the parser tests are built on.
+      # crane's filter keeps Rust and TOML sources only. Three other things are
+      # compiled in with include_str!/include_bytes! and have to survive it: the
+      # example config, which is the binary's --print-example-config output, the
+      # recorded protocol fixtures the parser tests are built on, and the crypto
+      # widget's logos.
       src = lib.cleanSourceWith {
         src = ./.;
         filter =
           path: type:
           (craneLib.filterCargoSources path type)
           || (builtins.baseNameOf path == "config.toml")
-          || (lib.hasInfix "/tests/fixtures/" path);
+          || (lib.hasInfix "/tests/fixtures/" path)
+          || (lib.hasInfix "/assets/crypto/" path);
       };
 
       commonArgs = {
