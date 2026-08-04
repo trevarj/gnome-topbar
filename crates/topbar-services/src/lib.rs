@@ -9,6 +9,7 @@
 
 #![warn(missing_docs)]
 
+pub mod connectivity;
 pub mod error;
 pub mod media;
 pub mod niri;
@@ -26,6 +27,7 @@ mod private_bus;
 /// accidentally do async work on the main thread.
 pub use tokio::sync::watch;
 
+pub use connectivity::{Connectivity, ConnectivityState};
 pub use error::SvcError;
 pub use media::{ArtRef, Media, MediaHandle, MediaState, PlaybackStatus, PlayerView};
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
