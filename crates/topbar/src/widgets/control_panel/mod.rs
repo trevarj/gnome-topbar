@@ -11,6 +11,7 @@
 //! that opened it.
 
 mod calendar;
+mod media;
 mod notifications;
 mod world_clock;
 
@@ -50,6 +51,7 @@ pub struct ControlPanel {
     time: Label,
     date: Label,
     clocks: Vec<world_clock::Row>,
+    media: Rc<media::Card>,
     calendar: Rc<Calendar>,
     notifications: Rc<notifications::Column>,
 }
@@ -93,7 +95,13 @@ impl ControlPanel {
         let calendar = Calendar::new(Local::now().date_naive(), config.show_week_numbers);
         calendar.root().add_css_class(classes::CARD);
 
+        // Media sits between the time and the calendar, where GNOME puts it,
+        // and is the one card in the column that comes and goes: it is hidden
+        // outright while no player is on the bus.
+        let media = media::Card::new(services);
+
         right.append(&time_card(&time, &date, &clocks));
+        right.append(media.root());
         right.append(calendar.root());
         right.append(&forecast_card());
 
@@ -106,6 +114,7 @@ impl ControlPanel {
             time,
             date,
             clocks,
+            media,
             calendar,
             notifications,
         })
@@ -136,6 +145,13 @@ impl PopoverContent for ControlPanel {
         // may have been built on the other side of midnight.
         self.calendar.reset(now.date_naive());
         self.notifications.refresh();
+        self.media.refresh();
+    }
+
+    fn closed(&self) {
+        // Nothing is looking at the playback position any more, so nothing
+        // should be asking a player for it.
+        self.media.closed();
     }
 }
 

@@ -115,6 +115,37 @@ pub const CALENDAR_SELECTED: &str = "calendar-selected";
 /// A cell belonging to the month either side of the one on screen.
 pub const CALENDAR_OUTSIDE: &str = "calendar-outside";
 
+/// The media card in the control panel's right column.
+pub const MEDIA_CARD: &str = "media-card";
+/// The album art.
+pub const MEDIA_ART: &str = "media-art";
+/// What is drawn behind it while a player has no cover.
+pub const MEDIA_ART_PLACEHOLDER: &str = "media-art-placeholder";
+/// The track title.
+pub const MEDIA_TITLE: &str = "media-title";
+/// The artist under it.
+pub const MEDIA_ARTIST: &str = "media-artist";
+/// The row of transport buttons.
+pub const MEDIA_CONTROLS: &str = "media-controls";
+/// One transport button.
+pub const MEDIA_CONTROL: &str = "media-control";
+/// The play/pause button, which is the one of the three the eye goes to.
+pub const MEDIA_CONTROL_PRIMARY: &str = "media-control-primary";
+/// The seek bar.
+pub const MEDIA_SEEK: &str = "media-seek";
+/// The row of timestamps under it.
+pub const MEDIA_TIME: &str = "media-time";
+/// One of those timestamps.
+pub const MEDIA_TIME_LABEL: &str = "media-time-label";
+/// The row of players to switch between.
+pub const MEDIA_SWITCHER: &str = "media-switcher";
+/// One player's button in it.
+pub const MEDIA_SWITCHER_BUTTON: &str = "media-switcher-button";
+/// Set on the button of the player the card is showing.
+pub const MEDIA_SWITCHER_ACTIVE: &str = "media-switcher-active";
+/// The initial standing in for a player with no icon.
+pub const MEDIA_SWITCHER_INITIAL: &str = "media-switcher-initial";
+
 /// A column with nothing in it, drawn as a designed state rather than a gap.
 pub const EMPTY_STATE: &str = "empty-state";
 /// The large dimmed icon in an empty state.
@@ -244,6 +275,21 @@ pub const ALL: &[&str] = &[
     CALENDAR_TODAY,
     CALENDAR_SELECTED,
     CALENDAR_OUTSIDE,
+    MEDIA_CARD,
+    MEDIA_ART,
+    MEDIA_ART_PLACEHOLDER,
+    MEDIA_TITLE,
+    MEDIA_ARTIST,
+    MEDIA_CONTROLS,
+    MEDIA_CONTROL,
+    MEDIA_CONTROL_PRIMARY,
+    MEDIA_SEEK,
+    MEDIA_TIME,
+    MEDIA_TIME_LABEL,
+    MEDIA_SWITCHER,
+    MEDIA_SWITCHER_BUTTON,
+    MEDIA_SWITCHER_ACTIVE,
+    MEDIA_SWITCHER_INITIAL,
     EMPTY_STATE,
     EMPTY_STATE_ICON,
     EMPTY_STATE_LABEL,

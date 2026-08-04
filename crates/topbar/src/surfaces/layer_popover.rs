@@ -229,6 +229,10 @@ pub struct Anchored {
     pub anchor: gtk4::Widget,
     /// Re-render from current state. Runs on every open.
     pub refresh: Rc<dyn Fn()>,
+    /// The content has left the screen. Runs when it is unparented, which is
+    /// either the end of the close animation or another popover taking its
+    /// place.
+    pub closed: Rc<dyn Fn()>,
 }
 
 /// One monitor's popover host.
@@ -487,8 +491,12 @@ impl LayerPopover {
     /// for its own lifetime and hands the same tree back on the next open.
     fn detach(&self) {
         self.shell.remove_child();
-        if let Some(open) = self.open.borrow_mut().take() {
+        let open = self.open.borrow_mut().take();
+        if let Some(open) = open {
             open.anchor.remove_css_class(classes::CHECKED);
+            // Told after it is unparented, and outside the borrow: content is
+            // free to do whatever it likes here, including opening something.
+            (open.closed)();
             debug!("popover for `{}` released", open.name);
         }
     }

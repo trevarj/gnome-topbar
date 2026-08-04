@@ -48,6 +48,14 @@ pub trait PopoverContent {
     /// Called every time the popover opens. Retained content would otherwise
     /// show whatever was true when it was last on screen.
     fn refresh(&self);
+
+    /// The popover has left the screen.
+    ///
+    /// The mirror of [`PopoverContent::refresh`], for content that costs
+    /// something to keep up to date — the media card polls a player for its
+    /// position, and there is no sense in doing that for a card nobody can
+    /// see. Most content has nothing to do here.
+    fn closed(&self) {}
 }
 
 /// A widget's popover: its builder, its retained content, and its host.
@@ -79,11 +87,13 @@ impl Entry {
     fn anchored(&self) -> Anchored {
         let content = self.content();
         let root = content.root();
+        let closing = Rc::clone(&content);
         Anchored {
             name: self.name.clone(),
             content: root,
             anchor: self.anchor.clone(),
             refresh: Rc::new(move || content.refresh()),
+            closed: Rc::new(move || closing.closed()),
         }
     }
 

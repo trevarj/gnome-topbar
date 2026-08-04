@@ -1,9 +1,11 @@
 //! Panel widgets and the shell they all share.
 
+mod app_icon;
 mod clock;
 mod control_panel;
 mod keyboard_layout;
 pub mod notifications;
+mod rounded_picture;
 mod shell;
 mod workspaces;
 

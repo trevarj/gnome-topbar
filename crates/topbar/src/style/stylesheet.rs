@@ -574,6 +574,137 @@ button.calendar-day.calendar-today {
     font-weight: 700;
 }
 
+/* ===== Media ===== */
+
+/* The card is hidden outright when no player is on the bus, so it needs no
+   empty state of its own — the column simply closes up. */
+.media-card {
+    padding: 12px;
+}
+
+/* The art is drawn by rounded-picture, which clips it in snapshot(); the
+   placeholder behind it carries the same radius so the corner never changes
+   shape as a cover arrives. */
+.media-art-placeholder {
+    background-color: var(--color-card);
+    border-radius: 12px;
+    color: var(--color-foreground-disabled);
+    -gtk-icon-size: 28px;
+}
+
+.media-title {
+    font-weight: 700;
+}
+
+.media-artist {
+    color: var(--color-foreground-muted);
+}
+
+.media-controls {
+    margin-top: 4px;
+}
+
+button.media-control {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground);
+    -gtk-icon-size: 16px;
+}
+
+button.media-control:hover {
+    background-color: var(--color-widget-hover);
+}
+
+button.media-control:active {
+    background-color: var(--color-widget-pressed);
+}
+
+button.media-control-primary {
+    -gtk-icon-size: 20px;
+}
+
+/* A control the player cannot honour is dimmed rather than hidden: the row
+   must not change shape as tracks come and go. */
+button.media-control:disabled {
+    background: none;
+    opacity: 0.3;
+}
+
+/* A thin GNOME-style slider: the filled part is the accent colour, and the
+   thumb is only as big as it has to be to grab. */
+scale.media-seek {
+    min-height: 16px;
+    padding: 0;
+    margin: 0;
+}
+
+scale.media-seek trough {
+    min-height: 4px;
+    background-color: var(--color-card);
+    border-radius: 9999px;
+}
+
+scale.media-seek highlight {
+    min-height: 4px;
+    background-color: var(--color-accent);
+    border-radius: 9999px;
+}
+
+scale.media-seek slider {
+    min-width: 12px;
+    min-height: 12px;
+    margin: -5px;
+    background-color: var(--color-foreground);
+    border: none;
+    border-radius: 9999px;
+    box-shadow: none;
+}
+
+.media-time {
+    margin-top: 2px;
+}
+
+.media-time-label {
+    font-size: 0.85em;
+    color: var(--color-foreground-muted);
+    font-feature-settings: "tnum";
+}
+
+.media-switcher {
+    margin-top: 2px;
+}
+
+/* Every button carries the ring's border, transparent until it is the active
+   one, so switching players cannot change the size of the row. */
+button.media-switcher-button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 2px;
+    background: none;
+    border: 2px solid transparent;
+    box-shadow: none;
+    border-radius: 9999px;
+}
+
+button.media-switcher-button:hover {
+    background-color: var(--color-widget-hover);
+}
+
+button.media-switcher-active {
+    border-color: var(--color-accent);
+}
+
+.media-switcher-initial {
+    font-size: 0.85em;
+    font-weight: 700;
+    color: var(--color-foreground-muted);
+}
+
 /* ===== Notification history ===== */
 
 .notification-list {

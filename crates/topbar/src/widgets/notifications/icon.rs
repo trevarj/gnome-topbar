@@ -10,7 +10,7 @@
 //! the only part that needs an icon theme and a GDK texture.
 
 use gtk4::prelude::*;
-use gtk4::{Image, gdk, gio, glib};
+use gtk4::{Image, gdk, glib};
 use topbar_services::{IconSource, ImageData};
 
 /// What a notification with nothing identifiable about it gets.
@@ -81,54 +81,13 @@ pub fn image(source: &IconSource, size: i32) -> Image {
             .unwrap_or_else(|| Image::from_icon_name(FALLBACK)),
         Choice::File(path) => Image::from_file(path),
         Choice::Name(name) => Image::from_icon_name(&name),
-        Choice::Entry(entry) => entry_icon(&entry)
+        Choice::Entry(entry) => crate::widgets::app_icon::lookup(&entry)
             .map(|icon| Image::from_gicon(&icon))
             .unwrap_or_else(|| Image::from_icon_name(FALLBACK)),
         Choice::None => Image::from_icon_name(FALLBACK),
     };
     image.set_pixel_size(size);
     image
-}
-
-thread_local! {
-    /// Desktop entries already looked up, including the ones that came to
-    /// nothing.
-    ///
-    /// The lookup is a scan of every installed application, and a chat client
-    /// sending fifty messages must not pay for fifty of them. The set of
-    /// distinct senders on one desktop is small, so the cache is too.
-    static ENTRY_ICONS: std::cell::RefCell<std::collections::HashMap<String, Option<gio::Icon>>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
-}
-
-/// The icon an application's desktop entry declares.
-fn entry_icon(entry: &str) -> Option<gio::Icon> {
-    ENTRY_ICONS.with_borrow_mut(|cache| {
-        cache
-            .entry(entry.to_string())
-            .or_insert_with(|| look_up_entry(entry))
-            .clone()
-    })
-}
-
-/// Find `entry` among the installed applications.
-///
-/// The hint is documented as the entry's name without the `.desktop` suffix
-/// but plenty of senders include it, and a few get the case wrong, so the
-/// comparison forgives both.
-fn look_up_entry(entry: &str) -> Option<gio::Icon> {
-    let wanted = entry.strip_suffix(".desktop").unwrap_or(entry);
-    gio::AppInfo::all()
-        .into_iter()
-        .find(|info| {
-            info.id().is_some_and(|id| {
-                let id = id.as_str();
-                id.strip_suffix(".desktop")
-                    .unwrap_or(id)
-                    .eq_ignore_ascii_case(wanted)
-            })
-        })
-        .and_then(|info| info.icon())
 }
 
 /// Turn raw notification pixels into a texture.
