@@ -38,6 +38,15 @@ impl PlaybackStatus {
     pub fn is_playing(self) -> bool {
         matches!(self, Self::Playing)
     }
+
+    /// The MPRIS spelling, for `topbar media status`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Playing => "Playing",
+            Self::Paused => "Paused",
+            Self::Stopped => "Stopped",
+        }
+    }
 }
 
 /// Album art that has been fetched and is ready to draw.

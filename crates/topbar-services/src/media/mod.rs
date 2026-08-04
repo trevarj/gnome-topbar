@@ -23,6 +23,8 @@ mod proxy;
 mod relevance;
 mod task;
 
+pub mod cli;
+
 #[cfg(any(test, feature = "fake-player"))]
 pub mod fake;
 

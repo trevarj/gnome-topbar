@@ -17,6 +17,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Application, gdk, gio, glib};
 use topbar_core::Config;
+use topbar_core::ipc::VisibilityAction;
 use topbar_services::Services;
 use tracing::{debug, info, warn};
 
@@ -42,6 +43,15 @@ impl SharedConfig {
     /// The configuration as of right now.
     pub fn current(&self) -> Rc<Config> {
         Rc::clone(&self.0.borrow())
+    }
+
+    /// Install a freshly loaded configuration.
+    ///
+    /// Everything read at rebuild time picks the new values up; widgets built
+    /// against the old ones keep them until they are rebuilt, which is M12's
+    /// job. See `control::reload`.
+    pub fn replace(&self, config: Config) {
+        *self.0.borrow_mut() = Rc::new(config);
     }
 }
 
@@ -134,6 +144,33 @@ impl BarManager {
                 manager.schedule_sync();
             }
         });
+    }
+
+    /// Show, hide, or flip every bar, returning whether they are now visible.
+    ///
+    /// All monitors together: `topbar bar toggle` is bound to a key, and a key
+    /// that hid the bar on one screen and not the others would be a bug rather
+    /// than a feature. A new monitor arriving while the bars are hidden builds
+    /// its bar visible, which is [`Self::sync`]'s doing and is the safer of the
+    /// two mistakes — a bar nobody can find is worse than one nobody asked for.
+    pub fn set_bars_visible(&self, action: VisibilityAction) -> bool {
+        let bars = self.bars.borrow();
+        let visible = match action {
+            VisibilityAction::Show => true,
+            VisibilityAction::Hide => false,
+            // Any bar still up means "hide"; the answer is the same on every
+            // monitor afterwards either way.
+            VisibilityAction::Toggle => !bars.values().any(BarWindow::is_visible),
+        };
+        for bar in bars.values() {
+            bar.set_visible(visible);
+        }
+        info!(
+            "{} bar(s) {}",
+            bars.len(),
+            if visible { "shown" } else { "hidden" }
+        );
+        visible
     }
 
     /// Queue a sync, replacing any sync already queued.

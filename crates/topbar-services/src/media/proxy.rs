@@ -50,6 +50,12 @@ pub(crate) trait Player {
     /// Skip to the previous track.
     fn previous(&self) -> zbus::Result<()>;
 
+    /// Stop playback and rewind.
+    ///
+    /// Only `topbar media stop` uses it: the media card has no stop button,
+    /// GNOME's does not either, and a key bound to it should still work.
+    fn stop(&self) -> zbus::Result<()>;
+
     /// Jump to `position` (microseconds) within `track_id`.
     ///
     /// The track id guards against a seek landing in the track that started

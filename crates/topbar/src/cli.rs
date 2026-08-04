@@ -80,9 +80,17 @@ pub enum Command {
     Reload,
     /// Dump panel state or built-in defaults
     Dump {
-        /// What to dump
+        /// What to dump (everything, when omitted)
         #[command(subcommand)]
-        action: DumpAction,
+        action: Option<DumpAction>,
+
+        /// Print JSON rather than the human-readable form
+        ///
+        /// Global so it may be written either side of the target: `dump --json
+        /// state` and `dump state --json` are the same command, and a user
+        /// should not have to remember which.
+        #[arg(long, global = true)]
+        json: bool,
     },
 }
 

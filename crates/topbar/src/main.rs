@@ -11,6 +11,8 @@ mod app;
 mod bar;
 mod bridge;
 mod cli;
+mod commands;
+mod control;
 mod fonts;
 mod ipc_client;
 mod style;
@@ -22,12 +24,12 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use topbar_core::config::{Config, ConfigLoad, EXAMPLE_CONFIG_TOML, Warning};
-use topbar_core::ipc::{self, IpcRequest, IpcResponse};
 use topbar_core::logging;
 use topbar_services::Services;
+use topbar_services::ipc::{InstanceLock, LockError};
 use tracing::{info, warn};
 
-use crate::cli::{Cli, Command, DumpAction, PopoverAction, VisibilityAction};
+use crate::cli::Cli;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -41,7 +43,7 @@ fn main() -> ExitCode {
     }
 
     if let Some(command) = cli.command {
-        return run_command(command);
+        return commands::run(command, cli.config.as_deref());
     }
 
     let load = match Config::find_and_load(cli.config.as_deref()) {
@@ -79,10 +81,30 @@ fn main() -> ExitCode {
 
     describe(&load);
 
+    // Before anything else claims anything: a second panel must not take the
+    // notification name, put a second bar on every monitor and fight the first
+    // one for the IPC socket before discovering it is the second panel. The
+    // lock lives until `main` returns, and the kernel releases it however this
+    // process ends.
+    let _instance = match InstanceLock::acquire() {
+        Ok(lock) => Some(lock),
+        Err(LockError::Busy) => {
+            eprintln!("{}", topbar_services::ipc::ALREADY_RUNNING);
+            return ExitCode::FAILURE;
+        }
+        // Neither a missing `$XDG_RUNTIME_DIR` nor an unwritable one is worth
+        // refusing to start over: the panel simply runs without the guard, and
+        // says so, exactly as it does when it cannot bind the socket.
+        Err(error) => {
+            warn!("running without a single-instance lock: {error}");
+            None
+        }
+    };
+
     // Services start before GTK: their runtime owns its own threads, and no
     // widget should ever be built against a service that does not exist yet.
     let services = Services::start(&load.config);
-    app::run(load.config, services)
+    app::run(load.config, cli.config, services)
 }
 
 /// `--check-config` output: one status line, then every warning on stderr.
@@ -113,122 +135,6 @@ fn describe(load: &ConfigLoad) {
         widgets.center.len(),
         widgets.right.len()
     );
-}
-
-/// Dispatch a subcommand to the running panel.
-///
-/// Everything routes through the IPC socket in M0. The direct PulseAudio and
-/// logind paths that make `volume`/`brightness` work without a running panel
-/// land with M8.
-fn run_command(command: Command) -> ExitCode {
-    let request = match command {
-        Command::Brightness { action } => {
-            return unimplemented_locally("brightness", action_name_brightness(&action));
-        }
-        Command::Volume { action } => {
-            return unimplemented_locally("volume", action_name_volume(&action));
-        }
-        Command::Inhibit { .. } => IpcRequest::ToggleInhibitor,
-        Command::Media { action } => IpcRequest::Media {
-            action: media_action(&action),
-        },
-        Command::Bar { action } => IpcRequest::Bar {
-            action: visibility(&action),
-        },
-        Command::Popover { action } => IpcRequest::Popover {
-            action: popover(action),
-        },
-        Command::Reload => IpcRequest::Reload,
-        Command::Dump { action } => IpcRequest::Dump {
-            target: match action {
-                DumpAction::DefaultConfig => {
-                    print!("{EXAMPLE_CONFIG_TOML}");
-                    return ExitCode::SUCCESS;
-                }
-                DumpAction::Config => ipc::DumpTarget::Config,
-                DumpAction::State => ipc::DumpTarget::State,
-            },
-        },
-    };
-
-    match ipc_client::request(&request) {
-        Ok(IpcResponse::Ok) => ExitCode::SUCCESS,
-        Ok(IpcResponse::Value { text }) => {
-            println!("{text}");
-            ExitCode::SUCCESS
-        }
-        Ok(IpcResponse::Error { message }) => {
-            eprintln!("Error: {message}");
-            ExitCode::FAILURE
-        }
-        Ok(IpcResponse::Hello { .. }) => {
-            eprintln!("Error: panel replied with an unexpected handshake");
-            ExitCode::FAILURE
-        }
-        Err(err) => {
-            eprintln!("Error: {} ({err})", ipc_client::UNREACHABLE);
-            ExitCode::FAILURE
-        }
-    }
-}
-
-/// Subcommands whose local (panel-free) path is not wired up yet.
-///
-/// They still try the socket first so the message matches the eventual
-/// behaviour, then explain what is missing.
-fn unimplemented_locally(group: &str, action: &str) -> ExitCode {
-    match ipc_client::probe() {
-        Ok(()) => eprintln!("Error: `{group} {action}` is not implemented yet (milestone M8)"),
-        Err(_) => eprintln!("Error: {}", ipc_client::UNREACHABLE),
-    }
-    ExitCode::FAILURE
-}
-
-fn action_name_brightness(action: &cli::BrightnessAction) -> &'static str {
-    match action {
-        cli::BrightnessAction::Get => "get",
-        cli::BrightnessAction::Set { .. } => "set",
-        cli::BrightnessAction::Inc { .. } => "inc",
-        cli::BrightnessAction::Dec { .. } => "dec",
-    }
-}
-
-fn action_name_volume(action: &cli::VolumeAction) -> &'static str {
-    match action {
-        cli::VolumeAction::Get => "get",
-        cli::VolumeAction::Set { .. } => "set",
-        cli::VolumeAction::Inc { .. } => "inc",
-        cli::VolumeAction::Dec { .. } => "dec",
-        cli::VolumeAction::Mute => "mute",
-        cli::VolumeAction::Unmute => "unmute",
-        cli::VolumeAction::ToggleMute => "toggle-mute",
-    }
-}
-
-fn media_action(action: &cli::MediaAction) -> ipc::MediaAction {
-    match action {
-        cli::MediaAction::PlayPause => ipc::MediaAction::PlayPause,
-        cli::MediaAction::Next => ipc::MediaAction::Next,
-        cli::MediaAction::Previous => ipc::MediaAction::Previous,
-        cli::MediaAction::Stop => ipc::MediaAction::Stop,
-        cli::MediaAction::Status => ipc::MediaAction::Status,
-    }
-}
-
-fn visibility(action: &VisibilityAction) -> ipc::VisibilityAction {
-    match action {
-        VisibilityAction::Show => ipc::VisibilityAction::Show,
-        VisibilityAction::Hide => ipc::VisibilityAction::Hide,
-        VisibilityAction::Toggle => ipc::VisibilityAction::Toggle,
-    }
-}
-
-fn popover(action: PopoverAction) -> ipc::PopoverAction {
-    match action {
-        PopoverAction::Show { widget } => ipc::PopoverAction::Show(widget),
-        PopoverAction::Hide { widget } => ipc::PopoverAction::Hide(widget),
-        PopoverAction::Toggle { widget } => ipc::PopoverAction::Toggle(widget),
-    }
 }
 
 #[cfg(test)]
@@ -264,14 +170,68 @@ mod tests {
     #[test]
     fn v1_subcommands_still_parse() {
         for args in [
+            vec!["topbar", "volume", "get"],
+            vec!["topbar", "volume", "set", "30"],
             vec!["topbar", "volume", "inc", "5"],
+            vec!["topbar", "volume", "dec"],
+            vec!["topbar", "volume", "mute"],
+            vec!["topbar", "volume", "unmute"],
+            vec!["topbar", "volume", "toggle-mute"],
+            vec!["topbar", "brightness", "get"],
             vec!["topbar", "brightness", "set", "40"],
+            vec!["topbar", "brightness", "inc"],
+            vec!["topbar", "brightness", "dec", "10"],
             vec!["topbar", "inhibit", "toggle"],
             vec!["topbar", "media", "play-pause"],
+            vec!["topbar", "media", "next"],
+            vec!["topbar", "media", "previous"],
+            vec!["topbar", "media", "stop"],
+            vec!["topbar", "media", "status"],
+            vec!["topbar", "bar", "show"],
+            vec!["topbar", "bar", "hide"],
             vec!["topbar", "bar", "toggle"],
+            vec!["topbar", "popover", "show", "clock"],
+            vec!["topbar", "popover", "hide"],
             vec!["topbar", "popover", "toggle", "clock"],
             vec!["topbar", "reload"],
             vec!["topbar", "dump", "default-config"],
+        ] {
+            Cli::try_parse_from(&args).unwrap_or_else(|err| panic!("{args:?}: {err}"));
+        }
+    }
+
+    #[test]
+    fn dump_takes_a_target_or_none_at_all() {
+        use crate::cli::{Command, DumpAction};
+
+        let all = Cli::try_parse_from(["topbar", "dump"]).expect("a bare dump is valid");
+        assert!(matches!(
+            all.command,
+            Some(Command::Dump {
+                action: None,
+                json: false
+            })
+        ));
+
+        let json = Cli::try_parse_from(["topbar", "dump", "state", "--json"])
+            .expect("a target plus --json is valid");
+        assert!(matches!(
+            json.command,
+            Some(Command::Dump {
+                action: Some(DumpAction::State),
+                json: true
+            })
+        ));
+    }
+
+    #[test]
+    fn an_omitted_step_still_parses() {
+        // `topbar volume inc` with no amount is what a media key is bound to.
+        for args in [
+            vec!["topbar", "volume", "inc"],
+            vec!["topbar", "volume", "dec"],
+            vec!["topbar", "brightness", "inc"],
+            vec!["topbar", "brightness", "dec"],
         ] {
             Cli::try_parse_from(&args).unwrap_or_else(|err| panic!("{args:?}: {err}"));
         }

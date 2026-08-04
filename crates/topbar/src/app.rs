@@ -1,6 +1,7 @@
 //! Application start-up: GTK, the stylesheet, and the bars.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
 
@@ -13,6 +14,7 @@ use tracing::{error, info};
 use crate::anim;
 use crate::bar::{BarManager, SharedConfig};
 use crate::bridge;
+use crate::control;
 use crate::style;
 use crate::surfaces;
 
@@ -23,7 +25,7 @@ const APP_ID: &str = "io.github.trevarj.topbar";
 ///
 /// `services` is started before GTK so no widget can ever be built against a
 /// service that does not exist yet.
-pub fn run(config: Config, services: Services) -> ExitCode {
+pub fn run(config: Config, config_path: Option<PathBuf>, services: Services) -> ExitCode {
     force_wayland_backend();
     anim::set_animations_enabled(config.theme.animations);
 
@@ -42,7 +44,7 @@ pub fn run(config: Config, services: Services) -> ExitCode {
         if manager.borrow().is_some() {
             return;
         }
-        if let Some(started) = start(app, &config, &services) {
+        if let Some(started) = start(app, &config, &services, config_path.clone()) {
             *manager.borrow_mut() = Some(started);
         } else {
             app.quit();
@@ -59,7 +61,12 @@ pub fn run(config: Config, services: Services) -> ExitCode {
 }
 
 /// Build the stylesheet and the bars. `None` means the panel cannot run here.
-fn start(app: &Application, config: &SharedConfig, services: &Services) -> Option<Rc<BarManager>> {
+fn start(
+    app: &Application,
+    config: &SharedConfig,
+    services: &Services,
+    config_path: Option<PathBuf>,
+) -> Option<Rc<BarManager>> {
     let Some(display) = gdk::Display::default() else {
         error!("no display; is a Wayland compositor running?");
         return None;
@@ -88,6 +95,14 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
     let manager = BarManager::new(app, &display, config.clone(), services.clone());
     manager.sync();
     manager.watch_monitors();
+    // After the bars exist: a `topbar popover show` arriving on the first
+    // frame should find something to open.
+    control::install(control::Panel::new(
+        services,
+        &manager,
+        config.clone(),
+        config_path,
+    ));
     surfaces::popovers::install_smoke_hook();
     info!(
         "topbar is running (motion {})",
