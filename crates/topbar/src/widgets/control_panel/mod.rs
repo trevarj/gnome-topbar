@@ -20,6 +20,7 @@ use chrono::{DateTime, Local, Utc};
 use gtk4::prelude::*;
 use gtk4::{Align, Label, Orientation};
 use topbar_core::config::ClockConfig;
+use topbar_services::Services;
 
 use crate::style::classes;
 use crate::surfaces::popovers::PopoverContent;
@@ -50,17 +51,17 @@ pub struct ControlPanel {
     date: Label,
     clocks: Vec<world_clock::Row>,
     calendar: Rc<Calendar>,
-    notifications: notifications::Column,
+    notifications: Rc<notifications::Column>,
 }
 
 impl ControlPanel {
     /// Build the panel from `[widgets.clock]`.
-    pub fn new(config: &ClockConfig) -> Rc<Self> {
+    pub fn new(config: &ClockConfig, services: &Services) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Horizontal, COLUMN_GAP);
         root.add_css_class(classes::CONTROL_PANEL);
         root.set_size_request(LEFT_WIDTH + 2 * COLUMN_GAP + 1 + RIGHT_WIDTH, -1);
 
-        let notifications = notifications::Column::new();
+        let notifications = notifications::Column::new(services);
         let left = notifications.root();
         left.set_size_request(LEFT_WIDTH, -1);
         left.set_hexpand(false);
@@ -141,6 +142,9 @@ impl PopoverContent for ControlPanel {
 impl MinuteListener for ControlPanel {
     fn on_minute(&self, now: DateTime<Local>) {
         self.render(now);
+        // "5m ago" is only true for a minute, and the history is the one place
+        // in the panel where that shows.
+        self.notifications.retime(now);
     }
 }
 

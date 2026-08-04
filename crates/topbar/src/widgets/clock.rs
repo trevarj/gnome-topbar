@@ -12,11 +12,12 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local, Timelike};
 use gtk4::prelude::*;
-use gtk4::{Label, glib};
+use gtk4::{Image, Label, glib};
 use topbar_core::config::ClockConfig;
 use tracing::warn;
 
 use crate::bar::BarContext;
+use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::popovers::{self, PopoverContent, PopoverHandle};
 use crate::surfaces::tooltip::TooltipHandle;
@@ -29,6 +30,8 @@ const WIDGET_NAME: &str = "clock";
 const TOOLTIP_FORMAT: &str = "%A, %B %-d, %Y";
 /// Fallback when the configured format string cannot be rendered.
 const FALLBACK_FORMAT: &str = "%a %b %-d  %H:%M";
+/// Shown beside the time while Do Not Disturb is on.
+const DND_ICON: &str = "notifications-disabled-symbolic";
 
 /// Something that re-renders when the clock crosses a minute boundary.
 ///
@@ -48,6 +51,8 @@ pub struct ClockWidget {
     _inner: Rc<ClockInner>,
     /// The control panel's claim on the popover host, when it has one.
     _popover: Option<PopoverHandle>,
+    /// Keeps the Do Not Disturb indicator subscribed.
+    _dnd: BindingGuard,
 }
 
 impl ClockWidget {
@@ -57,6 +62,24 @@ impl ClockWidget {
 
         let label = Label::new(None);
         shell.content().append(&label);
+
+        // GNOME puts the Do Not Disturb state on the date menu's own button,
+        // which is where a user looks when the desktop has gone quiet and they
+        // want to know whether that is on purpose.
+        let dnd = Image::from_icon_name(DND_ICON);
+        dnd.add_css_class(classes::CLOCK_DND);
+        dnd.set_visible(false);
+        shell.content().append(&dnd);
+
+        let dnd_binding = bridge::bind_state(
+            &dnd,
+            context.services.notifications.state(),
+            |dnd: &Image, state| {
+                if dnd.is_visible() != state.dnd {
+                    dnd.set_visible(state.dnd);
+                }
+            },
+        );
 
         let inner = Rc::new(ClockInner {
             label,
@@ -74,9 +97,10 @@ impl ClockWidget {
         let popover = config.control_panel.then(|| {
             shell.make_interactive();
             let settings = config.clone();
+            let services = context.services.clone();
             let clock = Rc::downgrade(&inner);
             popovers::attach(context, WIDGET_NAME, shell.root(), move || {
-                let panel = ControlPanel::new(&settings);
+                let panel = ControlPanel::new(&settings, &services);
                 if let Some(clock) = clock.upgrade() {
                     let listener: Rc<dyn MinuteListener> = Rc::clone(&panel) as _;
                     clock.listeners.borrow_mut().push(Rc::downgrade(&listener));
@@ -89,6 +113,7 @@ impl ClockWidget {
             shell,
             _inner: inner,
             _popover: popover,
+            _dnd: dnd_binding,
         }
     }
 
