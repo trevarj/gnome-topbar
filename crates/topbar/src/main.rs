@@ -12,6 +12,7 @@ mod ipc_client;
 mod panel;
 mod style;
 mod surfaces;
+mod widgets;
 
 use std::process::ExitCode;
 

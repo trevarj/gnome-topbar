@@ -1,0 +1,161 @@
+//! The shared widget shell.
+//!
+//! Every panel widget is built the same way, so hover, press, tooltips, and
+//! the pill shape are implemented once here:
+//!
+//! ```text
+//! .widget-wrapper          reserves the widget height, carries .clickable
+//! └── .widget              the painted, rounded surface (clips to the pill)
+//!     └── overlay
+//!         ├── .widget-fill hover/press fill, opacity animated from Rust
+//!         └── .content     the widget's own icons and labels
+//! ```
+//!
+//! The fill is the overlay's *child* and the content an overlay on top of it,
+//! so the translucent white never tints the text — it only lifts the surface
+//! behind it.
+
+use gtk4::prelude::*;
+use gtk4::{Align, BaselinePosition, Orientation, Overlay};
+
+use crate::anim::{Animation, AnimationParams, Easing};
+use crate::style::classes;
+use crate::surfaces::tooltip::{self, TooltipHandle};
+
+/// Hover fade-in duration, in milliseconds.
+const FADE_IN_MS: u64 = 120;
+/// Hover fade-out duration, in milliseconds. Slower out than in, GNOME style.
+const FADE_OUT_MS: u64 = 200;
+
+/// The common structure behind every panel widget.
+pub struct WidgetShell {
+    wrapper: gtk4::Box,
+    content: gtk4::Box,
+    fill: gtk4::Box,
+    fade: Animation,
+}
+
+impl WidgetShell {
+    /// Build a shell for the widget called `name`.
+    ///
+    /// The name becomes a CSS class on the painted surface, with underscores
+    /// turned into hyphens (`quick_settings` → `.quick-settings`).
+    pub fn new(name: &str) -> Self {
+        let wrapper = gtk4::Box::new(Orientation::Horizontal, 0);
+        wrapper.add_css_class(classes::WIDGET_WRAPPER);
+        wrapper.set_hexpand(false);
+
+        let surface = gtk4::Box::new(Orientation::Horizontal, 0);
+        surface.add_css_class(classes::WIDGET);
+        surface.add_css_class(&name.replace('_', "-"));
+        // Clip the fill and, later, the ripple to the rounded shape.
+        surface.set_overflow(gtk4::Overflow::Hidden);
+        surface.set_hexpand(true);
+        surface.set_vexpand(true);
+
+        let fill = gtk4::Box::new(Orientation::Horizontal, 0);
+        fill.add_css_class(classes::WIDGET_FILL);
+        fill.set_opacity(0.0);
+
+        let content = gtk4::Box::new(Orientation::Horizontal, 0);
+        content.add_css_class(classes::CONTENT);
+        content.set_vexpand(true);
+        content.set_valign(Align::Fill);
+        // Baseline alignment shifts labels when icon and text fonts are mixed.
+        content.set_baseline_position(BaselinePosition::Center);
+
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&fill));
+        overlay.add_overlay(&content);
+        overlay.set_measure_overlay(&content, true);
+
+        surface.append(&overlay);
+        wrapper.append(&surface);
+
+        let fade = Animation::new(&fill);
+        Self {
+            wrapper,
+            content,
+            fill,
+            fade,
+        }
+    }
+
+    /// The widget to append to a bar section.
+    pub fn root(&self) -> &gtk4::Box {
+        &self.wrapper
+    }
+
+    /// The box a widget puts its own children in.
+    pub fn content(&self) -> &gtk4::Box {
+        &self.content
+    }
+
+    /// Turn the widget into a panel button: pointer cursor and hover states.
+    ///
+    /// Passive widgets skip this and stay visually inert, which is what the
+    /// `.widget-wrapper:not(.clickable)` rule enforces in CSS.
+    pub fn make_interactive(&self) {
+        self.wrapper.add_css_class(classes::CLICKABLE);
+        self.wrapper.set_cursor_from_name(Some("pointer"));
+
+        let motion = gtk4::EventControllerMotion::new();
+        motion.connect_enter({
+            let fill = self.fill.clone();
+            let fade = self.fade.clone();
+            move |_, _, _| fade_to(&fill, &fade, 1.0, FADE_IN_MS)
+        });
+        motion.connect_leave({
+            let fill = self.fill.clone();
+            let fade = self.fade.clone();
+            move |_| fade_to(&fill, &fade, 0.0, FADE_OUT_MS)
+        });
+        self.wrapper.add_controller(motion);
+
+        // Press feedback is a color swap, not a fade: it has to read as
+        // immediate. The ripple that goes with it arrives in M11.
+        let click = gtk4::GestureClick::new();
+        click.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        click.connect_pressed({
+            let fill = self.fill.clone();
+            move |_, _, _, _| fill.add_css_class(classes::PRESSED)
+        });
+        click.connect_released({
+            let fill = self.fill.clone();
+            move |_, _, _, _| fill.remove_css_class(classes::PRESSED)
+        });
+        click.connect_cancel({
+            let fill = self.fill.clone();
+            move |_, _| fill.remove_css_class(classes::PRESSED)
+        });
+        self.wrapper.add_controller(click);
+    }
+
+    /// Give the widget a tooltip, returning a handle that can update its text.
+    pub fn set_tooltip(&self, text: &str) -> TooltipHandle {
+        tooltip::attach(&self.wrapper, text)
+    }
+}
+
+/// Animate the fill toward `target` opacity.
+///
+/// The duration is scaled by how far there is to travel, so reversing a fade
+/// mid-flight takes as long as the distance left rather than restarting the
+/// full run.
+fn fade_to(fill: &gtk4::Box, fade: &Animation, target: f64, full_ms: u64) {
+    let start = fill.opacity();
+    let distance = (target - start).abs();
+    if distance <= f64::EPSILON {
+        fade.cancel();
+        fill.set_opacity(target);
+        return;
+    }
+
+    let duration = (full_ms as f64 * distance).round() as u64;
+    let fill = fill.clone();
+    fade.start(
+        AnimationParams::new(duration).with_easing(Easing::EaseOutCubic),
+        Box::new(move |progress| fill.set_opacity(start + (target - start) * progress)),
+        None,
+    );
+}
