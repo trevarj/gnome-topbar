@@ -24,6 +24,7 @@ pub mod niri;
 pub mod notifications;
 pub mod power;
 pub mod power_profiles;
+pub mod proc;
 pub mod refresh;
 pub mod runtime;
 pub mod state_store;
