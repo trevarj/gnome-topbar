@@ -1,0 +1,22 @@
+[package]
+name = "gnome-topbar"
+description = "GNOME Shell-inspired GTK4 top bar for niri"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "gnome-topbar"
+path = "src/main.rs"
+
+[dependencies]
+topbar-core = { workspace = true }
+topbar-services = { workspace = true }
+clap = { workspace = true }
+gtk4 = { workspace = true }
+gtk4-layer-shell = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

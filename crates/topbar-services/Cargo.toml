@@ -1,0 +1,15 @@
+[package]
+name = "topbar-services"
+description = "Async system services (D-Bus, niri, audio) for gnome-topbar; never depends on GTK"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+topbar-core = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+zbus = { workspace = true }

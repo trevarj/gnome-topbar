@@ -1,0 +1,170 @@
+# =============================================================================
+# gnome-topbar configuration
+# =============================================================================
+#
+# This file is the built-in default, compiled into the binary. Your own config
+# lives at ~/.config/gnome-topbar/config.toml and only needs the keys you want
+# to change — every unset key falls back to the value shown here.
+#
+#   gnome-topbar --check-config          Validate configuration and exit
+#   gnome-topbar --print-example-config  Print this file
+#
+# =============================================================================
+
+[bar]
+# v2 draws a GNOME Shell-style top panel. "top" is the only supported position.
+position = "top"
+size = 36            # Bar height in pixels
+spacing = 2          # Gap between widgets
+screen_margin = 0    # Gap between the screen edge and the bar window
+inset = 4            # Gap between the bar edge and the first/last section
+padding = 0          # Extra vertical padding inside the bar
+border_radius = 0    # Bar corner radius in pixels
+popover_offset = 1   # Gap between the bar and popovers anchored to it
+background_color = "#000000"
+background_opacity = 1.0
+
+[widgets]
+# Placement. Available widgets: workspaces, clock, weather, crypto, tray,
+# system_monitor, headset, keyboard_layout, quick_settings, os_logo, and any
+# number of custom-<name> script widgets.
+left = ["workspaces"]
+center = ["clock"]
+right = ["tray", "quick_settings"]
+
+border_radius = 50       # Widget corner radius, as a percentage of height
+background_opacity = 0.0 # Panel buttons are transparent until hovered
+# background_color = "#1a1a1a"       # Override the widget surface color
+# popover_background_opacity = 0.76  # Defaults to the bar's opacity
+
+# Every widget also accepts on_click, on_click_right, and on_click_middle:
+# shell commands run instead of (or alongside) the widget's own click action.
+
+[widgets.workspaces]
+label_type = "none"     # "none" (dots), "index", or "name"
+filter_by_output = true # Show only this monitor's workspaces
+show_unoccupied = false # Hide workspaces with no windows
+# animate = true        # Defaults to theme.animations
+
+[widgets.clock]
+format = "%a %b %-d  %H:%M"
+control_panel = false   # Open the notifications/calendar panel on click
+show_week_numbers = true
+# world_clocks = [
+#   { label = "New York", timezone = "America/New_York" },
+#   { label = "UTC", timezone = "Etc/UTC" },
+# ]
+
+# [widgets.weather]
+# latitude = 52.52       # Omit to set the location from the widget's popover
+# longitude = 13.405
+# unit = "celsius"       # "celsius" or "fahrenheit"
+# interval = 1800        # Seconds between refreshes (minimum 60)
+# tooltip = "Weather"
+# max_chars = 24
+# forecast_days = 5      # Control-panel forecast rows, 3 to 5
+
+# [widgets.crypto]
+# entries = ["btc", "eth", "eth/btc"]  # Assets: btc, eth, xmr; pairs like eth/btc
+# interval = 1800                      # Seconds between refreshes (minimum 60)
+# tooltip = "Crypto prices"
+# max_chars = 40
+
+# [widgets.tray]
+# max_icons = 12         # Icons shown before the overflow chevron
+# pixmap_icon_size = 18  # Render size for non-themed icons
+
+# [widgets.system_monitor]
+# Alert-only: invisible while healthy, fades in once a threshold is crossed.
+# cpu_threshold = 90
+# memory_threshold = 85
+# disk_threshold = 90
+# interval = 5
+# tooltip = "System load"
+
+# [widgets.headset]
+# interval = 5
+# tooltip = "Headset battery"
+# max_chars = 12
+# command = "headsetcontrol"
+
+# [widgets.keyboard_layout]
+# show_icon = true
+# show_label = true
+# format = "short"       # "short" (US) or "long" (English (US))
+
+# [widgets.quick_settings]
+# Card toggles — set any to false to hide that row.
+# network = true
+# bluetooth = true
+# vpn = true
+# idle_inhibitor = true
+# updates = true
+# audio = true
+# mic = true
+# brightness = true
+# power = true
+# battery = true                # Battery pill in the panel indicator
+# battery_health = true
+# resource_overview = true
+# vpn_close_on_connect = true
+# audio_scroll_percentage = 5   # Volume change per scroll tick, 1 to 25
+
+# [widgets.os_logo]
+# tooltip = "NixOS"
+# label = ""
+# max_chars = 4
+
+# Script-backed indicators use the custom- prefix and are placed by full name:
+#   left = ["workspaces", "custom-vpn"]
+#
+# [widgets.custom-vpn]
+# exec = "~/bin/vpn-status"   # First stdout line, or Waybar-style JSON
+# interval = 60               # Seconds between runs; 0 runs once at startup
+# template = "VPN {output}"   # Must contain {output}
+# icon = "network-vpn-symbolic"
+# label = "off"               # Fallback text before the first run
+# tooltip = "VPN status"
+# max_chars = 20
+# requires_network = false    # Wait for a live connection before running exec
+# on_click = "nm-connection-editor"
+
+[theme]
+# v2 ships a single dark palette; "dark" is the only supported mode.
+mode = "dark"
+accent = "#3584e4" # A hex color, or "none" for monochrome
+animations = true  # Master switch for transitions and animations
+ripple = true      # Material-style ripple on press
+blur = false       # Ask the compositor to blur behind panel surfaces
+
+[theme.icons]
+theme = "Adwaita" # GTK icon theme name
+weight = 400      # Symbolic icon stroke weight hint
+
+[theme.states]
+success = "#4a7a4a"
+warning = "#e5c07b"
+urgent = "#ff6b6b"
+
+[theme.typography]
+font_family = "Adwaita Sans, Cantarell, Noto Sans, sans-serif"
+
+[osd]
+enabled = true
+position = "bottom" # "bottom", "top", "left", or "right"
+show_value = false  # Draw the numeric value next to the bar
+timeout_ms = 1500
+
+[audio]
+# Allow volume above 100%, capped at PulseAudio's recommended UI maximum.
+allow_overdrive = false
+
+[updates]
+# With no command set, the pending-updates card auto-detects the distro's
+# package manager (guix, nix/NixOS, debian, arch, fedora, fedora silverblue).
+check_interval = 3600 # Seconds between checks (minimum 60)
+# update_count_command = "guix upgrade --dry-run"
+
+[advanced]
+compositor = "auto"          # "auto" or "niri"
+pango_font_rendering = false # Apply Pango font attributes instead of GTK CSS
