@@ -185,23 +185,28 @@ impl Publishers {
     }
 
     /// Keep the last state on screen but mark it as no longer live.
+    ///
+    /// The two `let` bindings are load-bearing. Passing `borrow()` straight
+    /// into `send_if_changed` keeps the read guard alive across the call —
+    /// which then asks the same lock for write, and the task deadlocks on
+    /// itself the first time the compositor goes away, so the panel never dims
+    /// and never reconnects. Binding first drops the guard at the semicolon.
     fn publish_disconnected(&self) {
-        send_if_changed(
-            &self.workspaces,
-            self.workspaces
-                .borrow()
-                .as_ref()
-                .clone()
-                .with_connected(false),
-        );
-        send_if_changed(
-            &self.keyboard_layout,
-            self.keyboard_layout
-                .borrow()
-                .as_ref()
-                .clone()
-                .with_connected(false),
-        );
+        let workspaces = self
+            .workspaces
+            .borrow()
+            .as_ref()
+            .clone()
+            .with_connected(false);
+        send_if_changed(&self.workspaces, workspaces);
+
+        let layouts = self
+            .keyboard_layout
+            .borrow()
+            .as_ref()
+            .clone()
+            .with_connected(false);
+        send_if_changed(&self.keyboard_layout, layouts);
     }
 }
 

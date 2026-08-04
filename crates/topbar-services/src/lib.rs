@@ -13,6 +13,13 @@ pub mod error;
 pub mod niri;
 pub mod runtime;
 
+/// The channel type every service publishes its state through.
+///
+/// Re-exported so the GTK crate can name a subscription without depending on
+/// tokio itself — the less of the async stack it can see, the harder it is to
+/// accidentally do async work on the main thread.
+pub use tokio::sync::watch;
+
 pub use error::SvcError;
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
 pub use runtime::{Runtime, Services};
