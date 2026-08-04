@@ -1,16 +1,16 @@
 #!/usr/bin/env sh
 # One screenshot of whatever the weather run put on screen, plus the state
 # file the panel wrote. Driven by scripts/smoke-weather.sh; not useful alone.
+#
+# $SMOKE_EXPECT names the layer surface this scenario is about, so the capture
+# waits until that surface has actually been drawn rather than for a number of
+# seconds — see scripts/smoke-shot.sh for why the distinction has teeth.
 set -eu
 
 art="$SMOKE_ARTIFACTS"
+. "$(dirname "$0")/smoke-shot.sh"
 
-# niri runs inside a winit window here, and a window nobody is looking at is
-# throttled: grim hands back the last frame that was *presented*, which can be
-# seconds behind the last frame that was drawn. Waiting is the whole fix. The
-# weather also has to arrive, which is one HTTP round trip to loopback.
-sleep 4
-grim "$art/weather.png"
+shot weather "${SMOKE_EXPECT:-}"
 
 # The location the dialog saves lives in the sandboxed state file, and a
 # second panel start reading it is what makes "saved" mean something.

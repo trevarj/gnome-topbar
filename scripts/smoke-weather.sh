@@ -25,7 +25,7 @@ port="${TOPBAR_SMOKE_STUB_PORT:-18080}"
 mkdir -p "$artifact_root"
 artifact_root=$(cd "$artifact_root" && pwd)
 
-for tool in python3 niri grim cargo timeout dbus-run-session; do
+for tool in python3 magick curl niri grim cargo timeout dbus-run-session; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
     exit 1
@@ -56,14 +56,38 @@ stop_stub() {
 }
 trap stop_stub EXIT INT TERM
 
+# Start the stub answering with `$1`, and refuse to go on unless it is really
+# the one answering.
+#
+# A stub left over from an earlier run holds the port, the new one dies with
+# EADDRINUSE, and every scenario is then quietly served by the *old* one — an
+# entire matrix of screenshots showing the wrong thing while claiming to show
+# the right one. Asking the port what status it gives back is the only way to
+# know which process is behind it.
 start_stub() {
+  want=$1
   stop_stub
-  python3 "$repo/scripts/weather-stub.py" --port "$port" --status "$1" \
-    >"$artifact_root/stub.log" 2>&1 &
+  python3 "$repo/scripts/weather-stub.py" --port "$port" --status "$want" \
+    >"$artifact_root/stub-$want.log" 2>&1 &
   stub_pid=$!
-  # The panel asks for the forecast within a second of starting, so the
-  # listener has to be up before the session is.
-  sleep 1
+
+  waited=0
+  while [ "$waited" -lt 10 ]; do
+    got=$(curl -s -o /dev/null -w '%{http_code}' \
+      "http://127.0.0.1:$port/forecast?probe=1" 2>/dev/null || echo 000)
+    if [ "$got" = "$want" ]; then
+      echo "smoke-weather: stub answering $want on port $port"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  echo "smoke-weather: nothing on port $port answers $want (got '$got')." >&2
+  echo "smoke-weather: a stray stub is probably holding it — check" >&2
+  echo "  pgrep -af weather-stub.py" >&2
+  cat "$artifact_root/stub-$want.log" >&2 2>/dev/null || true
+  exit 1
 }
 
 export TOPBAR_WEATHER_API="http://127.0.0.1:$port/forecast"
@@ -85,12 +109,22 @@ cat >"$saved_state" <<'JSON'
 JSON
 
 # One nested session: run <name> <config> [open] [query] [state]
+#
+# What `open` asks for decides what the capture has to wait to be *drawn*, not
+# merely mapped: a popover for a widget name, the dialog for `weather-setup`,
+# and nothing at all for a run that is about the bar by itself.
 run() {
   name=$1
   config=$2
   open=${3:-}
   query=${4:-}
   state=${5:-}
+
+  case "$open" in
+    "") export SMOKE_EXPECT="" ;;
+    *-setup) export SMOKE_EXPECT="topbar-dialog" ;;
+    *) export SMOKE_EXPECT="topbar-popover" ;;
+  esac
 
   if [ -n "$state" ]; then
     export TOPBAR_SMOKE_STATE="$state"
@@ -112,7 +146,7 @@ run() {
     unset TOPBAR_SMOKE_QUERY
   fi
 
-  TOPBAR_SMOKE_TIMEOUT="${TOPBAR_SMOKE_TIMEOUT:-40}" \
+  TOPBAR_SMOKE_TIMEOUT="${TOPBAR_SMOKE_TIMEOUT:-70}" \
   TOPBAR_SMOKE_DRIVER="$repo/scripts/smoke-weather-shot.sh" \
   TOPBAR_VISUAL_CONFIG="$config" \
     "$repo/scripts/visual-smoke-niri.sh" "$artifact_root/$name" >"$artifact_root/$name.log" 2>&1 ||

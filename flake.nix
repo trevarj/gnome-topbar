@@ -148,6 +148,13 @@
           # inside `dbus-run-session`: the panel under test must never be
           # pointed at the session bus the developer is logged into.
           libnotify
+          # The visual smoke run's own tooling: `magick` tells a screenshot
+          # that actually caught a popover from one the nested compositor had
+          # not presented yet, and python3 serves the recorded API fixtures the
+          # weather run is pointed at. Both were being borrowed from whatever
+          # happened to be on the developer's PATH.
+          imagemagick
+          python3
         ];
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         shellHook = pre-commit.shellHook;
