@@ -165,11 +165,39 @@ pub const DROPPED_CUSTOM_KEYS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Dropped boolean toggles whose value can still agree with v2's fixed
+/// behavior. Setting `theme.outline = false` asks for what v2 already does, so
+/// there is nothing to tell the user; `theme.outline = true` asks for something
+/// v2 cannot deliver and does warn.
+const DROPPED_NOOP_TOGGLES: &[(&str, bool)] = &[
+    ("bar.outline", false),
+    ("widgets.outline", false),
+    ("theme.outline", false),
+    ("theme.shadows", true),
+];
+
 fn lookup(table: &[(&'static str, &'static str)], key: &str) -> Option<&'static str> {
     table
         .iter()
         .find(|(name, _)| *name == key)
         .map(|(_, message)| *message)
+}
+
+/// Whether a dropped key's configured value already matches v2's behavior, in
+/// which case it is silently ignored rather than warned about.
+fn is_silent_noop(path: &str, value: &toml::Value, scope: WidgetScope) -> bool {
+    if let Some((_, expected)) = DROPPED_NOOP_TOGGLES.iter().find(|(key, _)| *key == path) {
+        return value.as_bool() == Some(*expected);
+    }
+    // An empty output allow-list already means "every monitor".
+    if path == "bar.outputs" {
+        return value.as_array().is_some_and(|outputs| outputs.is_empty());
+    }
+    // `disabled = false` is the widget being enabled, which placing it already says.
+    if scope != WidgetScope::None && path.ends_with(".disabled") {
+        return value.as_bool() == Some(false);
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -477,8 +505,11 @@ fn retain_known(
         .cloned()
         .collect();
     for key in unknown {
-        table.remove(&key);
-        lint.unknown_key(&format!("{prefix}.{key}"), scope);
+        let path = format!("{prefix}.{key}");
+        let value = table.remove(&key).unwrap_or(toml::Value::Boolean(false));
+        if !is_silent_noop(&path, &value, scope) {
+            lint.unknown_key(&path, scope);
+        }
     }
 }
 
@@ -1976,7 +2007,7 @@ scheme = "dark"
 wallpaper = "/tmp/a.png"
 popover = "light"
 shadows = false
-outline = false
+outline = true
 outline_width = 2
 outline_color = "accent"
 outline_opacity = 0.5
@@ -2012,7 +2043,7 @@ outline_opacity = 0.5
 left = ["clock"]
 
 [widgets.clock]
-disabled = false
+disabled = true
 show_if = "true"
 show_if_interval = 30
 background_color = "#123456"
@@ -2066,6 +2097,31 @@ position = "right"
             config.widgets.custom["custom-thing"].exec.as_deref(),
             Some("echo hi")
         );
+    }
+
+    #[test]
+    fn dropped_toggles_are_silent_when_they_already_match_v2() {
+        // Each of these asks for exactly what v2 does, so there is nothing to
+        // tell the user. The inverted value in the test above does warn.
+        let source = r#"
+[bar]
+outputs = []
+outline = false
+
+[widgets]
+outline = false
+left = ["clock"]
+
+[widgets.clock]
+disabled = false
+
+[theme]
+mode = "dark"
+outline = false
+shadows = true
+"#;
+        let (_, warnings) = parse_ok(source);
+        assert_eq!(warnings, Vec::new(), "{warnings:#?}");
     }
 
     #[test]

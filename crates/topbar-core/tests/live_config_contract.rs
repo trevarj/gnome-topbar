@@ -21,23 +21,19 @@ fn live_config_parses_without_errors() {
 }
 
 #[test]
-fn live_config_warning_set_is_exactly_the_dropped_outline_toggle() {
+fn live_config_produces_no_warnings_at_all() {
     let (_, warnings) = load();
     let rendered: Vec<String> = warnings.iter().map(Warning::to_string).collect();
 
-    // `theme.outline` is the only key in this file whose feature the rewrite
-    // removed: v2 has no configurable outline system. Everything else in the
-    // file maps onto a supported v2 key.
+    // Every key in this file maps onto a supported v2 key, including
+    // `system_monitor`, which v1 never implemented. The one dropped feature it
+    // names, `theme.outline`, is set to `false` — which is exactly what v2
+    // does — so there is nothing to report.
     assert_eq!(
-        warnings.iter().map(|w| w.key.as_str()).collect::<Vec<_>>(),
-        vec!["theme.outline"],
+        warnings,
+        Vec::new(),
         "unexpected compatibility warnings: {rendered:#?}"
     );
-    assert!(
-        warnings[0].message.contains("outline system was dropped"),
-        "{rendered:#?}"
-    );
-    assert_ne!(warnings[0].message, "unknown option, ignored");
 }
 
 #[test]
