@@ -36,11 +36,15 @@ const INTERVAL: Duration = Duration::from_secs(1800);
 /// start rate limiting under it.
 type Answer = Arc<std::sync::Mutex<(u16, String)>>;
 
+/// The head of the last request the stub was sent.
+type LastRequest = Arc<std::sync::Mutex<String>>;
+
 /// A listener standing in for CoinGecko.
 struct StubApi {
     endpoints: Endpoints,
     requests: Arc<AtomicUsize>,
     answer: Answer,
+    head: LastRequest,
 }
 
 impl StubApi {
@@ -53,13 +57,18 @@ impl StubApi {
         let requests = Arc::new(AtomicUsize::new(0));
         let answer: Answer = Arc::new(std::sync::Mutex::new((status, body.to_string())));
 
+        let head: LastRequest = Arc::new(std::sync::Mutex::new(String::new()));
+
         let counter = Arc::clone(&requests);
         let served = Arc::clone(&answer);
+        let recorded = Arc::clone(&head);
         tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
                 counter.fetch_add(1, Ordering::SeqCst);
                 let mut scratch = [0_u8; 2048];
-                let _ = socket.read(&mut scratch).await;
+                let read = socket.read(&mut scratch).await.unwrap_or(0);
+                *recorded.lock().expect("the head is not poisoned") =
+                    String::from_utf8_lossy(&scratch[..read]).into_owned();
                 let (status, body) = served.lock().expect("the answer is not poisoned").clone();
                 let reply = format!(
                     "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
@@ -77,6 +86,7 @@ impl StubApi {
             },
             requests,
             answer,
+            head,
         }
     }
 
@@ -88,6 +98,11 @@ impl StubApi {
     /// How many requests it has answered.
     fn requests(&self) -> usize {
         self.requests.load(Ordering::SeqCst)
+    }
+
+    /// The head of the last request it was sent.
+    fn last_request(&self) -> String {
+        self.head.lock().expect("the head is not poisoned").clone()
     }
 }
 
@@ -169,6 +184,37 @@ async fn one_request_prices_every_entry_the_widget_draws() {
     assert!((pair.value - 0.032_995).abs() < 1e-5, "got {}", pair.value);
     assert!(pair.change_24h.expect("a derived change") < 0.0);
     assert!(ready.fetched_at.is_some());
+}
+
+/// The regression test for the one thing the recorded fixtures could not
+/// catch: the stub answered every request in the matrix, and the real endpoint
+/// answered the very first live one with 403 because minreq sends no
+/// `User-Agent` of its own and CoinGecko's front end will not serve a request
+/// without one.
+#[tokio::test]
+async fn the_request_says_who_is_asking() {
+    let api = StubApi::start(200, PRICES).await;
+    let (_online, connectivity) = manual_connectivity(true);
+
+    let crypto = Crypto::start_with(
+        INTERVAL,
+        api.endpoints.clone(),
+        None,
+        connectivity,
+        default_entries(),
+    );
+    let mut state = crypto.state();
+    wait_for(&mut state, "prices", |state| state.phase == Phase::Ready).await;
+
+    let head = api.last_request();
+    assert!(
+        head.contains("User-Agent: topbar/"),
+        "the request must identify the panel, or CoinGecko 403s it:\n{head}"
+    );
+    assert!(
+        head.contains("Accept: application/json"),
+        "and ask for the format it parses:\n{head}"
+    );
 }
 
 #[tokio::test]

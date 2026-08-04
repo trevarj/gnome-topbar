@@ -39,6 +39,15 @@ const TIMEOUT_SECS: u64 = 15;
 /// Header budget for one answer; past this it is a captive portal.
 const MAX_HEADERS: usize = 16 * 1024;
 
+/// What the panel calls itself to the price service.
+///
+/// **Not optional.** CoinGecko's front end refuses a request that carries no
+/// `User-Agent` before it ever reaches the API: the first run against the real
+/// endpoint came back 403 while the recorded stub had been answering happily
+/// for the whole test matrix. The version comes from Cargo, so a request in
+/// somebody's log can be traced to a build.
+const USER_AGENT: &str = concat!("topbar/", env!("CARGO_PKG_VERSION"));
+
 /// Where the price request goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoints {
@@ -111,6 +120,8 @@ pub async fn fetch(url: String) -> Result<String, SvcError> {
 /// The request itself, on a blocking thread.
 fn blocking_fetch(url: &str) -> Result<String, SvcError> {
     let response = minreq::get(url)
+        .with_header("User-Agent", USER_AGENT)
+        .with_header("Accept", "application/json")
         .with_timeout(TIMEOUT_SECS)
         .with_max_headers_size(MAX_HEADERS)
         .send()
