@@ -29,7 +29,13 @@ struct PrivateBus {
 }
 
 impl PrivateBus {
-    /// Start one, or `None` when `dbus-daemon` is not installed.
+    /// Start one, or `None` when this machine cannot run a bus.
+    ///
+    /// `dbus-daemon` needs a machine id, which a Nix build sandbox does not
+    /// have, so these tests run in the dev shell and on a real desktop and sit
+    /// out `nix flake check`. Everything they cover about *behaviour* is also
+    /// covered by the detached tests next door; what is only covered here is
+    /// the wire protocol itself.
     fn start() -> Option<Self> {
         let mut child = Command::new("dbus-daemon")
             .args(["--session", "--print-address", "--nofork"])
@@ -40,14 +46,16 @@ impl PrivateBus {
 
         let stdout = child.stdout.take().expect("piped stdout");
         let mut address = String::new();
-        BufReader::new(stdout)
-            .read_line(&mut address)
-            .expect("the bus prints its address before serving");
+        let read = BufReader::new(stdout).read_line(&mut address);
+        let address = address.trim().to_string();
 
-        Some(Self {
-            child,
-            address: address.trim().to_string(),
-        })
+        if read.is_err() || !address.starts_with("unix:") {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+
+        Some(Self { child, address })
     }
 
     /// A fresh client connection to this bus.
@@ -73,7 +81,7 @@ macro_rules! private_bus {
         match PrivateBus::start() {
             Some(bus) => bus,
             None => {
-                eprintln!("skipping: dbus-daemon is not on PATH");
+                eprintln!("skipping: no private bus available (dbus-daemon needs a machine id)");
                 return;
             }
         }
