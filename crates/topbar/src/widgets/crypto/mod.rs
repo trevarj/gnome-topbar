@@ -98,7 +98,7 @@ impl CryptoWidget {
         let content: Rc<RefCell<Option<Rc<Prices>>>> = Rc::new(RefCell::new(None));
         let popover = {
             let services = context.services.clone();
-            let interval = std::time::Duration::from_secs(config.interval);
+            let interval = topbar_services::crypto::interval(config);
             let content = Rc::clone(&content);
             popovers::attach(context, WIDGET_NAME, shell.root(), move || {
                 let prices = Prices::new(interval, &services);

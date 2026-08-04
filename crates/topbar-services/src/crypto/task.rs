@@ -249,9 +249,18 @@ impl Task {
         }
         debug!("the crypto refresh interval is now {interval:?}");
         self.interval = interval;
-        // The prices in hand are still prices, so unlike the weather's unit
-        // change this does not throw the cache away — it only reschedules.
+        // The prices in hand are still prices. Unlike the weather — where a
+        // changed unit makes every temperature in the cache wrong — this is one
+        // of the two places nothing is thrown away, because a dollar is a
+        // dollar however often it is asked for.
         self.refresh = Refresh::new(interval);
+        if self.quotes.is_empty() {
+            // Except that a widget with nothing on it must not sit out a whole
+            // fresh interval before trying again. The backoff ladder has just
+            // been reset, so this is also the user's edit acting as a retry.
+            self.fetch();
+            return;
+        }
         self.due = Some(Instant::now() + self.refresh.succeeded());
     }
 }

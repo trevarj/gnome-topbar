@@ -54,6 +54,16 @@ const QUEUE: usize = 8;
 /// shell script this widget replaces printed.
 pub const DEFAULT_ENTRIES: [&str; 3] = ["btc", "eth", "eth/btc"];
 
+/// How long between refreshes, out of `[widgets.crypto]`.
+///
+/// Nothing is clamped here: config validation rejects anything under a minute
+/// outright rather than quietly correcting it, so a value that reaches this
+/// point is one the user meant. The popover reads the same figure to decide
+/// whether opening it is worth a request.
+pub fn interval(config: &CryptoConfig) -> Duration {
+    Duration::from_secs(config.interval)
+}
+
 /// The crypto price service.
 ///
 /// Cloning is cheap — a channel sender and a watch subscription — so the bar
@@ -73,7 +83,7 @@ impl Crypto {
         connectivity: &Connectivity,
     ) -> Self {
         Self::spawn(
-            Duration::from_secs(config.interval),
+            interval(config),
             Endpoints::from_env(),
             Some(store),
             connectivity.state(),
@@ -161,7 +171,6 @@ impl CryptoHandle {
     }
 
     /// Apply a changed `[widgets.crypto]` interval. M12's hot reload calls it.
-    #[allow(dead_code)]
     pub async fn configure(&self, interval: Duration) -> Result<(), SvcError> {
         self.send(Command::Configure(interval)).await
     }

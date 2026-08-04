@@ -307,6 +307,75 @@ async fn coming_back_online_fires_the_fetch_that_was_owed() {
     assert_eq!(api.requests(), 1, "exactly one request, not one per signal");
 }
 
+/// The crypto-specific half of the shared refresh policy. The ladder and the
+/// jitter are [`crate::refresh`]'s own tests; what is only true here is that a
+/// changed interval re-times the schedule without invalidating the cache — the
+/// weather throws its readings away on a config change because a changed unit
+/// makes them wrong, and a dollar is a dollar however often it is asked for.
+#[tokio::test]
+async fn a_changed_interval_reschedules_without_throwing_the_prices_away() {
+    let api = StubApi::start(200, PRICES).await;
+    let (_online, connectivity) = manual_connectivity(true);
+
+    let crypto = Crypto::start_with(
+        INTERVAL,
+        api.endpoints.clone(),
+        None,
+        connectivity,
+        default_entries(),
+    );
+    let mut state = crypto.state();
+    let ready = wait_for(&mut state, "prices", |state| state.phase == Phase::Ready).await;
+    let good = ready.quotes.clone();
+    let fetched = ready.fetched_at;
+
+    crypto
+        .handle()
+        .configure(Duration::from_secs(900))
+        .await
+        .expect("the service is alive");
+
+    // Nothing to wait for, so the assertion is that nothing happened: no
+    // second request, and the same prices with the same timestamp on them.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let after = state.borrow_and_update().clone();
+    assert_eq!(api.requests(), 1, "a re-timing is not a refetch");
+    assert_eq!(after.quotes, good);
+    assert_eq!(after.fetched_at, fetched);
+    assert_eq!(after.phase, Phase::Ready, "and nothing went stale");
+}
+
+#[tokio::test]
+async fn a_changed_interval_retries_at_once_when_there_is_nothing_on_screen() {
+    let api = StubApi::start(429, RATE_LIMIT).await;
+    let (_online, connectivity) = manual_connectivity(true);
+
+    let crypto = Crypto::start_with(
+        INTERVAL,
+        api.endpoints.clone(),
+        None,
+        connectivity,
+        default_entries(),
+    );
+    let mut state = crypto.state();
+    wait_for(&mut state, "an unavailable widget", |state| {
+        state.is_unavailable()
+    })
+    .await;
+
+    api.answer_with(200, PRICES);
+    crypto
+        .handle()
+        .configure(Duration::from_secs(900))
+        .await
+        .expect("the service is alive");
+
+    // A widget with nothing on it must not sit out a whole fresh interval, so
+    // the edit doubles as the retry the backoff was still counting down to.
+    wait_for(&mut state, "prices", |state| state.phase == Phase::Ready).await;
+    assert_eq!(api.requests(), 2);
+}
+
 #[tokio::test]
 async fn changing_the_entries_writes_them_down_without_asking_again() {
     let api = StubApi::start(200, PRICES).await;

@@ -239,6 +239,23 @@ fn the_same_entry_twice_is_drawn_once() {
 }
 
 #[test]
+fn the_refresh_interval_comes_out_of_the_config_section() {
+    assert_eq!(
+        interval(&CryptoConfig::default()),
+        Duration::from_secs(1800)
+    );
+    let config = CryptoConfig {
+        interval: 60,
+        ..CryptoConfig::default()
+    };
+    assert_eq!(
+        interval(&config),
+        Duration::from_secs(60),
+        "the config minimum is passed through, not clamped again"
+    );
+}
+
+#[test]
 fn the_default_entries_are_the_ones_the_config_schema_advertises() {
     // `CryptoConfig::default()` is what `--print-example-config` shows and what
     // the config's own validation is written against; the service must agree
