@@ -43,6 +43,19 @@ mkdir -p "$artifact_dir"
 
 bus_config=$(pwd)/scripts/smoke-session.conf
 
+# Sandbox every XDG write path. The panel migrates/creates state dirs and will
+# grow cache use over time; a smoke run must never touch the developer's real
+# ~/.local/state (this bit us once: the state-dir migration renamed the live
+# v1 panel's state directory). Config is passed with --config explicitly, but
+# XDG_CONFIG_HOME is boxed too so the legacy-path fallback can't find a real
+# user config and add warning noise to panel.log.
+xdg_box=$(mktemp -d "${TMPDIR:-/tmp}/topbar-smoke-xdg.XXXXXX")
+trap 'rm -rf "$xdg_box"' EXIT INT TERM
+export XDG_STATE_HOME="$xdg_box/state"
+export XDG_CACHE_HOME="$xdg_box/cache"
+export XDG_CONFIG_HOME="$xdg_box/config"
+mkdir -p "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME"
+
 for tool in niri grim cargo timeout dbus-run-session; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "missing required tool: $tool" >&2
