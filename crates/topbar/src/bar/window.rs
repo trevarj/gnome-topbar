@@ -11,6 +11,7 @@ use crate::anim;
 use crate::bar::{BarContext, Section, SectionedBar};
 use crate::fonts;
 use crate::style::{self, classes};
+use crate::surfaces::toast::ToastSurface;
 use crate::widgets::{self, MountedWidget};
 
 /// The layer-shell namespace the compositor sees. Keep it stable: niri rules
@@ -25,6 +26,11 @@ pub struct BarWindow {
     /// Anything a widget put on screen goes with it, including the popover
     /// host: the last handle to it lives in a widget's keep-alive box.
     _widgets: Vec<MountedWidget>,
+    /// This monitor's notification banners.
+    ///
+    /// Owned by the bar rather than by a widget: banners appear whether or not
+    /// the user configured a clock, and they go away with the monitor.
+    _toasts: std::rc::Rc<ToastSurface>,
 }
 
 impl BarWindow {
@@ -118,6 +124,7 @@ impl BarWindow {
         Self {
             window,
             _widgets: mounted,
+            _toasts: ToastSurface::new(monitor, connector, config, services),
         }
     }
 }

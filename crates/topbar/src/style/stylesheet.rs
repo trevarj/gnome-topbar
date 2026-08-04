@@ -353,6 +353,13 @@ sectioned-bar.bar {
     font-feature-settings: "tnum";
 }
 
+/* The Do Not Disturb indicator: small, dimmed, and to the right of the time —
+   present enough to explain a silent desktop, quiet enough to ignore. */
+.clock-dnd {
+    -gtk-icon-size: 12px;
+    color: var(--color-foreground-muted);
+}
+
 /* ===== Workspaces ===== */
 
 /* The strip paints its own indicators in snapshot(); the only thing it takes
@@ -565,6 +572,192 @@ button.calendar-day.calendar-today {
     background-color: var(--color-accent);
     color: var(--color-on-accent);
     font-weight: 700;
+}
+
+/* ===== Notification history ===== */
+
+.notification-list {
+    background: transparent;
+}
+
+.notification-header {
+    min-height: 28px;
+    margin-bottom: 8px;
+}
+
+button.notification-clear-all,
+button.notification-group-clear,
+button.notification-close {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0 8px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--radius-card);
+    color: var(--color-foreground-muted);
+}
+
+button.notification-clear-all:hover,
+button.notification-group-clear:hover,
+button.notification-close:hover {
+    background-color: var(--color-widget-hover);
+    color: var(--color-foreground);
+}
+
+button.notification-group-clear,
+button.notification-close {
+    padding: 0;
+}
+
+.notification-group {
+    padding: 4px;
+}
+
+/* The header is a button so the whole strip expands the group, but it must not
+   look like one until the pointer is on it. */
+button.notification-group-header {
+    padding: 6px 8px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--radius-card);
+    color: var(--color-foreground);
+}
+
+button.notification-group-header:hover {
+    background-color: var(--color-widget-hover);
+}
+
+/* A group of one cannot expand, so it never offers the affordance either. */
+button.notification-group-header.notification-group-single:hover {
+    background: none;
+}
+
+.notification-icon {
+    -gtk-icon-size: 24px;
+}
+
+.notification-app {
+    font-weight: 700;
+}
+
+.notification-count {
+    font-size: 0.85em;
+    font-weight: 700;
+    color: var(--color-foreground-muted);
+    background-color: var(--color-card);
+    border-radius: 9999px;
+    padding: 1px 7px;
+}
+
+.notification-chevron {
+    -gtk-icon-size: 16px;
+    color: var(--color-foreground-muted);
+}
+
+.notification-group-list {
+    margin: 2px 4px 4px 4px;
+}
+
+.notification-row {
+    padding: 6px 4px 6px 8px;
+}
+
+.notification-summary {
+    font-weight: 500;
+}
+
+.notification-body {
+    font-size: 0.92em;
+    color: var(--color-foreground-muted);
+}
+
+.notification-time {
+    font-size: 0.85em;
+    color: var(--color-foreground-disabled);
+}
+
+/* ===== Notification banners ===== */
+
+window.toast-window {
+    background: transparent;
+}
+
+.toast-stack {
+    background: transparent;
+}
+
+.toast {
+    background-color: var(--color-popover);
+    border: 1px solid var(--color-surface-border);
+    border-radius: var(--radius-popover);
+    box-shadow: 0 2px 6px var(--color-popover-shadow);
+    color: var(--color-foreground);
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    font-weight: 400;
+    padding: 12px 14px;
+}
+
+/* A banner that will not go away by itself says so with the state colour
+   rather than with more chrome. */
+.toast.toast-critical {
+    border-color: var(--color-state-urgent);
+}
+
+.toast-icon {
+    -gtk-icon-size: 32px;
+}
+
+.toast-summary {
+    font-weight: 700;
+}
+
+.toast-body {
+    color: var(--color-foreground-muted);
+}
+
+button.toast-close {
+    min-width: 22px;
+    min-height: 22px;
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground-muted);
+}
+
+button.toast-close:hover {
+    background-color: var(--color-widget-hover);
+    color: var(--color-foreground);
+}
+
+/* The row keeps its own top gap so a banner with no actions is not padded
+   for buttons it does not have. */
+.toast-actions {
+    margin-top: 2px;
+}
+
+button.toast-action {
+    min-height: 26px;
+    padding: 0 12px;
+    background-color: var(--color-card);
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground);
+    font-size: 0.92em;
+    font-weight: 500;
+}
+
+button.toast-action:hover {
+    background-color: var(--color-widget-hover);
+}
+
+button.toast-action:active {
+    background-color: var(--color-widget-pressed);
 }
 
 /* ===== Tooltip ===== */

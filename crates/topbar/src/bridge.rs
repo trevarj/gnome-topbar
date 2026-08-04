@@ -13,12 +13,13 @@
 //! Both are deliberately narrow. There is no way to get a widget reference
 //! into a service, and no way to block the main thread on one.
 
+use std::cell::RefCell;
 use std::future::Future;
 use std::sync::Arc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use topbar_services::{Runtime, SvcError, watch};
+use topbar_services::{NotificationsHandle, Runtime, SvcError, watch};
 use tracing::warn;
 
 /// Keeps a [`bind_state`] subscription alive.
@@ -113,11 +114,54 @@ where
     });
 }
 
+thread_local! {
+    /// The daemon [`report`] raises its own banners through.
+    ///
+    /// A thread-local rather than a parameter because `report` is reached from
+    /// every click handler in the panel, and threading a handle through all of
+    /// them would be a worse cost than one cell set once at start-up. It is
+    /// only ever touched from the main thread.
+    static REPORTER: RefCell<Option<NotificationsHandle>> = const { RefCell::new(None) };
+}
+
+/// Give [`report`] somewhere to put its banners. Called once, from start-up.
+pub fn install_reporter(handle: NotificationsHandle) {
+    REPORTER.with_borrow_mut(|reporter| *reporter = Some(handle));
+}
+
+/// The notification daemon, for the widgets that talk to it directly.
+pub fn notifications() -> Option<NotificationsHandle> {
+    REPORTER.with_borrow(Clone::clone)
+}
+
 /// Surface a failed action. Runs on the main thread.
+///
+/// Still one function, and still the only one: a failure is logged with its
+/// full detail and shown to the user as the one short sentence
+/// [`SvcError::user_message`] carries. The banner goes through the very same
+/// daemon an application's would, so it queues, stacks, and expires like
+/// anything else — it is simply marked internal, which keeps it out of the
+/// history and past Do Not Disturb.
 fn report(scope: ActionScope, error: &SvcError) {
-    // TODO(M4): render `ActionScope::Toast` as a toast and `Inline` in the row
-    // that started the action. Until the toast surface exists the log is the
-    // only place a failure can go — but it goes through here either way, so
-    // wiring it up is a change to this function alone.
     warn!("{}: {} ({error})", scope.widget(), error.user_message());
+
+    // Inline reporting lands in M9 with the Quick Settings rows that need it;
+    // until then the log line above is what an inline failure gets, because a
+    // toast would be redundant with the control the user is looking at.
+    let ActionScope::Toast { .. } = scope else {
+        return;
+    };
+    let Some(handle) = notifications() else {
+        return;
+    };
+
+    let summary = error.user_message().to_string();
+    let detail = error.to_string();
+    // Deliberately not through `act`: a failure to report a failure must not
+    // try to report itself.
+    Runtime::handle().spawn(async move {
+        if let Err(error) = handle.report(summary, detail).await {
+            warn!("could not raise a banner for a failed action: {error}");
+        }
+    });
 }

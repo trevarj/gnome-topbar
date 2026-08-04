@@ -15,6 +15,7 @@ mod fonts;
 mod ipc_client;
 mod style;
 mod surfaces;
+mod wayland;
 mod widgets;
 
 use std::process::ExitCode;

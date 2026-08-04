@@ -9,7 +9,9 @@
 
 mod animator;
 mod scale_box;
+mod slide_box;
 pub mod watchdog;
 
 pub use animator::{Animation, AnimationParams, Easing, motion_enabled, set_animations_enabled};
 pub use scale_box::ScaleBox;
+pub use slide_box::SlideBox;

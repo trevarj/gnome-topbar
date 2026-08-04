@@ -42,6 +42,8 @@ pub const DISCONNECTED: &str = "disconnected";
 
 /// The clock widget.
 pub const CLOCK: &str = "clock";
+/// The bell-with-slash beside the time while Do Not Disturb is on.
+pub const CLOCK_DND: &str = "clock-dnd";
 
 /// The workspaces widget.
 pub const WORKSPACES: &str = "workspaces";
@@ -126,6 +128,62 @@ pub const DND_LABEL: &str = "dnd-label";
 /// Text standing in for content a later milestone fills in.
 pub const PLACEHOLDER: &str = "placeholder";
 
+/// The notifications column's header row.
+pub const NOTIFICATION_HEADER: &str = "notification-header";
+/// The Clear button in it.
+pub const NOTIFICATION_CLEAR_ALL: &str = "notification-clear-all";
+/// The column of application groups.
+pub const NOTIFICATION_LIST: &str = "notification-list";
+/// One application's card.
+pub const NOTIFICATION_GROUP: &str = "notification-group";
+/// The card's header, which is also its expander.
+pub const NOTIFICATION_GROUP_HEADER: &str = "notification-group-header";
+/// Set on the header of a group that holds exactly one notification.
+pub const NOTIFICATION_GROUP_SINGLE: &str = "notification-group-single";
+/// The notifications inside a group.
+pub const NOTIFICATION_GROUP_LIST: &str = "notification-group-list";
+/// The button that clears a whole group.
+pub const NOTIFICATION_GROUP_CLEAR: &str = "notification-group-clear";
+/// A notification's application icon.
+pub const NOTIFICATION_ICON: &str = "notification-icon";
+/// The application name on a group header.
+pub const NOTIFICATION_APP: &str = "notification-app";
+/// The badge counting a group's notifications.
+pub const NOTIFICATION_COUNT: &str = "notification-count";
+/// The expand/collapse chevron.
+pub const NOTIFICATION_CHEVRON: &str = "notification-chevron";
+/// One notification in the history.
+pub const NOTIFICATION_ROW: &str = "notification-row";
+/// Its headline.
+pub const NOTIFICATION_SUMMARY: &str = "notification-summary";
+/// Its body.
+pub const NOTIFICATION_BODY: &str = "notification-body";
+/// How long ago it arrived.
+pub const NOTIFICATION_TIME: &str = "notification-time";
+/// The button that closes one notification.
+pub const NOTIFICATION_CLOSE: &str = "notification-close";
+
+/// The banner surface's layer-shell window.
+pub const TOAST_WINDOW: &str = "toast-window";
+/// The column of banners inside it.
+pub const TOAST_STACK: &str = "toast-stack";
+/// One banner.
+pub const TOAST: &str = "toast";
+/// Set on a banner that will not go away by itself.
+pub const TOAST_CRITICAL: &str = "toast-critical";
+/// A banner's application icon.
+pub const TOAST_ICON: &str = "toast-icon";
+/// Its headline.
+pub const TOAST_SUMMARY: &str = "toast-summary";
+/// Its body.
+pub const TOAST_BODY: &str = "toast-body";
+/// The row of action buttons under it.
+pub const TOAST_ACTIONS: &str = "toast-actions";
+/// One of those buttons.
+pub const TOAST_ACTION: &str = "toast-action";
+/// The close button revealed while the pointer is over a banner.
+pub const TOAST_CLOSE: &str = "toast-close";
+
 /// The shared tooltip's layer-shell window.
 pub const TOOLTIP_WINDOW: &str = "tooltip-window";
 /// The tooltip's painted surface.
@@ -152,6 +210,7 @@ pub const ALL: &[&str] = &[
     CHECKED,
     DISCONNECTED,
     CLOCK,
+    CLOCK_DND,
     WORKSPACES,
     WORKSPACE_STRIP,
     KEYBOARD_LAYOUT,
@@ -191,6 +250,33 @@ pub const ALL: &[&str] = &[
     DND_ROW,
     DND_LABEL,
     PLACEHOLDER,
+    NOTIFICATION_HEADER,
+    NOTIFICATION_CLEAR_ALL,
+    NOTIFICATION_LIST,
+    NOTIFICATION_GROUP,
+    NOTIFICATION_GROUP_HEADER,
+    NOTIFICATION_GROUP_SINGLE,
+    NOTIFICATION_GROUP_LIST,
+    NOTIFICATION_GROUP_CLEAR,
+    NOTIFICATION_ICON,
+    NOTIFICATION_APP,
+    NOTIFICATION_COUNT,
+    NOTIFICATION_CHEVRON,
+    NOTIFICATION_ROW,
+    NOTIFICATION_SUMMARY,
+    NOTIFICATION_BODY,
+    NOTIFICATION_TIME,
+    NOTIFICATION_CLOSE,
+    TOAST_WINDOW,
+    TOAST_STACK,
+    TOAST,
+    TOAST_CRITICAL,
+    TOAST_ICON,
+    TOAST_SUMMARY,
+    TOAST_BODY,
+    TOAST_ACTIONS,
+    TOAST_ACTION,
+    TOAST_CLOSE,
     TOOLTIP_WINDOW,
     TOOLTIP_SURFACE,
     TOOLTIP_LABEL,

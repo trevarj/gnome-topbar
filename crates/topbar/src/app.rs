@@ -12,6 +12,7 @@ use tracing::{error, info};
 
 use crate::anim;
 use crate::bar::{BarManager, SharedConfig};
+use crate::bridge;
 use crate::style;
 use crate::surfaces;
 
@@ -69,6 +70,19 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
     }
 
     style::apply(&display, &style::generate(&config.current()));
+
+    // The panel's own failures are shown as banners, which means the single
+    // failure sink needs the daemon before any widget exists to fail.
+    bridge::install_reporter(services.notifications.handle().clone());
+    // Losing the notification name is itself a failure worth reporting, and it
+    // reports through exactly the same funnel every widget uses.
+    let notifications = services.notifications.clone();
+    bridge::act(
+        bridge::ActionScope::Toast {
+            widget: "notifications",
+        },
+        async move { notifications.startup().await },
+    );
 
     let manager = BarManager::new(app, &display, config.clone(), services.clone());
     manager.sync();

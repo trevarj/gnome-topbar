@@ -3,6 +3,7 @@
 mod clock;
 mod control_panel;
 mod keyboard_layout;
+pub mod notifications;
 mod shell;
 mod workspaces;
 

@@ -1,0 +1,617 @@
+//! Banners: the notification surface under the bar.
+//!
+//! ```text
+//! window .toast-window        layer Overlay, anchored top-centre under the bar
+//! └── .toast-stack            a column of at most three banners
+//!     └── slide-box           the arrive/leave motion (see anim::SlideBox)
+//!         └── .toast          one banner
+//! ```
+//!
+//! One surface exists per monitor and only the one on the focused output ever
+//! shows anything, so a banner appears where the user is looking rather than on
+//! all of them at once. The surface is unmapped whenever it is empty, which is
+//! what keeps a transparent window from eating clicks on the desktop.
+//!
+//! **The timer is not here.** Which banners exist, and how long each has left,
+//! belongs to the service; hovering one is a `pause_toast` call rather than a
+//! local `SourceId`. A banner replaced over D-Bus mid-hover therefore cannot
+//! end up with two timers, which is the shape of bug the v1 toast manager had.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use gtk4::prelude::*;
+use gtk4::{Align, Button, Label, Orientation, Window, gdk, pango};
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+use topbar_core::Config;
+use topbar_services::{NotifState, Services, ToastView};
+
+use crate::anim::{Animation, AnimationParams, Easing, SlideBox};
+use crate::bridge::{self, ActionScope, BindingGuard};
+use crate::style::classes;
+use crate::surfaces::layer_popover;
+use crate::wayland::activation;
+use crate::widgets::notifications::{TOAST_ICON, icon, markup};
+
+/// Width of a banner, in pixels.
+const WIDTH: i32 = 380;
+/// Gap between stacked banners.
+const GAP: i32 = 8;
+/// Room left around the stack for the banners' drop shadows.
+const SHADOW_MARGIN: i32 = 8;
+/// How long a banner takes to arrive, and to leave.
+const SLIDE_MS: u64 = 150;
+/// Most action buttons drawn on one banner.
+const MAX_ACTIONS: usize = 3;
+/// Where a banner's own failures are reported.
+const SCOPE: ActionScope = ActionScope::Toast { widget: "toast" };
+
+/// Which monitor should be showing banners.
+///
+/// The focused output, when the compositor names one the panel actually has a
+/// bar on; otherwise the first, so a banner is never posted to nowhere at all —
+/// during a hotplug, or before niri has reported anything.
+pub fn hosting_output<'a>(focused: Option<&str>, connectors: &'a [String]) -> Option<&'a str> {
+    if let Some(focused) = focused
+        && let Some(found) = connectors.iter().find(|name| *name == focused)
+    {
+        return Some(found.as_str());
+    }
+    connectors.first().map(String::as_str)
+}
+
+/// One monitor's banner surface.
+pub struct ToastSurface {
+    window: Window,
+    stack: gtk4::Box,
+    /// The banners on screen, newest first.
+    cards: Rc<RefCell<Vec<Card>>>,
+    services: Services,
+    connector: String,
+    /// Subscriptions that keep this surface in step with the services.
+    bindings: RefCell<Vec<BindingGuard>>,
+}
+
+impl ToastSurface {
+    /// Build the surface for `monitor` and subscribe it to the daemon.
+    ///
+    /// Nothing is mapped until a banner arrives.
+    pub fn new(
+        monitor: &gdk::Monitor,
+        connector: &str,
+        config: &Config,
+        services: &Services,
+    ) -> Rc<Self> {
+        let window = build_window(monitor, layer_popover::window_top(config));
+
+        let stack = gtk4::Box::new(Orientation::Vertical, GAP);
+        stack.add_css_class(classes::TOAST_STACK);
+        stack.set_size_request(WIDTH, -1);
+        stack.set_valign(Align::Start);
+        stack.set_margin_start(SHADOW_MARGIN);
+        stack.set_margin_end(SHADOW_MARGIN);
+        stack.set_margin_bottom(SHADOW_MARGIN);
+        window.set_child(Some(&stack));
+
+        let surface = Rc::new(Self {
+            window,
+            stack,
+            cards: Rc::new(RefCell::new(Vec::new())),
+            services: services.clone(),
+            connector: connector.to_string(),
+            bindings: RefCell::new(Vec::new()),
+        });
+
+        // Two subscriptions feeding one diff: the banner list comes from the
+        // daemon, and the answer to "is this my monitor?" from the compositor.
+        let notifications = bridge::bind_state(&surface.stack, services.notifications.state(), {
+            let surface = Rc::downgrade(&surface);
+            move |_, state| {
+                if let Some(surface) = surface.upgrade() {
+                    surface.render(state);
+                }
+            }
+        });
+        let workspaces = bridge::bind_state(&surface.stack, services.niri.workspaces(), {
+            let surface = Rc::downgrade(&surface);
+            move |_, _| {
+                if let Some(surface) = surface.upgrade() {
+                    surface.rerender();
+                }
+            }
+        });
+        *surface.bindings.borrow_mut() = vec![notifications, workspaces];
+
+        surface
+    }
+
+    /// Render again from whatever the daemon is saying right now.
+    fn rerender(&self) {
+        let receiver = self.services.notifications.state();
+        let state = receiver.borrow().clone();
+        self.render(&state);
+    }
+
+    /// Whether banners belong on this monitor right now.
+    fn is_host(&self) -> bool {
+        let workspaces = self.services.niri.workspaces();
+        let focused = workspaces.borrow().focused_output.clone();
+        let connectors = connectors();
+        hosting_output(focused.as_deref(), &connectors) == Some(self.connector.as_str())
+    }
+
+    /// Bring the surface in line with `state`.
+    ///
+    /// Banners already on screen are updated in place rather than rebuilt: a
+    /// replacement over D-Bus must not make the stack flicker, and rebuilding
+    /// would restart the arrival animation of something that never left.
+    fn render(&self, state: &NotifState) {
+        let wanted: Vec<&ToastView> = if self.is_host() {
+            state.toasts.iter().collect()
+        } else {
+            Vec::new()
+        };
+
+        self.retire_missing(&wanted);
+
+        for (position, view) in wanted.iter().enumerate() {
+            let existing = self
+                .cards
+                .borrow()
+                .iter()
+                .find(|card| card.matches(view.notification.id))
+                .cloned();
+
+            match existing {
+                Some(card) => {
+                    card.update(view);
+                    self.move_to(&card, position);
+                }
+                None => self.insert(view, position),
+            }
+        }
+
+        // The surface stays mapped while the last banner slides away, then
+        // gets out of the desktop's way entirely.
+        let occupied = !self.cards.borrow().is_empty();
+        if occupied != self.window.is_visible() {
+            if occupied {
+                self.window.present();
+            } else {
+                self.window.set_visible(false);
+            }
+        }
+    }
+
+    /// Start the leaving animation for every banner that is no longer wanted.
+    fn retire_missing(&self, wanted: &[&ToastView]) {
+        let going: Vec<Card> = self
+            .cards
+            .borrow()
+            .iter()
+            .filter(|card| {
+                !card.leaving.get() && !wanted.iter().any(|view| card.matches(view.notification.id))
+            })
+            .cloned()
+            .collect();
+
+        for card in going {
+            card.leaving.set(true);
+            let stack = self.stack.clone();
+            let cards = Rc::clone(&self.cards);
+            let leaving = card.clone();
+            card.slide(0.0, move || {
+                if leaving.slide.parent().as_ref() == Some(stack.upcast_ref::<gtk4::Widget>()) {
+                    stack.remove(&leaving.slide);
+                }
+                cards.borrow_mut().retain(|other| !other.same(&leaving));
+                // Nothing left to show: the window unmaps on the next render,
+                // which the removal above has already made accurate.
+                if cards.borrow().is_empty()
+                    && let Some(window) = stack.root().and_downcast::<Window>()
+                {
+                    window.set_visible(false);
+                }
+            });
+        }
+    }
+
+    /// Build a banner and slide it in at `position`.
+    fn insert(&self, view: &ToastView, position: usize) {
+        let card = Card::new(view, &self.services);
+        let after = self.child_at(position);
+        self.stack.insert_child_after(&card.slide, after.as_ref());
+
+        let mut cards = self.cards.borrow_mut();
+        let position = position.min(cards.len());
+        cards.insert(position, card.clone());
+        drop(cards);
+
+        // Present before animating: a banner sliding in on an unmapped surface
+        // finishes its run before the compositor ever shows it.
+        if !self.window.is_visible() {
+            self.window.present();
+        }
+        card.slide.set_reveal(0.0);
+        card.card.set_opacity(0.0);
+        card.slide(1.0, || {});
+    }
+
+    /// Put `card` at `position` in the stack, if it is not there already.
+    fn move_to(&self, card: &Card, position: usize) {
+        let mut cards = self.cards.borrow_mut();
+        let Some(current) = cards.iter().position(|other| other.same(card)) else {
+            return;
+        };
+        if current == position {
+            return;
+        }
+        let card = cards.remove(current);
+        let position = position.min(cards.len());
+        cards.insert(position, card.clone());
+        drop(cards);
+
+        let after = self.child_at(position);
+        self.stack.reorder_child_after(&card.slide, after.as_ref());
+    }
+
+    /// The child the banner at `position` should follow, or `None` for first.
+    fn child_at(&self, position: usize) -> Option<gtk4::Widget> {
+        if position == 0 {
+            return None;
+        }
+        self.cards
+            .borrow()
+            .get(position - 1)
+            .map(|card| card.slide.clone().upcast())
+    }
+}
+
+impl Drop for ToastSurface {
+    fn drop(&mut self) {
+        self.window.close();
+    }
+}
+
+/// The connector name of every monitor GDK currently reports.
+fn connectors() -> Vec<String> {
+    let Some(display) = gdk::Display::default() else {
+        return Vec::new();
+    };
+    let monitors = display.monitors();
+    (0..monitors.n_items())
+        .filter_map(|index| monitors.item(index).and_downcast::<gdk::Monitor>())
+        .filter_map(|monitor| monitor.connector().map(|name| name.to_string()))
+        .collect()
+}
+
+/// One banner on screen.
+#[derive(Clone)]
+struct Card {
+    id: u32,
+    slide: SlideBox,
+    card: gtk4::Box,
+    summary: Label,
+    body: Label,
+    icon: gtk4::Box,
+    actions: gtk4::Box,
+    close: Button,
+    animation: Animation,
+    /// Set once the banner is on its way out, so a render landing mid-fade
+    /// does not revive it. Its identity also distinguishes two banners that
+    /// happen to share a notification id.
+    leaving: Rc<Cell<bool>>,
+}
+
+impl Card {
+    /// Build a banner for `view`.
+    fn new(view: &ToastView, services: &Services) -> Self {
+        let notification = &view.notification;
+
+        let card = gtk4::Box::new(Orientation::Vertical, 8);
+        card.add_css_class(classes::TOAST);
+        if notification.urgency.is_critical() {
+            card.add_css_class(classes::TOAST_CRITICAL);
+        }
+
+        let top = gtk4::Box::new(Orientation::Horizontal, 10);
+
+        let icon_slot = gtk4::Box::new(Orientation::Horizontal, 0);
+        icon_slot.add_css_class(classes::TOAST_ICON);
+        icon_slot.set_valign(Align::Start);
+        top.append(&icon_slot);
+
+        let text = gtk4::Box::new(Orientation::Vertical, 2);
+        text.set_hexpand(true);
+
+        let summary = Label::new(None);
+        summary.add_css_class(classes::TOAST_SUMMARY);
+        summary.set_xalign(0.0);
+        summary.set_ellipsize(pango::EllipsizeMode::End);
+        summary.set_single_line_mode(true);
+        text.append(&summary);
+
+        let body = Label::new(None);
+        body.add_css_class(classes::TOAST_BODY);
+        body.set_xalign(0.0);
+        body.set_wrap(true);
+        body.set_wrap_mode(pango::WrapMode::WordChar);
+        body.set_lines(2);
+        body.set_ellipsize(pango::EllipsizeMode::End);
+        text.append(&body);
+        top.append(&text);
+
+        // The close button holds its slot from the first frame and only fades
+        // in, so revealing it cannot reflow the summary beside it.
+        let close = Button::from_icon_name("window-close-symbolic");
+        close.add_css_class(classes::TOAST_CLOSE);
+        close.set_valign(Align::Start);
+        close.set_focus_on_click(false);
+        top.append(&close);
+
+        card.append(&top);
+
+        let actions = gtk4::Box::new(Orientation::Horizontal, 6);
+        actions.add_css_class(classes::TOAST_ACTIONS);
+        actions.set_halign(Align::End);
+        card.append(&actions);
+
+        let slide = SlideBox::new();
+        slide.set_child(&card);
+
+        let this = Self {
+            id: notification.id,
+            animation: Animation::new(&slide),
+            slide,
+            card,
+            summary,
+            body,
+            icon: icon_slot,
+            actions,
+            close,
+            leaving: Rc::new(Cell::new(false)),
+        };
+        this.reveal_close(false);
+        this.update(view);
+        this.install_gestures(services);
+        this
+    }
+
+    /// Whether this banner is showing notification `id` and is still wanted.
+    fn matches(&self, id: u32) -> bool {
+        self.id == id && !self.leaving.get()
+    }
+
+    /// Whether two handles refer to the same banner.
+    fn same(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.leaving, &other.leaving)
+    }
+
+    /// Re-render from `view`, which a replacement may have changed wholesale.
+    fn update(&self, view: &ToastView) {
+        let notification = &view.notification;
+
+        set_text(&self.summary, &notification.summary);
+        markup::apply(&self.body, &notification.body);
+        self.body.set_visible(!notification.body.is_empty());
+
+        while let Some(child) = self.icon.first_child() {
+            self.icon.remove(&child);
+        }
+        self.icon
+            .append(&icon::image(&notification.icon, TOAST_ICON));
+
+        while let Some(child) = self.actions.first_child() {
+            self.actions.remove(&child);
+        }
+        let buttons: Vec<_> = notification.buttons().take(MAX_ACTIONS).collect();
+        self.actions.set_visible(!buttons.is_empty());
+        for action in buttons {
+            let button = Button::with_label(&action.label);
+            button.add_css_class(classes::TOAST_ACTION);
+            button.set_focus_on_click(false);
+            let key = action.key.clone();
+            let id = notification.id;
+            button.connect_clicked(move |button| {
+                invoke(id, &key, button.root().and_then(|root| root.surface()));
+            });
+            self.actions.append(&button);
+        }
+    }
+
+    /// Hover, click, and close: everything the pointer can do to a banner.
+    fn install_gestures(&self, services: &Services) {
+        let motion = gtk4::EventControllerMotion::new();
+        motion.connect_enter({
+            let this = self.clone();
+            let handle = services.notifications.handle().clone();
+            move |_, _, _| {
+                this.reveal_close(true);
+                let handle = handle.clone();
+                let id = this.id;
+                bridge::act(SCOPE, async move { handle.pause_toast(id).await });
+            }
+        });
+        motion.connect_leave({
+            let this = self.clone();
+            let handle = services.notifications.handle().clone();
+            move |_| {
+                this.reveal_close(false);
+                let handle = handle.clone();
+                let id = this.id;
+                bridge::act(SCOPE, async move { handle.resume_toast(id).await });
+            }
+        });
+        self.card.add_controller(motion);
+
+        self.close.connect_clicked({
+            let handle = services.notifications.handle().clone();
+            let id = self.id;
+            move |_| {
+                let handle = handle.clone();
+                bridge::act(SCOPE, async move { handle.dismiss_toast(id).await });
+            }
+        });
+
+        // A click anywhere else on the banner runs the default action when the
+        // sender offered one, and otherwise means "I have read it": the
+        // notification stays in the history, the banner does not.
+        let click = gtk4::GestureClick::new();
+        click.set_button(gdk::BUTTON_PRIMARY);
+        click.connect_released({
+            let services = services.clone();
+            let this = self.clone();
+            move |gesture, _, _, _| {
+                let receiver = services.notifications.state();
+                let default = receiver
+                    .borrow()
+                    .toasts
+                    .iter()
+                    .find(|toast| toast.notification.id == this.id)
+                    .and_then(|toast| toast.notification.default_action().cloned());
+
+                match default {
+                    Some(action) => {
+                        let surface = gesture
+                            .widget()
+                            .and_then(|widget| widget.root().and_then(|root| root.surface()));
+                        invoke(this.id, &action.key, surface);
+                    }
+                    None => {
+                        let handle = services.notifications.handle().clone();
+                        let id = this.id;
+                        bridge::act(SCOPE, async move { handle.dismiss_toast(id).await });
+                    }
+                }
+            }
+        });
+        self.card.add_controller(click);
+    }
+
+    /// Show or hide the close button.
+    fn reveal_close(&self, revealed: bool) {
+        self.close.set_sensitive(revealed);
+        self.close.set_opacity(f64::from(u8::from(revealed)));
+    }
+
+    /// Slide to `target` reveal, running `done` when it lands.
+    ///
+    /// With motion switched off the animator jumps straight to the end and
+    /// still calls `done`, so a banner leaving is removed either way.
+    fn slide(&self, target: f64, done: impl FnOnce() + 'static) {
+        let start = 1.0 - target;
+        let slide = self.slide.clone();
+        let card = self.card.clone();
+        let easing = if target > 0.0 {
+            Easing::EaseOutCubic
+        } else {
+            Easing::EaseInCubic
+        };
+
+        self.animation.start(
+            AnimationParams::new(SLIDE_MS).with_easing(easing),
+            Box::new(move |progress| {
+                let reveal = start + (target - start) * progress;
+                slide.set_reveal(reveal);
+                card.set_opacity(reveal);
+            }),
+            Some(Box::new(done)),
+        );
+    }
+}
+
+/// Ask the compositor for an activation token, then run the action.
+///
+/// The token is what lets the receiving application raise its own window; the
+/// action still fires without one, it just cannot take focus.
+fn invoke(id: u32, key: &str, surface: Option<gdk::Surface>) {
+    let token = activation::token(None, surface.as_ref());
+    let key = key.to_string();
+    let Some(handle) = bridge::notifications() else {
+        return;
+    };
+    bridge::act(
+        SCOPE,
+        async move { handle.invoke_action(id, key, token).await },
+    );
+}
+
+/// Set a label only when the text actually changed.
+fn set_text(label: &Label, text: &str) {
+    if label.text() != text {
+        label.set_text(text);
+    }
+}
+
+/// The banner surface's layer-shell window.
+fn build_window(monitor: &gdk::Monitor, top_margin: i32) -> Window {
+    let window = Window::builder().decorated(false).resizable(false).build();
+    window.add_css_class(classes::TOAST_WINDOW);
+
+    window.init_layer_shell();
+    window.set_namespace(Some("gnome-topbar-toast"));
+    // Overlay, not Top: a banner has to be readable over an open popover, and
+    // popovers are the only other thing the panel puts on Top.
+    window.set_layer(Layer::Overlay);
+    window.set_monitor(Some(monitor));
+    // Zero rather than -1, so the compositor anchors the surface below the
+    // bar's own exclusive zone instead of behind it.
+    window.set_exclusive_zone(0);
+    // Top alone: anchoring one edge of an axis centres the surface on the
+    // other, which is where a banner belongs.
+    window.set_anchor(Edge::Top, true);
+    window.set_margin(Edge::Top, top_margin);
+    window.set_keyboard_mode(KeyboardMode::None);
+    window
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outputs(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    #[test]
+    fn banners_follow_the_focused_output() {
+        let connectors = outputs(&["DP-2", "eDP-1"]);
+        assert_eq!(hosting_output(Some("eDP-1"), &connectors), Some("eDP-1"));
+        assert_eq!(hosting_output(Some("DP-2"), &connectors), Some("DP-2"));
+    }
+
+    #[test]
+    fn an_unknown_focused_output_falls_back_to_the_first() {
+        // Mid-hotplug the compositor names an output the panel has no bar on.
+        let connectors = outputs(&["DP-2", "eDP-1"]);
+        assert_eq!(hosting_output(Some("HDMI-A-1"), &connectors), Some("DP-2"));
+    }
+
+    #[test]
+    fn with_nothing_focused_the_first_monitor_hosts() {
+        let connectors = outputs(&["DP-2", "eDP-1"]);
+        assert_eq!(hosting_output(None, &connectors), Some("DP-2"));
+    }
+
+    #[test]
+    fn with_no_monitors_nothing_hosts() {
+        assert_eq!(hosting_output(Some("eDP-1"), &[]), None);
+        assert_eq!(hosting_output(None, &[]), None);
+    }
+
+    #[test]
+    fn exactly_one_monitor_ever_hosts() {
+        let connectors = outputs(&["DP-2", "eDP-1", "HDMI-A-1"]);
+        for focused in [None, Some("eDP-1"), Some("HDMI-A-1"), Some("nonsense")] {
+            let host = hosting_output(focused, &connectors);
+            assert_eq!(
+                connectors
+                    .iter()
+                    .filter(|name| Some(name.as_str()) == host)
+                    .count(),
+                1,
+                "focused {focused:?} picked {host:?}"
+            );
+        }
+    }
+}
