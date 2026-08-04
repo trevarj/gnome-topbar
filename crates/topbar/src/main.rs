@@ -9,6 +9,7 @@ mod anim;
 mod cli;
 mod ipc_client;
 mod panel;
+mod style;
 
 use std::process::ExitCode;
 
