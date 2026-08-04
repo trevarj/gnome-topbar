@@ -26,6 +26,16 @@
 #                                    odd one ends reopened onto retained
 #                                    content.
 #
+#                         It also takes the name of a registered action for a
+#                         surface that is not a popover at all:
+#
+#                           weather-setup  the weather location dialog
+#
+#   TOPBAR_SMOKE_QUERY    seeds the weather location dialog's search box and
+#                         runs the search, so it can be photographed with
+#                         results in it. There is no synthetic keyboard here
+#                         any more than there is a pointer.
+#
 #   TOPBAR_SMOKE_DRIVER   a shell script run inside the nested session once
 #                         the panel is up, instead of the default "wait,
 #                         then take one screenshot". It is given

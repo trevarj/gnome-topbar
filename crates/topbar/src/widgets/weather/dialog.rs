@@ -81,11 +81,21 @@ pub fn present(config: &WeatherConfig, services: &Services, anchor: &impl IsA<gt
 
     // The gear that opened this usually lives inside a popover, and a menu
     // still on screen behind a modal reads as two things being open at once.
-    popovers::dispatch(&topbar_core::ipc::PopoverAction::Hide(None), None);
+    close_popovers();
+    // Again once the event that got us here has finished propagating. The
+    // other way in is a click on the widget itself, which the popover's own
+    // gesture is also watching: claiming the sequence should stop it, but
+    // "should" is not something to leave a stray menu behind a modal on.
+    glib::idle_add_local_once(close_popovers);
 
     let dialog = Dialog::new(config, services, monitor_of(anchor).as_ref());
     CURRENT.with_borrow_mut(|current| *current = Some(Rc::clone(&dialog)));
     dialog.open();
+}
+
+/// Take down whatever popover is on screen.
+fn close_popovers() {
+    popovers::dispatch(&topbar_core::ipc::PopoverAction::Hide(None), None);
 }
 
 /// Close whatever is open. Used by the panel's own teardown and by Escape.
