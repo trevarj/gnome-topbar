@@ -13,11 +13,19 @@ authors.workspace = true
 # it. Never enabled for the packaged panel; the visual smoke run turns it on
 # to put players on its private bus.
 fake-player = []
+# The same arrangement for the tray: `topbar-fake-sni` puts a
+# StatusNotifierItem with a real dbusmenu on the smoke run's private bus.
+fake-sni = []
 
 [[bin]]
 name = "topbar-fake-player"
 path = "src/bin/fake_player.rs"
 required-features = ["fake-player"]
+
+[[bin]]
+name = "topbar-fake-sni"
+path = "src/bin/fake_sni.rs"
+required-features = ["fake-sni"]
 
 [dependencies]
 topbar-core = { workspace = true }

@@ -18,6 +18,7 @@ use crate::media::Media;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
 use crate::state_store::StateStore;
+use crate::tray::{DEFAULT_ICON_SIZE, Tray};
 use crate::weather::Weather;
 
 static RUNTIME: OnceLock<runtime::Runtime> = OnceLock::new();
@@ -64,6 +65,8 @@ pub struct Services {
     pub weather: Weather,
     /// Crypto prices, as one cache for the whole panel.
     pub crypto: Crypto,
+    /// The system tray.
+    pub tray: Tray,
 }
 
 impl Services {
@@ -75,6 +78,13 @@ impl Services {
         let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
         let weather = config.widgets.weather.clone();
         let crypto = config.widgets.crypto.clone();
+        // The tray picks its pixmaps for the size the widget will draw them
+        // at, so the icon that arrives is the icon that is shown.
+        let icon_size = config
+            .widgets
+            .tray
+            .pixmap_icon_size
+            .map_or(DEFAULT_ICON_SIZE, |size| size as i32);
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -89,6 +99,7 @@ impl Services {
                 media: Media::start(None),
                 weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
+                tray: Tray::start(icon_size, None),
                 connectivity,
             }
         })

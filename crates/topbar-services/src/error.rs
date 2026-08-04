@@ -48,6 +48,14 @@ pub enum SvcError {
     #[error("no media player answered: {0}")]
     NoPlayer(String),
 
+    /// The tray item the panel was asked to act on has left the bus.
+    #[error("no tray item answered: {0}")]
+    NoTrayItem(String),
+
+    /// The tray item is there, but it publishes no menu to open.
+    #[error("tray item {0} has no menu")]
+    NoTrayMenu(String),
+
     /// A request to a web service failed, or it answered with an error.
     ///
     /// Carries the reason as text for the same reason [`SvcError::Bus`] does:
@@ -87,6 +95,8 @@ impl SvcError {
             Self::NameTaken(_) => "Another notification daemon is running",
             Self::GoneNotification(_) => "That notification is no longer available",
             Self::NoPlayer(_) => "No media player is available",
+            Self::NoTrayItem(_) => "That tray icon is no longer there",
+            Self::NoTrayMenu(_) => "That tray icon has no menu",
             Self::Http(_) => "Could not reach the service",
             Self::RateLimited(_) => "Rate limited, retrying later",
             Self::Coordinates(_) => "Those coordinates are out of range",
@@ -111,6 +121,8 @@ mod tests {
             SvcError::NameTaken("org.freedesktop.Notifications".into()),
             SvcError::GoneNotification(7),
             SvcError::NoPlayer("org.mpris.MediaPlayer2.spotify".into()),
+            SvcError::NoTrayItem(":1.42/StatusNotifierItem".into()),
+            SvcError::NoTrayMenu(":1.42/StatusNotifierItem".into()),
             SvcError::Http("connection timed out".into()),
             SvcError::RateLimited("you have exceeded the rate limit".into()),
             SvcError::Coordinates("100, 0".into()),
