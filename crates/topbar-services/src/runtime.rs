@@ -12,8 +12,12 @@ use niri_ipc::socket::SOCKET_PATH_ENV;
 use tokio::runtime;
 use topbar_core::Config;
 
+use crate::audio::Audio;
+use crate::brightness::Brightness;
 use crate::connectivity::Connectivity;
 use crate::crypto::Crypto;
+use crate::inhibitor::Inhibitor;
+use crate::ipc::Ipc;
 use crate::media::Media;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
@@ -67,6 +71,14 @@ pub struct Services {
     pub crypto: Crypto,
     /// The system tray.
     pub tray: Tray,
+    /// The sound server.
+    pub audio: Audio,
+    /// The screen backlight.
+    pub brightness: Brightness,
+    /// The idle inhibitor.
+    pub inhibitor: Inhibitor,
+    /// The socket `topbar` commands arrive on.
+    pub ipc: Ipc,
 }
 
 impl Services {
@@ -85,6 +97,7 @@ impl Services {
             .tray
             .pixmap_icon_size
             .map_or(DEFAULT_ICON_SIZE, |size| size as i32);
+        let allow_overdrive = config.audio.allow_overdrive;
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -100,6 +113,10 @@ impl Services {
                 weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
                 tray: Tray::start(icon_size, None),
+                audio: Audio::start(allow_overdrive),
+                brightness: Brightness::start(None),
+                inhibitor: Inhibitor::start(None),
+                ipc: Ipc::start(),
                 connectivity,
             }
         })

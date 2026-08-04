@@ -68,6 +68,8 @@ pub enum IpcRequest {
     Dump {
         /// What to dump.
         target: DumpTarget,
+        /// Render it as JSON rather than as the human-readable form.
+        json: bool,
     },
 }
 
@@ -144,6 +146,8 @@ pub enum DumpTarget {
     Config,
     /// A snapshot of live service state.
     State,
+    /// Both of the above: what `topbar dump` with no target prints.
+    All,
 }
 
 /// Framing errors for the length-prefixed JSON protocol.

@@ -27,4 +27,11 @@ pub enum Error {
     /// Configuration warnings were treated as errors (`--strict`).
     #[error("config warnings treated as errors (--strict):\n{}", .0.join("\n"))]
     StrictWarnings(Vec<String>),
+
+    /// The configuration could not be written back out.
+    ///
+    /// Only `topbar dump` can reach this: nothing on the panel's own paths
+    /// serialises a configuration.
+    #[error("failed to render the config: {0}")]
+    Serialize(String),
 }

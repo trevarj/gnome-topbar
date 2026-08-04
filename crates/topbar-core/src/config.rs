@@ -21,7 +21,7 @@ use std::env;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use toml::Table;
 
 use crate::error::{Error, Result};
@@ -268,7 +268,7 @@ enum WidgetScope {
 // ---------------------------------------------------------------------------
 
 /// Root configuration.
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Panel geometry and background.
@@ -518,6 +518,21 @@ impl Config {
             warnings: Vec::new(),
             legacy_location: None,
         })
+    }
+
+    /// The configuration as TOML, defaults and all.
+    ///
+    /// This is what `topbar dump config` prints: the *effective* settings, not
+    /// the file the user wrote. Anything the file left out appears here with
+    /// the value the panel is actually using, which is the question the
+    /// command exists to answer.
+    pub fn to_toml(&self) -> Result<String> {
+        toml::to_string_pretty(self).map_err(|error| Error::Serialize(error.to_string()))
+    }
+
+    /// The configuration as JSON, for `topbar dump --json`.
+    pub fn to_json(&self) -> Result<serde_json::Value> {
+        serde_json::to_value(self).map_err(|error| Error::Serialize(error.to_string()))
     }
 
     /// Paths searched, in order, when no `--config` is given.
@@ -879,7 +894,7 @@ const BAR_KEYS: &[&str] = &[
 ];
 
 /// Panel geometry and background.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BarConfig {
     /// Screen edge the bar occupies. v2 supports `"top"` only.
@@ -948,7 +963,7 @@ const WIDGETS_KEYS: &[&str] = &[
 ];
 
 /// Widget placement plus every per-widget section.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WidgetsConfig {
     /// Widgets in the left section, in order.
@@ -1070,7 +1085,7 @@ const WORKSPACES_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.workspaces]` — GNOME Activities-style dots with an active pill.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspacesConfig {
     /// Indicator label: `"none"`, `"index"`, or `"name"`.
@@ -1125,7 +1140,7 @@ const CLOCK_KEYS: &[&str] = &[
 ];
 
 /// A secondary time zone shown in the control panel.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldClock {
     /// Display name for the row.
     pub label: String,
@@ -1134,7 +1149,7 @@ pub struct WorldClock {
 }
 
 /// `[widgets.clock]` — panel clock and the GNOME date-menu control panel.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ClockConfig {
     /// `strftime` format for the panel label.
@@ -1196,7 +1211,7 @@ const WEATHER_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.weather]` — Open-Meteo current conditions and forecast.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WeatherConfig {
     /// Latitude. Unset falls back to the coordinates saved by the widget.
@@ -1281,7 +1296,7 @@ const CRYPTO_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.crypto]` — CoinGecko prices for a closed set of assets.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CryptoConfig {
     /// Entries: a single asset (`"btc"`) or a pair ratio (`"eth/btc"`).
@@ -1346,7 +1361,7 @@ const TRAY_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.tray]` — StatusNotifierItem host.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TrayConfig {
     /// Icons shown inline before the overflow chevron appears.
@@ -1394,7 +1409,7 @@ const QUICK_SETTINGS_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.quick_settings]` — the GNOME 45-style aggregate menu.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct QuickSettingsConfig {
     /// Show the Wi-Fi/wired network row.
@@ -1483,7 +1498,7 @@ const SYSTEM_MONITOR_KEYS: &[&str] = &[
 ///
 /// The widget stays invisible while every metric is healthy and fades in with
 /// warning-tinted icons once a threshold is crossed.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SystemMonitorConfig {
     /// CPU usage percentage that makes the widget appear.
@@ -1549,7 +1564,7 @@ const HEADSET_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.headset]` — `headsetcontrol` battery indicator.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HeadsetConfig {
     /// Seconds between polls.
@@ -1603,7 +1618,7 @@ const KEYBOARD_LAYOUT_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.keyboard_layout]` — active xkb layout indicator.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KeyboardLayoutConfig {
     /// Show the keyboard icon.
@@ -1654,7 +1669,7 @@ const OS_LOGO_KEYS: &[&str] = &[
 ];
 
 /// `[widgets.os_logo]` — distro glyph read from `/etc/os-release`.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OsLogoConfig {
     /// Tooltip override. Unset uses the detected distro name.
@@ -1702,7 +1717,7 @@ const CUSTOM_KEYS: &[&str] = &[
 ///
 /// `exec` output is read as a plain first line or as Waybar-style JSON
 /// (`{"text": …, "tooltip": …, "class": …}`).
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomWidgetConfig {
     /// Shell command whose output becomes the label.
@@ -1758,7 +1773,7 @@ const THEME_KEYS: &[&str] = &[
 ];
 
 /// `[theme]` — dark-only palette, motion, icons, typography.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeConfig {
     /// Accepted for compatibility; `"dark"` is the only value v2 honors.
@@ -1820,7 +1835,7 @@ impl ThemeConfig {
 const THEME_ICONS_KEYS: &[&str] = &["theme", "weight"];
 
 /// `[theme.icons]`
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeIcons {
     /// GTK icon theme name.
@@ -1841,7 +1856,7 @@ impl Default for ThemeIcons {
 const THEME_STATES_KEYS: &[&str] = &["success", "warning", "urgent"];
 
 /// `[theme.states]`
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeStates {
     /// Success/connected tint.
@@ -1865,7 +1880,7 @@ impl Default for ThemeStates {
 const THEME_TYPOGRAPHY_KEYS: &[&str] = &["font_family"];
 
 /// `[theme.typography]`
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeTypography {
     /// CSS font stack for panel and popover text.
@@ -1883,7 +1898,7 @@ impl Default for ThemeTypography {
 const OSD_KEYS: &[&str] = &["enabled", "position", "show_value", "timeout_ms"];
 
 /// `[osd]` — the volume/brightness capsule.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OsdConfig {
     /// Show the OSD at all.
@@ -1919,7 +1934,7 @@ impl OsdConfig {
 const AUDIO_KEYS: &[&str] = &["allow_overdrive"];
 
 /// `[audio]`
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioConfig {
     /// Allow volume above 100%, capped at PulseAudio's recommended UI maximum.
@@ -1932,7 +1947,7 @@ const UPDATES_KEYS: &[&str] = &["check_interval", "update_count_command"];
 ///
 /// With no `update_count_command` the service auto-detects the distro's package
 /// manager (guix, nix/NixOS, debian, arch, fedora, fedora silverblue).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UpdatesConfig {
     /// Seconds between update checks.
@@ -1959,7 +1974,7 @@ impl UpdatesConfig {
 const ADVANCED_KEYS: &[&str] = &["compositor", "pango_font_rendering"];
 
 /// `[advanced]`
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AdvancedConfig {
     /// Compositor backend: `"auto"` or `"niri"` (both use the niri backend).
@@ -2531,5 +2546,33 @@ check_interval = 30
             "config found at legacy path ~/.config/gnome-topbar/config.toml; \
              move it to ~/.config/topbar/config.toml"
         );
+    }
+
+    #[test]
+    fn the_dumped_config_parses_back_to_the_same_config() {
+        // `topbar dump config` is only useful if what it prints is a config
+        // file, so the round trip is the contract rather than the format.
+        let (config, _) = Config::parse(EXAMPLE_CONFIG_TOML).expect("the example parses");
+        let dumped = config.to_toml().expect("a config renders");
+        let (again, warnings) = Config::parse(&dumped).expect("the dump parses");
+        assert_eq!(again, config);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn the_dump_states_the_defaults_the_file_left_out() {
+        let (config, _) = Config::parse("[bar]\nsize = 40\n").expect("a minimal config");
+        let dumped = config.to_toml().expect("a config renders");
+        assert!(dumped.contains("size = 40"));
+        // Nothing in that file mentioned the OSD, and the dump has to.
+        assert!(dumped.contains("timeout_ms = 1500"), "{dumped}");
+    }
+
+    #[test]
+    fn the_json_dump_carries_the_same_values() {
+        let config = Config::default();
+        let json = config.to_json().expect("a config renders as JSON");
+        assert_eq!(json["bar"]["size"], serde_json::json!(36));
+        assert_eq!(json["osd"]["position"], serde_json::json!("bottom"));
     }
 }

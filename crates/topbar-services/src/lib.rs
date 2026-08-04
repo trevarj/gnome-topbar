@@ -9,9 +9,15 @@
 
 #![warn(missing_docs)]
 
+pub mod audio;
+pub mod brightness;
+pub mod change;
 pub mod connectivity;
 pub mod crypto;
 pub mod error;
+pub mod inhibitor;
+pub mod ipc;
+pub mod logind;
 pub mod media;
 pub mod niri;
 pub mod notifications;
@@ -31,9 +37,13 @@ mod private_bus;
 /// accidentally do async work on the main thread.
 pub use tokio::sync::watch;
 
+pub use audio::{Audio, AudioHandle, AudioState, DeviceView};
+pub use brightness::{Brightness, BrightnessHandle, BrightnessState};
+pub use change::{Change, ChangeSource};
 pub use connectivity::{Connectivity, ConnectivityState};
 pub use crypto::{Asset, Crypto, CryptoHandle, CryptoState, Entry, EntryQuote, Quote};
 pub use error::SvcError;
+pub use inhibitor::{Inhibitor, InhibitorHandle, InhibitorState};
 pub use media::{ArtRef, Media, MediaHandle, MediaState, PlaybackStatus, PlayerView};
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
 pub use notifications::{
