@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+mod anim;
 mod cli;
 mod ipc_client;
 mod panel;
