@@ -1,5 +1,5 @@
 {
-  description = "gnome-topbar - GNOME Shell-style top bar for niri (GTK4 + layer-shell)";
+  description = "topbar - GNOME Shell-style top bar for niri (GTK4 + layer-shell)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
@@ -38,7 +38,7 @@
 
       commonArgs = {
         inherit src;
-        pname = "gnome-topbar";
+        pname = "topbar";
         version = "2.0.0";
         strictDeps = true;
         nativeBuildInputs = with pkgs; [
@@ -72,15 +72,15 @@
 
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-      gnome-topbar = craneLib.buildPackage (
+      topbar = craneLib.buildPackage (
         commonArgs
         // {
           inherit cargoArtifacts;
-          cargoExtraArgs = "-p gnome-topbar";
+          cargoExtraArgs = "-p topbar";
           meta = {
             description = "GNOME Shell-inspired GTK4 top bar for niri";
             license = lib.licenses.mit;
-            mainProgram = "gnome-topbar";
+            mainProgram = "topbar";
             platforms = [ "x86_64-linux" ];
           };
         }
@@ -99,24 +99,24 @@
     in
     {
       packages.${system} = {
-        default = gnome-topbar;
-        inherit gnome-topbar;
+        default = topbar;
+        inherit topbar;
       };
 
       overlays.default = final: prev: {
-        gnome-topbar = self.packages.${final.stdenv.hostPlatform.system}.default;
+        topbar = self.packages.${final.stdenv.hostPlatform.system}.default;
       };
 
       apps.${system}.default = {
         type = "app";
-        program = lib.getExe gnome-topbar;
+        program = lib.getExe topbar;
       };
 
       checks.${system} = {
-        build = gnome-topbar;
+        build = topbar;
         fmt = craneLib.cargoFmt {
           inherit src;
-          pname = "gnome-topbar";
+          pname = "topbar";
           version = "2.0.0";
         };
         clippy = craneLib.cargoClippy (

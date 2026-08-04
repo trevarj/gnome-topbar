@@ -118,7 +118,7 @@ mod tests {
     fn socket_path() -> PathBuf {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let path = std::env::temp_dir().join(format!(
-            "gnome-topbar-test-{}-{}.sock",
+            "topbar-test-{}-{}.sock",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

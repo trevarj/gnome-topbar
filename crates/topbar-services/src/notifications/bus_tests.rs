@@ -127,7 +127,7 @@ trait Client {
 /// A daemon serving on `bus`, with a scratch state file.
 async fn serving(bus: &PrivateBus, label: &str) -> Notifications {
     let path = std::env::temp_dir()
-        .join(format!("gnome-topbar-bus-{}-{label}", std::process::id()))
+        .join(format!("topbar-bus-{}-{label}", std::process::id()))
         .join("state.json");
     let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
 
@@ -172,7 +172,7 @@ async fn the_daemon_introduces_itself_the_way_the_specification_asks() {
         .get_server_information()
         .await
         .expect("GetServerInformation is answered");
-    assert_eq!(name, "gnome-topbar");
+    assert_eq!(name, "topbar");
     assert_eq!(vendor, "trevarj");
     assert_eq!(version, env!("CARGO_PKG_VERSION"));
     assert_eq!(spec, "1.2");
@@ -485,7 +485,7 @@ async fn a_daemon_that_will_not_step_aside_is_reported_rather_than_fought() {
     assert_eq!(reply, zbus::fdo::RequestNameReply::PrimaryOwner);
 
     let path = std::env::temp_dir()
-        .join(format!("gnome-topbar-bus-{}-taken", std::process::id()))
+        .join(format!("topbar-bus-{}-taken", std::process::id()))
         .join("state.json");
     let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
     let (_, store) = StateStore::open_at(path);
@@ -516,7 +516,7 @@ async fn a_daemon_that_will_not_step_aside_is_reported_rather_than_fought() {
 #[tokio::test]
 async fn an_unreachable_bus_is_reported_rather_than_fatal() {
     let path = std::env::temp_dir()
-        .join(format!("gnome-topbar-bus-{}-nobus", std::process::id()))
+        .join(format!("topbar-bus-{}-nobus", std::process::id()))
         .join("state.json");
     let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
     let (_, store) = StateStore::open_at(path);
@@ -524,7 +524,7 @@ async fn an_unreachable_bus_is_reported_rather_than_fatal() {
     let notifications = Notifications::start(
         PersistedNotifications::default(),
         store,
-        Some("unix:path=/nonexistent/gnome-topbar-no-such-bus".to_string()),
+        Some("unix:path=/nonexistent/topbar-no-such-bus".to_string()),
     );
 
     let error = notifications

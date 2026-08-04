@@ -594,7 +594,7 @@ fn build_window(monitor: &gdk::Monitor, top_margin: i32) -> Window {
     window.add_css_class(classes::TOAST_WINDOW);
 
     window.init_layer_shell();
-    window.set_namespace(Some("gnome-topbar-toast"));
+    window.set_namespace(Some("topbar-toast"));
     // Overlay, not Top: a banner has to be readable over an open popover, and
     // popovers are the only other thing the panel puts on Top.
     window.set_layer(Layer::Overlay);

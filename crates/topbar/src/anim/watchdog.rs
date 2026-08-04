@@ -16,7 +16,7 @@
 //!   drawing, so lateness is a direct reading of "was the main thread busy",
 //!   and it stays honest in a throttled nested session.
 //!
-//! Off unless `GNOME_TOPBAR_FRAME_WATCHDOG=1`. The tick callback keeps the
+//! Off unless `TOPBAR_FRAME_WATCHDOG=1`. The tick callback keeps the
 //! frame clock running continuously, which is what you want while stress
 //! testing and emphatically not what you want in a panel that should sit idle.
 
@@ -29,7 +29,7 @@ use gtk4::prelude::*;
 use tracing::{info, warn};
 
 /// Set this to `1` to turn the watchdog on.
-const ENV_VAR: &str = "GNOME_TOPBAR_FRAME_WATCHDOG";
+const ENV_VAR: &str = "TOPBAR_FRAME_WATCHDOG";
 /// One vsync interval at 60 Hz, in microseconds.
 ///
 /// A 60 Hz frame clock ticks every ~16.7 ms, so "over 16 ms" is the normal

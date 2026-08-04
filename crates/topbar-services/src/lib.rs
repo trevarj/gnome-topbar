@@ -1,4 +1,4 @@
-//! Async system services for gnome-topbar.
+//! Async system services for topbar.
 //!
 //! Everything that talks to the outside world — D-Bus, niri, PulseAudio,
 //! subprocesses, the network — lives here and runs on a tokio runtime. The

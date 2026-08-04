@@ -15,7 +15,7 @@ use topbar_core::ipc::{
 };
 
 /// Message printed whenever the panel cannot be reached.
-pub const UNREACHABLE: &str = "could not reach gnome-topbar IPC socket (is the panel running?)";
+pub const UNREACHABLE: &str = "could not reach topbar IPC socket (is the panel running?)";
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 

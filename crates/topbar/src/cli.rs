@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-/// gnome-topbar - GNOME Shell-inspired GTK4 top bar for niri
+/// topbar - GNOME Shell-inspired GTK4 top bar for niri
 #[derive(Debug, Parser)]
-#[command(name = "gnome-topbar", version, about, long_about = None)]
+#[command(name = "topbar", version, about, long_about = None)]
 pub struct Cli {
     /// Path to the configuration file (uses the XDG lookup chain if omitted)
     #[arg(short, long, value_name = "PATH")]

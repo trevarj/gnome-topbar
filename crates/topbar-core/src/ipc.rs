@@ -1,7 +1,7 @@
 //! CLI ↔ panel IPC protocol.
 //!
 //! Messages travel over a `SOCK_STREAM` unix socket at
-//! `$XDG_RUNTIME_DIR/gnome-topbar.sock` as u32 length-prefixed (little-endian)
+//! `$XDG_RUNTIME_DIR/topbar.sock` as u32 length-prefixed (little-endian)
 //! JSON frames. Length prefixing removes v1's 256-byte datagram truncation and
 //! the versioned handshake lets an old CLI fail loudly against a new panel.
 
@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Socket file name inside `$XDG_RUNTIME_DIR`.
-pub const SOCKET_NAME: &str = "gnome-topbar.sock";
+pub const SOCKET_NAME: &str = "topbar.sock";
 
 /// Lock file name inside `$XDG_RUNTIME_DIR` guarding single-instance startup.
-pub const LOCK_NAME: &str = "gnome-topbar.lock";
+pub const LOCK_NAME: &str = "topbar.lock";
 
 /// Largest frame the panel or CLI will accept (1 MiB).
 pub const MAX_FRAME_LEN: u32 = 1024 * 1024;
@@ -134,7 +134,7 @@ pub enum MediaAction {
     Status,
 }
 
-/// What `gnome-topbar dump` should print.
+/// What `topbar dump` should print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DumpTarget {

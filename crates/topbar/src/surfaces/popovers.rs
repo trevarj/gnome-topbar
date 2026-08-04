@@ -10,7 +10,7 @@
 //! inside it.
 //!
 //! Every handle also registers itself under its widget name and connector, so
-//! `gnome-topbar popover show clock` has something to address. M8 wires the
+//! `topbar popover show clock` has something to address. M8 wires the
 //! IPC server to [`dispatch`]; the map it needs exists now.
 
 use std::cell::RefCell;
@@ -25,7 +25,7 @@ use crate::style::classes;
 use crate::surfaces::layer_popover::{Anchored, LayerPopover};
 
 /// Environment variable that auto-opens a widget's popover after start-up.
-const SMOKE_ENV: &str = "GNOME_TOPBAR_SMOKE_OPEN";
+const SMOKE_ENV: &str = "TOPBAR_SMOKE_OPEN";
 /// How long the smoke hook waits for the bar to settle before opening.
 const SMOKE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 /// Gap between toggles when the smoke hook is asked for repeat cycles.
@@ -224,7 +224,7 @@ fn unregister(entry: &Rc<Entry>) {
 /// Apply an IPC popover action, returning whether anything answered it.
 ///
 /// `connector` narrows the search to one monitor — M8 will pass the focused
-/// output's connector so `gnome-topbar popover show clock` opens on the
+/// output's connector so `topbar popover show clock` opens on the
 /// monitor the user is looking at. With no connector, or one that matches
 /// nothing, the first registered popover for that widget answers.
 pub fn dispatch(action: &PopoverAction, connector: Option<&str>) -> bool {
@@ -286,7 +286,7 @@ fn live_entries() -> Vec<Rc<Entry>> {
     })
 }
 
-/// Drive a widget's popover from the environment: `GNOME_TOPBAR_SMOKE_OPEN`.
+/// Drive a widget's popover from the environment: `TOPBAR_SMOKE_OPEN`.
 ///
 /// The nested-niri smoke test has no way to click anything — there is no
 /// synthetic pointer input in the dev shell — so this is how a screenshot of

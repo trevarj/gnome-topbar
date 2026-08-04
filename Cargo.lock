@@ -570,24 +570,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gnome-topbar"
-version = "2.0.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "clap",
- "gdk4-wayland",
- "gtk4",
- "gtk4-layer-shell",
- "serde_json",
- "topbar-core",
- "topbar-services",
- "tracing",
- "wayland-client",
- "wayland-protocols",
-]
-
-[[package]]
 name = "gobject-sys"
 version = "0.22.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1391,6 +1373,24 @@ name = "toml_writer"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+
+[[package]]
+name = "topbar"
+version = "2.0.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "clap",
+ "gdk4-wayland",
+ "gtk4",
+ "gtk4-layer-shell",
+ "serde_json",
+ "topbar-core",
+ "topbar-services",
+ "tracing",
+ "wayland-client",
+ "wayland-protocols",
+]
 
 [[package]]
 name = "topbar-core"

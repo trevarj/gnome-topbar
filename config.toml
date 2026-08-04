@@ -1,13 +1,13 @@
 # =============================================================================
-# gnome-topbar configuration
+# topbar configuration
 # =============================================================================
 #
 # This file is the built-in default, compiled into the binary. Your own config
-# lives at ~/.config/gnome-topbar/config.toml and only needs the keys you want
-# to change — every unset key falls back to the value shown here.
+# lives at ~/.config/topbar/config.toml and only needs the keys you want to
+# change — every unset key falls back to the value shown here.
 #
-#   gnome-topbar --check-config          Validate configuration and exit
-#   gnome-topbar --print-example-config  Print this file
+#   topbar --check-config          Validate configuration and exit
+#   topbar --print-example-config  Print this file
 #
 # =============================================================================
 

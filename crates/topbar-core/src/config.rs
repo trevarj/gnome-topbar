@@ -298,6 +298,113 @@ pub struct ConfigLoad {
     pub used_defaults: bool,
     /// Non-fatal diagnostics collected while parsing.
     pub warnings: Vec<Warning>,
+    /// Set when the file was found under the project's former name.
+    ///
+    /// Deliberately not a [`Warning`]: those are about the file's *contents*
+    /// and `--strict` turns them into errors. Where the file sits is a
+    /// deprecation, not a mistake, and it must not fail a strict start.
+    pub legacy_location: Option<LegacyLocation>,
+}
+
+/// A config file found through the pre-rename `gnome-topbar` directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyLocation {
+    /// Where the file was found.
+    pub found: PathBuf,
+    /// Where it belongs now.
+    pub expected: PathBuf,
+}
+
+impl fmt::Display for LegacyLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "config found at legacy path {}; move it to {}",
+            abbreviate_home(&self.found).display(),
+            abbreviate_home(&self.expected).display()
+        )
+    }
+}
+
+/// Render `path` with `$HOME` written back as `~`, for messages people read.
+fn abbreviate_home(path: &Path) -> PathBuf {
+    let Ok(home) = env::var("HOME") else {
+        return path.to_path_buf();
+    };
+    if home.is_empty() {
+        return path.to_path_buf();
+    }
+    match path.strip_prefix(&home) {
+        Ok(rest) => Path::new("~").join(rest),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// Directory the config lives in, under an XDG config base.
+const CONFIG_DIR: &str = "topbar";
+/// The same directory under the project's former name, still honoured.
+const LEGACY_CONFIG_DIR: &str = "gnome-topbar";
+/// File name inside either directory.
+const CONFIG_FILE: &str = "config.toml";
+
+/// One entry in the config search chain.
+struct Candidate {
+    /// Where to look.
+    path: PathBuf,
+    /// The current-name path this entry stands in for, if it is a legacy one.
+    supersedes: Option<PathBuf>,
+}
+
+impl Candidate {
+    /// The deprecation this candidate carries, if any.
+    fn legacy_location(&self) -> Option<LegacyLocation> {
+        self.supersedes.clone().map(|expected| LegacyLocation {
+            found: self.path.clone(),
+            expected,
+        })
+    }
+}
+
+/// The search chain for the current environment.
+fn search_candidates() -> Vec<Candidate> {
+    chain_from(
+        env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        env::var("HOME").ok().as_deref(),
+    )
+}
+
+/// The search chain for a given environment, so tests need not mutate one.
+fn chain_from(xdg_config_home: Option<&str>, home: Option<&str>) -> Vec<Candidate> {
+    let mut bases = Vec::new();
+    if let Some(xdg) = xdg_config_home.filter(|value| !value.is_empty()) {
+        bases.push(PathBuf::from(xdg));
+    }
+    if let Some(home) = home.filter(|value| !value.is_empty()) {
+        bases.push(PathBuf::from(home).join(".config"));
+    }
+
+    let current = |base: &PathBuf| base.join(CONFIG_DIR).join(CONFIG_FILE);
+
+    let mut candidates: Vec<Candidate> = bases
+        .iter()
+        .map(|base| Candidate {
+            path: current(base),
+            supersedes: None,
+        })
+        .collect();
+    // Every legacy directory sorts after every current one, so a user who has
+    // already moved the file never sees the deprecation notice.
+    candidates.extend(bases.iter().map(|base| Candidate {
+        path: base.join(LEGACY_CONFIG_DIR).join(CONFIG_FILE),
+        supersedes: Some(current(base)),
+    }));
+    // The working directory stays last and stays un-namespaced: it is the
+    // dev-shell convenience, not a place users keep configuration.
+    candidates.push(Candidate {
+        path: PathBuf::from(CONFIG_FILE),
+        supersedes: None,
+    });
+    candidates
 }
 
 impl Config {
@@ -373,10 +480,12 @@ impl Config {
     /// Resolve the config search chain and load the first file that exists.
     ///
     /// An explicit path is used strictly: it must exist and parse, with no
-    /// fallback. Otherwise the XDG chain is searched
-    /// (`$XDG_CONFIG_HOME/gnome-topbar/config.toml`,
-    /// `~/.config/gnome-topbar/config.toml`, `./config.toml`) and built-in
-    /// defaults are used only when no file exists anywhere.
+    /// fallback — and never reports a legacy location, because the caller
+    /// named the file it wanted. Otherwise the XDG chain is searched
+    /// (`$XDG_CONFIG_HOME/topbar/config.toml`, `~/.config/topbar/config.toml`,
+    /// then the same two under the project's former `gnome-topbar` name, then
+    /// `./config.toml`) and built-in defaults are used only when no file
+    /// exists anywhere.
     pub fn find_and_load(explicit_path: Option<&Path>) -> Result<ConfigLoad> {
         if let Some(path) = explicit_path {
             let (config, warnings) = Self::load_file(path)?;
@@ -385,17 +494,19 @@ impl Config {
                 source: Some(path.to_path_buf()),
                 used_defaults: false,
                 warnings,
+                legacy_location: None,
             });
         }
 
-        for path in Self::search_paths() {
-            if path.exists() {
-                let (config, warnings) = Self::load_file(&path)?;
+        for candidate in search_candidates() {
+            if candidate.path.exists() {
+                let (config, warnings) = Self::load_file(&candidate.path)?;
                 return Ok(ConfigLoad {
                     config,
-                    source: Some(path),
-                    used_defaults: false,
                     warnings,
+                    used_defaults: false,
+                    legacy_location: candidate.legacy_location(),
+                    source: Some(candidate.path),
                 });
             }
         }
@@ -405,24 +516,16 @@ impl Config {
             source: None,
             used_defaults: true,
             warnings: Vec::new(),
+            legacy_location: None,
         })
     }
 
     /// Paths searched, in order, when no `--config` is given.
     pub fn search_paths() -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        if let Ok(xdg_config) = env::var("XDG_CONFIG_HOME")
-            && !xdg_config.is_empty()
-        {
-            paths.push(PathBuf::from(xdg_config).join("gnome-topbar/config.toml"));
-        }
-        if let Ok(home) = env::var("HOME")
-            && !home.is_empty()
-        {
-            paths.push(PathBuf::from(home).join(".config/gnome-topbar/config.toml"));
-        }
-        paths.push(PathBuf::from("config.toml"));
-        paths
+        search_candidates()
+            .into_iter()
+            .map(|candidate| candidate.path)
+            .collect()
     }
 
     /// Best-effort read of `[audio] allow_overdrive` alone.
@@ -2340,7 +2443,7 @@ check_interval = 30
 
     #[test]
     fn missing_explicit_config_is_not_found() {
-        let err = Config::load_file(Path::new("/nonexistent/gnome-topbar.toml")).unwrap_err();
+        let err = Config::load_file(Path::new("/nonexistent/topbar.toml")).unwrap_err();
         assert!(matches!(err, Error::NotFound(_)));
     }
 
@@ -2362,5 +2465,71 @@ check_interval = 30
             message: "gone".to_string(),
         };
         assert_eq!(warning.to_string(), "theme.scheme: gone");
+    }
+
+    /// The search chain as strings, for readable assertions.
+    fn chain(xdg: Option<&str>, home: Option<&str>) -> Vec<String> {
+        chain_from(xdg, home)
+            .into_iter()
+            .map(|candidate| candidate.path.display().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_current_name_is_searched_before_the_old_one() {
+        assert_eq!(
+            chain(None, Some("/home/u")),
+            [
+                "/home/u/.config/topbar/config.toml",
+                "/home/u/.config/gnome-topbar/config.toml",
+                "config.toml",
+            ]
+        );
+    }
+
+    #[test]
+    fn xdg_config_home_wins_over_home_at_every_name() {
+        assert_eq!(
+            chain(Some("/xdg"), Some("/home/u")),
+            [
+                "/xdg/topbar/config.toml",
+                "/home/u/.config/topbar/config.toml",
+                "/xdg/gnome-topbar/config.toml",
+                "/home/u/.config/gnome-topbar/config.toml",
+                "config.toml",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_environment_leaves_only_the_working_directory() {
+        assert_eq!(chain(Some(""), Some("")), ["config.toml"]);
+    }
+
+    #[test]
+    fn only_the_old_directories_carry_a_deprecation() {
+        for candidate in chain_from(Some("/xdg"), Some("/home/u")) {
+            let is_legacy = candidate.path.to_string_lossy().contains("gnome-topbar");
+            assert_eq!(
+                candidate.legacy_location().is_some(),
+                is_legacy,
+                "{}",
+                candidate.path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn the_deprecation_names_both_paths_with_home_abbreviated() {
+        let home = env::var("HOME").expect("tests run with HOME set");
+        let location = LegacyLocation {
+            found: PathBuf::from(&home).join(".config/gnome-topbar/config.toml"),
+            expected: PathBuf::from(&home).join(".config/topbar/config.toml"),
+        };
+        assert_eq!(
+            location.to_string(),
+            "config found at legacy path ~/.config/gnome-topbar/config.toml; \
+             move it to ~/.config/topbar/config.toml"
+        );
     }
 }

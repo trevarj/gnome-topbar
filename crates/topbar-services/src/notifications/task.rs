@@ -27,7 +27,7 @@ use super::policy::{self, Admission};
 use super::server::{NOTIFICATIONS_PATH, Server};
 
 /// What the panel calls itself when it reports its own failures.
-pub(super) const INTERNAL_APP: &str = "gnome-topbar";
+pub(super) const INTERNAL_APP: &str = "topbar";
 
 /// A `Notify` call, parsed.
 #[derive(Debug)]

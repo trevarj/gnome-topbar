@@ -16,7 +16,7 @@ struct LayoutEntry {
 
 /// Layout mapping table covering the most common XKB layouts.
 ///
-/// Sourced from gnome-topbar stargazer demographics, common Wayland desktop
+/// Sourced from topbar stargazer demographics, common Wayland desktop
 /// layouts, and the XKB rules database. See `evdev.xml` for the full list
 /// of XKB layouts — this table is intentionally kept small.
 const LAYOUTS: &[LayoutEntry] = &[

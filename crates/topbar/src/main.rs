@@ -1,4 +1,4 @@
-//! gnome-topbar — GNOME Shell-inspired GTK4 top bar for niri.
+//! topbar — GNOME Shell-inspired GTK4 top bar for niri.
 //!
 //! The binary is both the panel and its command-line client: with no
 //! subcommand it loads the configuration and runs the bar, and every
@@ -58,6 +58,9 @@ fn main() -> ExitCode {
         for warning in &load.warnings {
             warn!("{warning}");
         }
+        if let Some(legacy) = &load.legacy_location {
+            warn!("{legacy}");
+        }
     }
 
     if cli.strict && !load.warnings.is_empty() {
@@ -87,6 +90,9 @@ fn report_check(load: &ConfigLoad) -> ExitCode {
     match &load.source {
         Some(source) => println!("Configuration valid: {}", source.display()),
         None => println!("Configuration valid (using defaults)"),
+    }
+    if let Some(legacy) = &load.legacy_location {
+        eprintln!("Warning: {legacy}");
     }
     for warning in &load.warnings {
         eprintln!("Warning: {warning}");
@@ -238,7 +244,7 @@ mod tests {
     #[test]
     fn v1_flags_still_parse() {
         let cli = Cli::try_parse_from([
-            "gnome-topbar",
+            "topbar",
             "-c",
             "/tmp/config.toml",
             "-vv",
@@ -258,14 +264,14 @@ mod tests {
     #[test]
     fn v1_subcommands_still_parse() {
         for args in [
-            vec!["gnome-topbar", "volume", "inc", "5"],
-            vec!["gnome-topbar", "brightness", "set", "40"],
-            vec!["gnome-topbar", "inhibit", "toggle"],
-            vec!["gnome-topbar", "media", "play-pause"],
-            vec!["gnome-topbar", "bar", "toggle"],
-            vec!["gnome-topbar", "popover", "toggle", "clock"],
-            vec!["gnome-topbar", "reload"],
-            vec!["gnome-topbar", "dump", "default-config"],
+            vec!["topbar", "volume", "inc", "5"],
+            vec!["topbar", "brightness", "set", "40"],
+            vec!["topbar", "inhibit", "toggle"],
+            vec!["topbar", "media", "play-pause"],
+            vec!["topbar", "bar", "toggle"],
+            vec!["topbar", "popover", "toggle", "clock"],
+            vec!["topbar", "reload"],
+            vec!["topbar", "dump", "default-config"],
         ] {
             Cli::try_parse_from(&args).unwrap_or_else(|err| panic!("{args:?}: {err}"));
         }
@@ -273,7 +279,7 @@ mod tests {
 
     #[test]
     fn brightness_percent_is_range_checked() {
-        assert!(Cli::try_parse_from(["gnome-topbar", "brightness", "set", "101"]).is_err());
+        assert!(Cli::try_parse_from(["topbar", "brightness", "set", "101"]).is_err());
     }
 
     #[test]

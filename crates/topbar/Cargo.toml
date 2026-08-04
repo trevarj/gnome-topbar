@@ -1,5 +1,5 @@
 [package]
-name = "gnome-topbar"
+name = "topbar"
 description = "GNOME Shell-inspired GTK4 top bar for niri"
 version.workspace = true
 edition.workspace = true
@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "gnome-topbar"
+name = "topbar"
 path = "src/main.rs"
 
 [dependencies]

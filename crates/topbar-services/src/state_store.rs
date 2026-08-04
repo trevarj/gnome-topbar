@@ -2,7 +2,7 @@
 //!
 //! Anything the panel has to remember across restarts but must never write
 //! back into the user's `config.toml` lives in
-//! `$XDG_STATE_HOME/gnome-topbar/state.json`: the notification history and the
+//! `$XDG_STATE_HOME/topbar/state.json`: the notification history and the
 //! Do Not Disturb flag today, the crypto widget's runtime entries and the
 //! weather coordinates later.
 //!
@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::notifications::PersistedNotifications;
 
@@ -26,7 +26,9 @@ use crate::notifications::PersistedNotifications;
 const DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Directory the state file lives in, under `$XDG_STATE_HOME`.
-const STATE_DIR: &str = "gnome-topbar";
+const STATE_DIR: &str = "topbar";
+/// The same directory under the project's former name, migrated on first run.
+const LEGACY_STATE_DIR: &str = "gnome-topbar";
 /// Name of the state file itself.
 const STATE_FILE: &str = "state.json";
 
@@ -60,7 +62,9 @@ impl StateStore {
     /// and one-shot: it happens during start-up, before GTK exists, and a
     /// missing or corrupt file simply yields defaults.
     pub fn open() -> (PersistedState, Self) {
-        Self::open_at(state_path())
+        let base = state_base();
+        migrate_legacy_dir(&base);
+        Self::open_at(base.join(STATE_DIR).join(STATE_FILE))
     }
 
     /// The same, for a caller that chooses the path — tests, chiefly.
@@ -110,15 +114,39 @@ async fn write_loop(
     }
 }
 
-/// `$XDG_STATE_HOME/gnome-topbar/state.json`, or its `$HOME` fallback.
-fn state_path() -> PathBuf {
-    let base = std::env::var_os("XDG_STATE_HOME")
+/// `$XDG_STATE_HOME`, or its `$HOME` fallback.
+fn state_base() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             let home = std::env::var_os("HOME").map_or_else(std::env::temp_dir, PathBuf::from);
             home.join(".local").join("state")
-        });
-    base.join(STATE_DIR).join(STATE_FILE)
+        })
+}
+
+/// Move a pre-rename state directory to its new name, once.
+///
+/// A plain rename rather than a copy, and only when there is nothing to
+/// clobber: if the user already has a `topbar` directory, the old one is left
+/// alone for them to look at and delete.
+fn migrate_legacy_dir(base: &Path) {
+    let legacy = base.join(LEGACY_STATE_DIR);
+    let current = base.join(STATE_DIR);
+    if !legacy.is_dir() || current.exists() {
+        return;
+    }
+    match std::fs::rename(&legacy, &current) {
+        Ok(()) => info!(
+            "moved runtime state from {} to {}",
+            legacy.display(),
+            current.display()
+        ),
+        Err(error) => warn!(
+            "could not move runtime state from {} to {}: {error}",
+            legacy.display(),
+            current.display()
+        ),
+    }
 }
 
 /// Load `path`, falling back to defaults for anything unreadable.
@@ -196,8 +224,7 @@ mod tests {
 
     /// A unique state-file path for one test.
     fn temp_path(label: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("gnome-topbar-state-{}-{label}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("topbar-state-{}-{label}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join(STATE_FILE)
     }
@@ -295,5 +322,51 @@ mod tests {
             .filter(|name| name.to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "left {leftovers:?} behind");
+    }
+
+    /// A clean `$XDG_STATE_HOME` stand-in for one migration test.
+    fn temp_base(label: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("topbar-base-{}-{label}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("create base");
+        base
+    }
+
+    #[test]
+    fn a_pre_rename_state_directory_is_moved_to_the_new_name() {
+        let base = temp_base("migrate");
+        let legacy = base.join(LEGACY_STATE_DIR);
+        std::fs::create_dir_all(&legacy).expect("create legacy dir");
+        std::fs::write(legacy.join(STATE_FILE), "{}").expect("write legacy state");
+
+        migrate_legacy_dir(&base);
+
+        assert!(!legacy.exists(), "the legacy directory must be gone");
+        assert!(base.join(STATE_DIR).join(STATE_FILE).exists());
+    }
+
+    #[test]
+    fn migration_never_clobbers_an_existing_directory() {
+        let base = temp_base("migrate-conflict");
+        let legacy = base.join(LEGACY_STATE_DIR);
+        let current = base.join(STATE_DIR);
+        std::fs::create_dir_all(&legacy).expect("create legacy dir");
+        std::fs::create_dir_all(&current).expect("create current dir");
+        std::fs::write(current.join(STATE_FILE), "{\"kept\":true}").expect("write current state");
+
+        migrate_legacy_dir(&base);
+
+        assert!(legacy.exists(), "the legacy directory is left for the user");
+        assert_eq!(
+            std::fs::read_to_string(current.join(STATE_FILE)).expect("read current state"),
+            "{\"kept\":true}"
+        );
+    }
+
+    #[test]
+    fn migration_is_a_no_op_without_a_legacy_directory() {
+        let base = temp_base("migrate-absent");
+        migrate_legacy_dir(&base);
+        assert!(!base.join(STATE_DIR).exists());
     }
 }

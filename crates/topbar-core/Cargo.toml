@@ -1,6 +1,6 @@
 [package]
 name = "topbar-core"
-description = "Configuration, theme primitives, and shared protocol types for gnome-topbar"
+description = "Configuration, theme primitives, and shared protocol types for topbar"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

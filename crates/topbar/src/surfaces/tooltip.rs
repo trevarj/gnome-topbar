@@ -118,7 +118,7 @@ impl TooltipWindow {
         window.add_css_class(classes::TOOLTIP_WINDOW);
 
         window.init_layer_shell();
-        window.set_namespace(Some("gnome-topbar-tooltip"));
+        window.set_namespace(Some("topbar-tooltip"));
         window.set_layer(Layer::Overlay);
         // Zero (not -1) so the compositor keeps the tooltip clear of the bar's
         // own exclusive zone instead of drawing it over the panel.

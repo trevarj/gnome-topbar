@@ -26,7 +26,7 @@ pub(super) const NOTIFICATIONS_NAME: &str = "org.freedesktop.Notifications";
 pub(super) const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
 /// What the panel tells applications about itself.
-const SERVER_NAME: &str = "gnome-topbar";
+const SERVER_NAME: &str = "topbar";
 /// Who wrote it.
 const VENDOR: &str = "trevarj";
 /// The specification version implemented.

@@ -17,7 +17,7 @@ use crate::style;
 use crate::surfaces;
 
 /// The GApplication id.
-const APP_ID: &str = "com.github.trevarj.gnome-topbar";
+const APP_ID: &str = "io.github.trevarj.topbar";
 
 /// Run the panel until the last bar closes.
 ///
@@ -65,7 +65,7 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
         return None;
     };
     if !gtk4_layer_shell::is_supported() {
-        error!("the compositor does not support wlr-layer-shell; gnome-topbar needs it");
+        error!("the compositor does not support wlr-layer-shell; topbar needs it");
         return None;
     }
 
@@ -89,7 +89,7 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
     manager.watch_monitors();
     surfaces::popovers::install_smoke_hook();
     info!(
-        "gnome-topbar is running (motion {})",
+        "topbar is running (motion {})",
         if anim::motion_enabled() {
             "enabled"
         } else {

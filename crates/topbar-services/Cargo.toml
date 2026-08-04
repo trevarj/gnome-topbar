@@ -1,6 +1,6 @@
 [package]
 name = "topbar-services"
-description = "Async system services (D-Bus, niri, audio) for gnome-topbar; never depends on GTK"
+description = "Async system services (D-Bus, niri, audio) for topbar; never depends on GTK"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

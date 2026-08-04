@@ -12,34 +12,33 @@
 # from whatever is actually serving them.
 #
 # Environment:
-#   GNOME_TOPBAR_VISUAL_CONFIG  panel config to run (default ./config.toml)
-#   GNOME_TOPBAR_SMOKE_OPEN     open a widget's popover without a pointer.
-#                               There is no synthetic input in the dev shell,
-#                               so this is how an *open* popover gets
-#                               screenshotted before M8's `gnome-topbar
-#                               popover show` exists. Debug builds only, which
-#                               is what this script builds.
+#   TOPBAR_VISUAL_CONFIG  panel config to run (default ./config.toml)
+#   TOPBAR_SMOKE_OPEN     open a widget's popover without a pointer.
+#                         There is no synthetic input in the dev shell, so
+#                         this is how an *open* popover gets screenshotted
+#                         before M8's `topbar popover show` exists. Debug
+#                         builds only, which is what this script builds.
 #
-#                                 clock    open it a second in, leave it open
-#                                 clock:6  six toggles 1.5s apart. An even
-#                                          count ends closed (check teardown:
-#                                          `niri msg layers` should list only
-#                                          the bar); an odd one ends reopened
-#                                          onto retained content.
+#                           clock    open it a second in, leave it open
+#                           clock:6  six toggles 1.5s apart. An even count
+#                                    ends closed (check teardown: `niri msg
+#                                    layers` should list only the bar); an
+#                                    odd one ends reopened onto retained
+#                                    content.
 #
-#   GNOME_TOPBAR_SMOKE_DRIVER   a shell script run inside the nested session
-#                               once the panel is up, instead of the default
-#                               "wait, then take one screenshot". It is given
-#                               $SMOKE_ARTIFACTS and may call notify-send,
-#                               gdbus, and grim against the private bus, which
-#                               is how the notification matrix is driven.
-#   GNOME_TOPBAR_SMOKE_TIMEOUT  seconds before the session is killed (30).
+#   TOPBAR_SMOKE_DRIVER   a shell script run inside the nested session once
+#                         the panel is up, instead of the default "wait,
+#                         then take one screenshot". It is given
+#                         $SMOKE_ARTIFACTS and may call notify-send, gdbus,
+#                         and grim against the private bus, which is how the
+#                         notification matrix is driven.
+#   TOPBAR_SMOKE_TIMEOUT  seconds before the session is killed (30).
 set -eu
 
 artifact_dir="${1:-target/visual-smoke}"
-config="${GNOME_TOPBAR_VISUAL_CONFIG:-config.toml}"
-driver="${GNOME_TOPBAR_SMOKE_DRIVER:-}"
-timeout_s="${GNOME_TOPBAR_SMOKE_TIMEOUT:-30}"
+config="${TOPBAR_VISUAL_CONFIG:-config.toml}"
+driver="${TOPBAR_SMOKE_DRIVER:-}"
+timeout_s="${TOPBAR_SMOKE_TIMEOUT:-30}"
 mkdir -p "$artifact_dir"
 
 bus_config=$(pwd)/scripts/smoke-session.conf
@@ -51,11 +50,11 @@ for tool in niri grim cargo timeout dbus-run-session; do
   fi
 done
 
-cargo build -p gnome-topbar
+cargo build -p topbar
 
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
-binary_abs=$(pwd)/target/debug/gnome-topbar
+binary_abs=$(pwd)/target/debug/topbar
 driver_abs=""
 if [ -n "$driver" ]; then
   driver_abs=$(cd "$(dirname "$driver")" && pwd)/$(basename "$driver")
@@ -72,7 +71,7 @@ sleep 2
 if [ -n "$4" ]; then
   sh "$4" || echo "smoke driver failed with status $?" >&2
 else
-  grim "$3/gnome-topbar.png"
+  grim "$3/topbar.png"
 fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true

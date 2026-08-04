@@ -7,7 +7,7 @@ version = "2.0.0"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
-repository = "https://github.com/trevarj/gnome-topbar"
+repository = "https://github.com/trevarj/topbar"
 authors = ["Trevor Arjeski <tmarjeski@gmail.com>"]
 
 [workspace.dependencies]

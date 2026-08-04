@@ -211,9 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_socket_file_is_an_io_error_not_a_panic() {
-        let handle = NiriHandle::new(Some(PathBuf::from(
-            "/nonexistent/gnome-topbar/niri-test.sock",
-        )));
+        let handle = NiriHandle::new(Some(PathBuf::from("/nonexistent/topbar/niri-test.sock")));
         let error = handle.switch_layout_next().await.unwrap_err();
         assert!(matches!(error, SvcError::Io(_)), "{error}");
     }

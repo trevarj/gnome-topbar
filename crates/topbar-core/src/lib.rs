@@ -1,4 +1,4 @@
-//! Core types shared by the gnome-topbar panel and its services.
+//! Core types shared by the topbar panel and its services.
 //!
 //! This crate is deliberately dependency-light: no GTK, no tokio. It owns the
 //! configuration schema, the CLI ↔ panel IPC protocol, theme color primitives,

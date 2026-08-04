@@ -542,7 +542,7 @@ fn build_window(monitor: &gdk::Monitor) -> Window {
     window.add_css_class(classes::POPOVER_WINDOW);
 
     window.init_layer_shell();
-    window.set_namespace(Some("gnome-topbar-popover"));
+    window.set_namespace(Some("topbar-popover"));
     // Top, not Overlay: a menu has no business covering a fullscreen video.
     window.set_layer(Layer::Top);
     window.set_monitor(Some(monitor));
@@ -561,7 +561,7 @@ fn build_catcher(monitor: &gdk::Monitor) -> Window {
     window.add_css_class(classes::CLICK_CATCHER_WINDOW);
 
     window.init_layer_shell();
-    window.set_namespace(Some("gnome-topbar-click-catcher"));
+    window.set_namespace(Some("topbar-click-catcher"));
     window.set_layer(Layer::Top);
     window.set_monitor(Some(monitor));
     // A zone of zero fills what is left after the bar's, so the bar keeps its

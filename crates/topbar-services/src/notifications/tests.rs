@@ -30,7 +30,7 @@ impl Fixture {
     /// A daemon starting from `persisted`.
     fn restoring(label: &str, persisted: PersistedNotifications) -> Self {
         let path = std::env::temp_dir()
-            .join(format!("gnome-topbar-notif-{}-{label}", std::process::id()))
+            .join(format!("topbar-notif-{}-{label}", std::process::id()))
             .join("state.json");
         let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
 

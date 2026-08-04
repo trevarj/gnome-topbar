@@ -16,7 +16,7 @@ use crate::widgets::{self, MountedWidget};
 
 /// The layer-shell namespace the compositor sees. Keep it stable: niri rules
 /// and other compositor configuration match on it.
-const LAYER_NAMESPACE: &str = "gnome-topbar";
+const LAYER_NAMESPACE: &str = "topbar";
 
 /// A bar on one monitor, with everything it needs to keep running.
 pub struct BarWindow {
@@ -47,7 +47,7 @@ impl BarWindow {
 
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("gnome-topbar")
+            .title("topbar")
             .decorated(false)
             .resizable(false)
             .default_height(height)
