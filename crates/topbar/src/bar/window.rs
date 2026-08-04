@@ -4,9 +4,10 @@ use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, gdk};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use topbar_core::Config;
+use topbar_services::Services;
 use tracing::{debug, info};
 
-use crate::bar::{Section, SectionedBar};
+use crate::bar::{BarContext, Section, SectionedBar};
 use crate::fonts;
 use crate::style::{self, classes};
 use crate::widgets::{self, MountedWidget};
@@ -29,8 +30,14 @@ impl BarWindow {
         config: &Config,
         monitor: &gdk::Monitor,
         connector: &str,
+        services: &Services,
     ) -> Self {
         let height = style::window_height(config);
+        let context = BarContext {
+            connector: connector.to_string(),
+            monitor: monitor.clone(),
+            services: services.clone(),
+        };
 
         let window = ApplicationWindow::builder()
             .application(app)
@@ -88,7 +95,7 @@ impl BarWindow {
             if section == Section::Center && names.is_empty() {
                 continue;
             }
-            let box_ = build_section(section, names, config, &mut mounted);
+            let box_ = build_section(section, names, config, &context, &mut mounted);
             bar.set_section(section, Some(&box_));
         }
 
@@ -125,6 +132,7 @@ fn build_section(
     section: Section,
     names: &[String],
     config: &Config,
+    context: &BarContext,
     mounted: &mut Vec<MountedWidget>,
 ) -> gtk4::Box {
     let box_ = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
@@ -135,7 +143,7 @@ fn build_section(
 
     let before = mounted.len();
     for name in names {
-        let Some(widget) = widgets::mount(name, config) else {
+        let Some(widget) = widgets::mount(name, config, context) else {
             continue;
         };
         box_.append(&widget.root);

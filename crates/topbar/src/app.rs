@@ -7,6 +7,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Application, gdk, gio};
 use topbar_core::Config;
+use topbar_services::Services;
 use tracing::{error, info};
 
 use crate::anim;
@@ -17,7 +18,10 @@ use crate::style;
 const APP_ID: &str = "com.github.trevarj.gnome-topbar";
 
 /// Run the panel until the last bar closes.
-pub fn run(config: Config) -> ExitCode {
+///
+/// `services` is started before GTK so no widget can ever be built against a
+/// service that does not exist yet.
+pub fn run(config: Config, services: Services) -> ExitCode {
     force_wayland_backend();
     anim::set_animations_enabled(config.theme.animations);
 
@@ -36,7 +40,7 @@ pub fn run(config: Config) -> ExitCode {
         if manager.borrow().is_some() {
             return;
         }
-        if let Some(started) = start(app, &config) {
+        if let Some(started) = start(app, &config, &services) {
             *manager.borrow_mut() = Some(started);
         } else {
             app.quit();
@@ -53,7 +57,7 @@ pub fn run(config: Config) -> ExitCode {
 }
 
 /// Build the stylesheet and the bars. `None` means the panel cannot run here.
-fn start(app: &Application, config: &SharedConfig) -> Option<Rc<BarManager>> {
+fn start(app: &Application, config: &SharedConfig, services: &Services) -> Option<Rc<BarManager>> {
     let Some(display) = gdk::Display::default() else {
         error!("no display; is a Wayland compositor running?");
         return None;
@@ -65,7 +69,7 @@ fn start(app: &Application, config: &SharedConfig) -> Option<Rc<BarManager>> {
 
     style::apply(&display, &style::generate(&config.current()));
 
-    let manager = BarManager::new(app, &display, config.clone());
+    let manager = BarManager::new(app, &display, config.clone(), services.clone());
     manager.sync();
     manager.watch_monitors();
     info!(

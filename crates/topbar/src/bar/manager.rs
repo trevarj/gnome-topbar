@@ -17,6 +17,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Application, gdk, gio, glib};
 use topbar_core::Config;
+use topbar_services::Services;
 use tracing::{debug, info, warn};
 
 use crate::bar::window::BarWindow;
@@ -49,17 +50,24 @@ pub struct BarManager {
     app: Application,
     display: gdk::Display,
     config: SharedConfig,
+    services: Services,
     bars: RefCell<BTreeMap<String, BarWindow>>,
     pending_sync: RefCell<Option<glib::SourceId>>,
 }
 
 impl BarManager {
     /// Create a manager for `display`. No bars exist until [`Self::sync`].
-    pub fn new(app: &Application, display: &gdk::Display, config: SharedConfig) -> Rc<Self> {
+    pub fn new(
+        app: &Application,
+        display: &gdk::Display,
+        config: SharedConfig,
+        services: Services,
+    ) -> Rc<Self> {
         Rc::new(Self {
             app: app.clone(),
             display: display.clone(),
             config,
+            services,
             bars: RefCell::new(BTreeMap::new()),
             pending_sync: RefCell::new(None),
         })
@@ -84,7 +92,7 @@ impl BarManager {
             if self.bars.borrow().contains_key(&connector) {
                 continue;
             }
-            let bar = BarWindow::build(&self.app, &config, &monitor, &connector);
+            let bar = BarWindow::build(&self.app, &config, &monitor, &connector, &self.services);
             self.bars.borrow_mut().insert(connector, bar);
         }
 

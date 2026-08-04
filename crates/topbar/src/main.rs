@@ -9,6 +9,7 @@
 mod anim;
 mod app;
 mod bar;
+mod bridge;
 mod cli;
 mod fonts;
 mod ipc_client;
@@ -22,6 +23,7 @@ use clap::Parser;
 use topbar_core::config::{Config, ConfigLoad, EXAMPLE_CONFIG_TOML, Warning};
 use topbar_core::ipc::{self, IpcRequest, IpcResponse};
 use topbar_core::logging;
+use topbar_services::Services;
 use tracing::{info, warn};
 
 use crate::cli::{Cli, Command, DumpAction, PopoverAction, VisibilityAction};
@@ -72,7 +74,11 @@ fn main() -> ExitCode {
     }
 
     describe(&load);
-    app::run(load.config)
+
+    // Services start before GTK: their runtime owns its own threads, and no
+    // widget should ever be built against a service that does not exist yet.
+    let services = Services::start();
+    app::run(load.config, services)
 }
 
 /// `--check-config` output: one status line, then every warning on stderr.

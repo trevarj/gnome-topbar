@@ -270,11 +270,43 @@ sectioned-bar.bar {
     margin-right: var(--widget-gap);
 }
 
+/* A widget whose service has dropped keeps its last state on screen, dimmed:
+   an empty panel would read as "no workspaces", which is a different claim. */
+.widget-wrapper.disconnected {
+    opacity: 0.5;
+}
+
 /* ===== Clock ===== */
 
 /* Tabular figures keep the width steady as the digits change. */
 .clock .content {
     font-feature-settings: "tnum";
+}
+
+/* ===== Workspaces ===== */
+
+/* The strip paints its own indicators in snapshot(); the only thing it takes
+   from CSS is the foreground color they are derived from. Their sizes are
+   Rust constants (see widgets/workspaces/model.rs) so the drawn geometry and
+   the measured width can never disagree. */
+workspace-strip {
+    color: var(--color-foreground);
+}
+
+/* Dots are their own visual rhythm; the widget's own padding is enough. */
+.workspaces .content > * {
+    margin: 0;
+}
+
+/* ===== Keyboard layout ===== */
+
+/* A two-letter code has to read as a unit rather than as running text. */
+.keyboard-layout label {
+    font-weight: 700;
+}
+
+.keyboard-layout-icon {
+    -gtk-icon-size: var(--icon-size);
 }
 
 /* ===== Tooltip ===== */

@@ -41,8 +41,21 @@ pub const PRESSED: &str = "pressed";
 #[allow(dead_code)]
 pub const CHECKED: &str = "checked";
 
+/// Set on a widget whose service has lost its connection.
+pub const DISCONNECTED: &str = "disconnected";
+
 /// The clock widget.
 pub const CLOCK: &str = "clock";
+
+/// The workspaces widget.
+pub const WORKSPACES: &str = "workspaces";
+/// CSS name of the custom widget that draws the workspace indicators.
+pub const WORKSPACE_STRIP: &str = "workspace-strip";
+
+/// The keyboard-layout widget.
+pub const KEYBOARD_LAYOUT: &str = "keyboard-layout";
+/// The keyboard-layout widget's icon.
+pub const KEYBOARD_LAYOUT_ICON: &str = "keyboard-layout-icon";
 
 /// The shared tooltip's layer-shell window.
 pub const TOOLTIP_WINDOW: &str = "tooltip-window";
@@ -68,7 +81,12 @@ pub const ALL: &[&str] = &[
     CLICKABLE,
     PRESSED,
     CHECKED,
+    DISCONNECTED,
     CLOCK,
+    WORKSPACES,
+    WORKSPACE_STRIP,
+    KEYBOARD_LAYOUT,
+    KEYBOARD_LAYOUT_ICON,
     TOOLTIP_WINDOW,
     TOOLTIP_SURFACE,
     TOOLTIP_LABEL,
