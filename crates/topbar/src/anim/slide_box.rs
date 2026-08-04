@@ -41,7 +41,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for SlideBox {
-        const NAME: &'static str = "GnomeTopbarSlideBox";
+        const NAME: &'static str = "TopbarSlideBox";
         type Type = super::SlideBox;
         type ParentType = gtk4::Widget;
 

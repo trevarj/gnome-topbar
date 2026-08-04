@@ -92,7 +92,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for WorkspaceStrip {
-        const NAME: &'static str = "GnomeTopbarWorkspaceStrip";
+        const NAME: &'static str = "TopbarWorkspaceStrip";
         type Type = super::WorkspaceStrip;
         type ParentType = gtk4::Widget;
 

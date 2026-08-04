@@ -58,7 +58,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for CenterPriorityLayout {
-        const NAME: &'static str = "GnomeTopbarCenterPriorityLayout";
+        const NAME: &'static str = "TopbarCenterPriorityLayout";
         type Type = super::CenterPriorityLayout;
         type ParentType = LayoutManager;
     }
@@ -178,7 +178,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for SectionedBar {
-        const NAME: &'static str = "GnomeTopbarSectionedBar";
+        const NAME: &'static str = "TopbarSectionedBar";
         type Type = super::SectionedBar;
         type ParentType = Widget;
 
