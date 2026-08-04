@@ -48,6 +48,17 @@ pub enum SvcError {
     #[error("no media player answered: {0}")]
     NoPlayer(String),
 
+    /// A request to a web service failed, or it answered with an error.
+    ///
+    /// Carries the reason as text for the same reason [`SvcError::Bus`] does:
+    /// it travels through a channel and everything in one has to clone.
+    #[error("web request failed: {0}")]
+    Http(String),
+
+    /// A latitude/longitude pair that is not a point on Earth.
+    #[error("coordinates {0} are out of range")]
+    Coordinates(String),
+
     /// A service task has stopped, so its commands go nowhere.
     #[error("the {0} service is not running")]
     ServiceStopped(&'static str),
@@ -67,6 +78,8 @@ impl SvcError {
             Self::NameTaken(_) => "Another notification daemon is running",
             Self::GoneNotification(_) => "That notification is no longer available",
             Self::NoPlayer(_) => "No media player is available",
+            Self::Http(_) => "Could not reach the service",
+            Self::Coordinates(_) => "Those coordinates are out of range",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
     }
@@ -88,6 +101,8 @@ mod tests {
             SvcError::NameTaken("org.freedesktop.Notifications".into()),
             SvcError::GoneNotification(7),
             SvcError::NoPlayer("org.mpris.MediaPlayer2.spotify".into()),
+            SvcError::Http("connection timed out".into()),
+            SvcError::Coordinates("100, 0".into()),
             SvcError::ServiceStopped("notifications"),
         ];
         for error in errors {

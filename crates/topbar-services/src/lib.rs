@@ -16,6 +16,7 @@ pub mod niri;
 pub mod notifications;
 pub mod runtime;
 pub mod state_store;
+pub mod weather;
 
 #[cfg(test)]
 mod private_bus;
@@ -37,3 +38,7 @@ pub use notifications::{
 };
 pub use runtime::{Runtime, Services};
 pub use state_store::StateStore;
+pub use weather::{
+    CurrentWeather, DailyWeather, GeocodeResult, LocationView, Phase, TemperatureUnit, Weather,
+    WeatherData, WeatherHandle, WeatherState,
+};

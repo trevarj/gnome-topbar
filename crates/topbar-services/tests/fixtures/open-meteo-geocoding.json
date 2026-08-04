@@ -1,0 +1,78 @@
+{
+  "results": [
+    {
+      "id": 524901,
+      "name": "Moscow",
+      "latitude": 55.75222,
+      "longitude": 37.61556,
+      "elevation": 144.0,
+      "feature_code": "PPLC",
+      "country_code": "RU",
+      "admin1": "Moscow",
+      "timezone": "Europe/Moscow",
+      "population": 10381222,
+      "country_id": 2017370,
+      "country": "Russia"
+    },
+    {
+      "id": 5034059,
+      "name": "Moscow",
+      "latitude": 46.73239,
+      "longitude": -117.00017,
+      "elevation": 787.0,
+      "feature_code": "PPLA2",
+      "country_code": "US",
+      "admin1": "Idaho",
+      "admin2": "Latah",
+      "timezone": "America/Los_Angeles",
+      "population": 25060,
+      "country_id": 6252001,
+      "country": "United States"
+    },
+    {
+      "id": 4324833,
+      "name": "Moscow",
+      "latitude": 45.09422,
+      "longitude": -117.0,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "timezone": "America/Los_Angeles",
+      "country_id": 6252001,
+      "country": "United States"
+    },
+    {
+      "id": 9999901,
+      "name": "Moskva-Nowhere",
+      "latitude": 1000.0,
+      "longitude": 0.0,
+      "feature_code": "PPL",
+      "country_code": "XX",
+      "country": "Nowhere"
+    },
+    {
+      "id": 5205853,
+      "name": "Moscow",
+      "latitude": 41.33675,
+      "longitude": -75.51852,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "admin1": "Pennsylvania",
+      "timezone": "America/New_York",
+      "country_id": 6252001,
+      "country": "United States"
+    },
+    {
+      "id": 4133367,
+      "name": "Moscow",
+      "latitude": 35.06175,
+      "longitude": -89.40396,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "admin1": "Tennessee",
+      "timezone": "America/Chicago",
+      "country_id": 6252001,
+      "country": "United States"
+    }
+  ],
+  "generationtime_ms": 0.7638931
+}

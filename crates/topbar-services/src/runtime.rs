@@ -10,12 +10,14 @@ use std::sync::OnceLock;
 
 use niri_ipc::socket::SOCKET_PATH_ENV;
 use tokio::runtime;
+use topbar_core::Config;
 
 use crate::connectivity::Connectivity;
 use crate::media::Media;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
 use crate::state_store::StateStore;
+use crate::weather::Weather;
 
 static RUNTIME: OnceLock<runtime::Runtime> = OnceLock::new();
 
@@ -57,6 +59,8 @@ pub struct Services {
     pub media: Media,
     /// Whether the machine is online.
     pub connectivity: Connectivity,
+    /// The weather, as one cache for the whole panel.
+    pub weather: Weather,
 }
 
 impl Services {
@@ -64,17 +68,23 @@ impl Services {
     ///
     /// Blocking here is deliberate and momentary: services are spawned onto
     /// the runtime, not awaited, so this returns as soon as their tasks exist.
-    pub fn start() -> Self {
+    pub fn start(config: &Config) -> Self {
         let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
+        let weather = config.widgets.weather.clone();
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
             let (state, store) = StateStore::open();
+            // Connectivity first: the weather service subscribes to it, and a
+            // subscriber built before the watcher exists would have nothing to
+            // read on its first frame.
+            let connectivity = Connectivity::start(None);
             Self {
                 niri: Niri::start(niri_socket),
-                notifications: Notifications::start(state.notifications, store, None),
+                notifications: Notifications::start(state.notifications, store.clone(), None),
                 media: Media::start(None),
-                connectivity: Connectivity::start(None),
+                weather: Weather::start(&weather, state.weather, store, &connectivity),
+                connectivity,
             }
         })
     }

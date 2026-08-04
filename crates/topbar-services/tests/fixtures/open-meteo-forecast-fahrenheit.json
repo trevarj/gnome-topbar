@@ -1,0 +1,39 @@
+{
+  "latitude": 40.71,
+  "longitude": -74.01,
+  "generationtime_ms": 0.0510215759277344,
+  "utc_offset_seconds": -14400,
+  "timezone": "America/New_York",
+  "timezone_abbreviation": "GMT-4",
+  "elevation": 32.0,
+  "current_units": {
+    "time": "iso8601",
+    "interval": "seconds",
+    "temperature_2m": "°F",
+    "apparent_temperature": "°F",
+    "weather_code": "wmo code",
+    "is_day": ""
+  },
+  "current": {
+    "time": "2026-08-04T23:00",
+    "interval": 900,
+    "temperature_2m": 70.5,
+    "apparent_temperature": 73.2,
+    "weather_code": 0,
+    "is_day": 0
+  },
+  "daily_units": {
+    "time": "iso8601",
+    "weather_code": "wmo code",
+    "temperature_2m_max": "°F",
+    "temperature_2m_min": "°F",
+    "precipitation_probability_max": "%"
+  },
+  "daily": {
+    "time": ["2026-08-04", "2026-08-05", "2026-08-06"],
+    "weather_code": [0, 45, 71],
+    "temperature_2m_max": [82.4, 77.0, 68.9],
+    "temperature_2m_min": [64.9, 59.2, 51.1],
+    "precipitation_probability_max": [null, 12, 100]
+  }
+}

@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::notifications::PersistedNotifications;
+use crate::weather::PersistedWeather;
 
 /// How long the writer collects further edits before it touches the disk.
 const DEBOUNCE: Duration = Duration::from_millis(500);
@@ -41,6 +42,8 @@ const STATE_FILE: &str = "state.json";
 pub struct PersistedState {
     /// Notification history and the Do Not Disturb flag.
     pub notifications: PersistedNotifications,
+    /// The weather location the setup dialog last saved.
+    pub weather: PersistedWeather,
 }
 
 /// One queued change to the state document.

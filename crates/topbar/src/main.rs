@@ -81,7 +81,7 @@ fn main() -> ExitCode {
 
     // Services start before GTK: their runtime owns its own threads, and no
     // widget should ever be built against a service that does not exist yet.
-    let services = Services::start();
+    let services = Services::start(&load.config);
     app::run(load.config, services)
 }
 
