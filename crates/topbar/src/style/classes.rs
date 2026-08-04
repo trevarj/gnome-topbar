@@ -88,6 +88,31 @@ pub const WORLD_CLOCK_NAME: &str = "world-clock-name";
 pub const WORLD_CLOCK_ZONE: &str = "world-clock-zone";
 /// A world clock's time.
 pub const WORLD_CLOCK_TIME: &str = "world-clock-time";
+/// The control panel's calendar.
+pub const CALENDAR: &str = "calendar";
+/// Its header row.
+pub const CALENDAR_HEADER: &str = "calendar-header";
+/// The month and year in the header.
+pub const CALENDAR_TITLE: &str = "calendar-title";
+/// The button carrying it, which returns to today.
+pub const CALENDAR_MONTH: &str = "calendar-month";
+/// A month chevron.
+pub const CALENDAR_NAV: &str = "calendar-nav";
+/// The 7x6 grid of days.
+pub const CALENDAR_GRID: &str = "calendar-grid";
+/// A weekday column header.
+pub const CALENDAR_WEEKDAY: &str = "calendar-weekday";
+/// An ISO week number.
+pub const CALENDAR_WEEK: &str = "calendar-week";
+/// One day cell.
+pub const CALENDAR_DAY: &str = "calendar-day";
+/// The cell for the real current date.
+pub const CALENDAR_TODAY: &str = "calendar-today";
+/// The cell the user picked.
+pub const CALENDAR_SELECTED: &str = "calendar-selected";
+/// A cell belonging to the month either side of the one on screen.
+pub const CALENDAR_OUTSIDE: &str = "calendar-outside";
+
 /// A column with nothing in it, drawn as a designed state rather than a gap.
 pub const EMPTY_STATE: &str = "empty-state";
 /// The large dimmed icon in an empty state.
@@ -148,6 +173,18 @@ pub const ALL: &[&str] = &[
     WORLD_CLOCK_NAME,
     WORLD_CLOCK_ZONE,
     WORLD_CLOCK_TIME,
+    CALENDAR,
+    CALENDAR_HEADER,
+    CALENDAR_TITLE,
+    CALENDAR_MONTH,
+    CALENDAR_NAV,
+    CALENDAR_GRID,
+    CALENDAR_WEEKDAY,
+    CALENDAR_WEEK,
+    CALENDAR_DAY,
+    CALENDAR_TODAY,
+    CALENDAR_SELECTED,
+    CALENDAR_OUTSIDE,
     EMPTY_STATE,
     EMPTY_STATE_ICON,
     EMPTY_STATE_LABEL,

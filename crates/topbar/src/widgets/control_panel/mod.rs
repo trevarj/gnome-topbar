@@ -10,6 +10,7 @@
 //! [`ControlPanel::refresh`], so nothing it shows can be older than the click
 //! that opened it.
 
+mod calendar;
 mod notifications;
 mod world_clock;
 
@@ -23,6 +24,7 @@ use topbar_core::config::ClockConfig;
 use crate::style::classes;
 use crate::surfaces::popovers::PopoverContent;
 use crate::widgets::clock::MinuteListener;
+use crate::widgets::control_panel::calendar::Calendar;
 
 /// Width of the notifications column, in pixels.
 const LEFT_WIDTH: i32 = 380;
@@ -47,6 +49,7 @@ pub struct ControlPanel {
     time: Label,
     date: Label,
     clocks: Vec<world_clock::Row>,
+    calendar: Rc<Calendar>,
     notifications: notifications::Column,
 }
 
@@ -86,7 +89,11 @@ impl ControlPanel {
             .map(world_clock::Row::new)
             .collect();
 
+        let calendar = Calendar::new(Local::now().date_naive(), config.show_week_numbers);
+        calendar.root().add_css_class(classes::CARD);
+
         right.append(&time_card(&time, &date, &clocks));
+        right.append(calendar.root());
         right.append(&forecast_card());
 
         root.append(left);
@@ -98,6 +105,7 @@ impl ControlPanel {
             time,
             date,
             clocks,
+            calendar,
             notifications,
         })
     }
@@ -120,7 +128,12 @@ impl PopoverContent for ControlPanel {
     }
 
     fn refresh(&self) {
-        self.render(Local::now());
+        let now = Local::now();
+        self.render(now);
+        // Back to this month with today selected: a calendar left on last
+        // March is not what anyone opens the date menu to see, and the panel
+        // may have been built on the other side of midnight.
+        self.calendar.reset(now.date_naive());
         self.notifications.refresh();
     }
 }

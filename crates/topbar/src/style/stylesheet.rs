@@ -38,6 +38,13 @@ pub const POPOVER_RADIUS: u32 = 16;
 const WIDGET_BASE: Rgb = Rgb::new(0x1e, 0x1e, 0x22);
 /// Panel foreground, GNOME Shell style: plain white on a black panel.
 const FOREGROUND: Rgb = Rgb::new(0xff, 0xff, 0xff);
+/// Fallback accent when `theme.accent` is not a hex color.
+const ACCENT_BASE: Rgb = Rgb::new(0x70, 0xb4, 0x9b);
+/// Relative luminance above which black reads better than white.
+///
+/// The WCAG crossover: at this luminance a background contrasts equally with
+/// black and with white, so anything brighter takes a dark foreground.
+const CONTRAST_PIVOT: f64 = 0.179;
 
 /// Horizontal padding inside a widget's content box, in pixels.
 const WIDGET_PADDING_X: u32 = 10;
@@ -124,6 +131,19 @@ pub fn surface_border() -> gdk::RGBA {
     )
 }
 
+/// The readable foreground for text sitting *on* the accent color.
+///
+/// Today's date in the calendar is a filled accent circle with the day number
+/// inside it, and the accent is the user's to choose: a pale mint needs a dark
+/// numeral, a deep blue a light one.
+fn on_accent(accent: Rgb) -> Rgb {
+    if accent.relative_luminance() > CONTRAST_PIVOT {
+        Rgb::new(0, 0, 0)
+    } else {
+        FOREGROUND
+    }
+}
+
 /// Parse a configured hex color, falling back when it is not a hex value.
 ///
 /// Config validation already rejects malformed colors, so the fallback only
@@ -194,6 +214,7 @@ fn root_block(config: &Config) -> String {
     --color-foreground-muted: {foreground_muted};
     --color-foreground-disabled: {foreground_disabled};
     --color-accent: {accent};
+    --color-on-accent: {on_accent};
     --color-state-success: {success};
     --color-state-warning: {warning};
     --color-state-urgent: {urgent};
@@ -237,7 +258,8 @@ fn root_block(config: &Config) -> String {
         foreground = FOREGROUND.to_hex(),
         foreground_muted = FOREGROUND.to_rgba(0.6),
         foreground_disabled = FOREGROUND.to_rgba(0.4),
-        accent = color_or(&theme.accent, Rgb::new(0x70, 0xb4, 0x9b)).to_hex(),
+        accent = color_or(&theme.accent, ACCENT_BASE).to_hex(),
+        on_accent = on_accent(color_or(&theme.accent, ACCENT_BASE)).to_hex(),
         success = color_or(&theme.states.success, Rgb::new(0x22, 0xc5, 0x5e)).to_hex(),
         warning = color_or(&theme.states.warning, Rgb::new(0xf5, 0x9e, 0x0b)).to_hex(),
         urgent = color_or(&theme.states.urgent, Rgb::new(0xef, 0x44, 0x44)).to_hex(),
@@ -465,6 +487,86 @@ window.click-catcher-window,
     color: var(--color-foreground-disabled);
 }
 
+/* ===== Calendar ===== */
+
+/* The chevrons sit tight against the popover's padding, GNOME style. */
+.calendar-header {
+    margin: -4px -6px 0 -6px;
+}
+
+.calendar-grid {
+    margin-top: 2px;
+}
+
+button.calendar-month,
+button.calendar-nav {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0 6px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--radius-card);
+    color: var(--color-foreground);
+}
+
+button.calendar-month:hover,
+button.calendar-nav:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.calendar-title {
+    font-size: 1.05em;
+    font-weight: 700;
+}
+
+.calendar-weekday {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--color-foreground-muted);
+}
+
+.calendar-week {
+    font-size: 0.8em;
+    color: var(--color-foreground-disabled);
+    margin-right: 6px;
+}
+
+/* Every cell carries the selection ring's border, transparent until it is the
+   selected one, so picking a day cannot change the size of the grid. */
+button.calendar-day {
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    color: var(--color-foreground);
+    font-weight: 400;
+    font-feature-settings: "tnum";
+}
+
+button.calendar-day:hover {
+    background-color: var(--color-widget-hover);
+}
+
+/* Days from the months either side stay clickable — clicking one navigates
+   there — but they are clearly not part of the month on screen. */
+button.calendar-day.calendar-outside {
+    opacity: 0.35;
+}
+
+button.calendar-day.calendar-selected {
+    border-color: var(--color-accent);
+}
+
+button.calendar-day.calendar-today {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+    font-weight: 700;
+}
+
 /* ===== Tooltip ===== */
 
 window.tooltip-window {
@@ -569,6 +671,7 @@ mod tests {
     --color-foreground-muted: rgba(255, 255, 255, 0.6);
     --color-foreground-disabled: rgba(255, 255, 255, 0.4);
     --color-accent: #70b49b;
+    --color-on-accent: #000000;
     --color-state-success: #22c55e;
     --color-state-warning: #f59e0b;
     --color-state-urgent: #ef4444;
