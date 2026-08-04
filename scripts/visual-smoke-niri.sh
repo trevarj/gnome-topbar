@@ -38,6 +38,11 @@
 #                         path in $SMOKE_FAKE_PLAYER. Off by default: it is
 #                         a second binary to link and only the media driver
 #                         wants it.
+#   TOPBAR_SMOKE_STATE    a state.json copied into the sandboxed
+#                         $XDG_STATE_HOME/topbar before the panel starts, so a
+#                         run can begin from state a previous session
+#                         remembered — a saved weather location, say. The copy
+#                         lands inside the sandbox and nowhere else.
 #   TOPBAR_SMOKE_TIMEOUT  seconds before the session is killed (30).
 set -eu
 
@@ -61,6 +66,11 @@ export XDG_STATE_HOME="$xdg_box/state"
 export XDG_CACHE_HOME="$xdg_box/cache"
 export XDG_CONFIG_HOME="$xdg_box/config"
 mkdir -p "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME/niri"
+
+if [ -n "${TOPBAR_SMOKE_STATE:-}" ]; then
+  mkdir -p "$XDG_STATE_HOME/topbar"
+  cp "$TOPBAR_SMOKE_STATE" "$XDG_STATE_HOME/topbar/state.json"
+fi
 
 # The nested compositor gets a config of its own, for one reason: niri's
 # "Important Hotkeys" overlay opens on top of everything at startup and sits

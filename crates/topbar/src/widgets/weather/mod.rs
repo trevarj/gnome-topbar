@@ -65,6 +65,7 @@ impl WeatherWidget {
         shell.content().append(&label);
 
         let inner = Rc::new(Inner {
+            wrapper: shell.root().clone(),
             icon,
             label,
             tooltip: shell.set_tooltip(&config.tooltip),
@@ -142,6 +143,8 @@ impl WeatherWidget {
 
 /// Everything the render closure touches.
 struct Inner {
+    /// The shell's outer box, which is what `.disconnected` dims.
+    wrapper: gtk4::Box,
     icon: Image,
     label: Label,
     tooltip: TooltipHandle,
@@ -234,13 +237,10 @@ impl Inner {
 
     /// Wear the panel's has-no-data treatment, or take it off.
     fn set_disconnected(&self, disconnected: bool) {
-        let Some(parent) = self.label.parent().and_then(|content| content.parent()) else {
-            return;
-        };
         if disconnected {
-            parent.add_css_class(classes::DISCONNECTED);
+            self.wrapper.add_css_class(classes::DISCONNECTED);
         } else {
-            parent.remove_css_class(classes::DISCONNECTED);
+            self.wrapper.remove_css_class(classes::DISCONNECTED);
         }
     }
 }

@@ -710,11 +710,17 @@ button.forecast-retry:hover {
     background-color: rgba(0, 0, 0, 0.45);
 }
 
+/* Its own window, so it inherits nothing: the typography every other surface
+   gets from `.popover-surface` has to be stated here too. */
 .location-dialog {
     background-color: var(--color-popover);
     border: 1px solid var(--color-surface-border);
     border-radius: var(--radius-popover);
     box-shadow: 0 8px 24px var(--color-popover-shadow);
+    color: var(--color-foreground);
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    font-weight: 400;
     padding: 16px;
 }
 
@@ -727,6 +733,7 @@ entry.location-search,
 entry.location-coordinate {
     min-height: 32px;
     padding: 4px 10px;
+    background: none;
     background-color: var(--color-card);
     border: 1px solid transparent;
     border-radius: var(--radius-card);
@@ -740,9 +747,11 @@ entry.location-coordinate:focus-within {
     outline: none;
 }
 
-/* The rows sit just under the entry, closer than the dialog's own spacing. */
+/* Empty until a search returns something, so it must not reserve anything of
+   its own — a negative margin here makes GTK measure the box at less than
+   zero and complain about it on every frame. */
 .location-results {
-    margin-top: -4px;
+    background: transparent;
 }
 
 button.location-result {
@@ -779,9 +788,13 @@ button.location-result-selected {
     margin-top: 4px;
 }
 
+/* `background: none` first, then the colour: the stock theme paints buttons
+   with a background *image*, and setting only background-color leaves that
+   gradient on top of it. Every other button in the panel does the same. */
 button.dialog-button {
     min-height: 30px;
     padding: 2px 16px;
+    background: none;
     background-color: var(--color-card);
     border: none;
     box-shadow: none;

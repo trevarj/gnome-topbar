@@ -338,6 +338,59 @@ fn a_panel_with_nothing_to_go_on_needs_a_location() {
 // Coordinate validation at the handle
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The real endpoints
+// ---------------------------------------------------------------------------
+
+/// Ask Open-Meteo itself, once, on purpose.
+///
+/// Ignored by default: `cargo test` must not depend on somebody else's uptime,
+/// their rate limit, or the machine having a network at all. Run it by hand
+/// when the wire format is in question —
+/// `cargo test -p topbar-services -- --ignored --nocapture` — which is the one
+/// thing the recorded fixtures cannot tell you.
+#[tokio::test]
+#[ignore = "talks to the real Open-Meteo"]
+async fn the_real_endpoints_still_answer_the_way_the_fixtures_say() {
+    let endpoints = Endpoints::default();
+
+    let found = api::fetch(geocoding_url(&endpoints.geocoding, "Berlin"))
+        .await
+        .and_then(|body| parse_geocoding(&body))
+        .expect("the geocoder answers");
+    let berlin = found.first().expect("Berlin exists");
+    println!(
+        "geocoded {} at {}, {}",
+        berlin.label, berlin.latitude, berlin.longitude
+    );
+    assert!(berlin.label.contains("Berlin"));
+
+    let data = api::fetch(forecast_url(
+        &endpoints.forecast,
+        berlin.latitude,
+        berlin.longitude,
+        TemperatureUnit::Celsius,
+        5,
+    ))
+    .await
+    .and_then(|body| parse_forecast(&body, TemperatureUnit::Celsius))
+    .expect("the forecast endpoint answers");
+
+    println!(
+        "{}°C, feels like {}°C, code {}, {} day(s)",
+        data.current.temperature,
+        data.current.feels_like,
+        data.current.code,
+        data.days.len()
+    );
+    assert_eq!(data.days.len(), 5, "five days were asked for");
+    assert!(
+        (-90.0..=60.0).contains(&data.current.temperature),
+        "{}°C is not a temperature Berlin has",
+        data.current.temperature
+    );
+}
+
 #[tokio::test]
 async fn coordinates_off_the_planet_are_refused_before_anything_is_saved() {
     let (_, connectivity) = watch::channel(Arc::new(crate::connectivity::ConnectivityState {
