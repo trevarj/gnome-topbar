@@ -185,6 +185,18 @@ pub fn lerp_rects(from: &[SlotRect], to: &[SlotRect], progress: f32) -> Vec<Slot
         .collect()
 }
 
+/// Whether the slot for `id` is a workspace *arriving*, given what was shown
+/// before.
+///
+/// The first population of an empty strip is the widget appearing, not
+/// workspaces appearing inside it. Treating it as an arrival would fade every
+/// indicator in from nothing — which makes the panel's first paint depend on
+/// an animation having run, and a frame clock is not something a first paint
+/// may depend on.
+pub fn is_appearance(previous_ids: &[u64], id: u64) -> bool {
+    !previous_ids.is_empty() && !previous_ids.contains(&id)
+}
+
 /// The slot at `x`, or the nearest one when the click landed in a gap.
 ///
 /// Gaps are as wide as a dot, so swallowing clicks that land in one would make
@@ -507,6 +519,18 @@ mod tests {
         let half = lerp_rects(&from, &to, 0.5);
         assert_eq!(half.len(), 3);
         assert_eq!(half[2], to[2], "a brand-new slot appears at its target");
+    }
+
+    #[test]
+    fn the_first_paint_is_not_an_appearance() {
+        // Nothing was shown before: this is the widget arriving, and it has to
+        // be drawn at once rather than faded in.
+        assert!(!is_appearance(&[], 1));
+        assert!(!is_appearance(&[], 7));
+
+        // Once something is on screen, a workspace that was not there is.
+        assert!(is_appearance(&[1, 2], 3));
+        assert!(!is_appearance(&[1, 2], 2));
     }
 
     #[test]

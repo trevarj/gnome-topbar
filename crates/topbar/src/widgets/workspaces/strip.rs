@@ -305,7 +305,7 @@ impl WorkspaceStrip {
                     width,
                     is_active: slot.is_active,
                     is_urgent: slot.is_urgent,
-                    is_new: structural && !previous_ids.contains(&slot.id),
+                    is_new: structural && model::is_appearance(&previous_ids, slot.id),
                 }
             })
             .collect();
@@ -329,17 +329,22 @@ impl WorkspaceStrip {
         let settled = !structural && *imp.to.borrow() == target && imp.progress.get() >= 1.0;
 
         let is_urgent = draw_slots.iter().any(|slot| slot.is_urgent);
+        let anything_new = draw_slots.iter().any(|slot| slot.is_new);
         *imp.slots.borrow_mut() = draw_slots;
         *imp.from.borrow_mut() = start;
         *imp.to.borrow_mut() = target;
 
         if structural {
             imp.progress.set(1.0);
-            // Seed the fade before the first frame of it, or a new slot flashes
-            // at full size for one frame and then shrinks in.
-            imp.appear.set(0.0);
             self.queue_resize();
-            self.grow_in();
+            if anything_new {
+                // Seed the fade before its first frame, or a new slot flashes
+                // at full size for one frame and then shrinks in.
+                imp.appear.set(0.0);
+                self.grow_in();
+            } else {
+                imp.appear.set(1.0);
+            }
         } else if !settled {
             imp.progress.set(0.0);
             self.transfer();
