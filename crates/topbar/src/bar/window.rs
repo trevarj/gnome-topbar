@@ -7,6 +7,7 @@ use topbar_core::Config;
 use topbar_services::Services;
 use tracing::{debug, info};
 
+use crate::anim;
 use crate::bar::{BarContext, Section, SectionedBar};
 use crate::fonts;
 use crate::style::{self, classes};
@@ -108,6 +109,7 @@ impl BarWindow {
 
         fonts::apply_pango_rendering(config, &window);
         window.set_visible(true);
+        anim::watchdog::install(&window);
 
         info!(
             "bar on {connector}: {width}x{height}, {} widget(s)",

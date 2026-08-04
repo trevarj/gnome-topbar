@@ -8,5 +8,6 @@
 //! Rust-side implementation is easier to reason about (and to switch off).
 
 mod animator;
+pub mod watchdog;
 
 pub use animator::{Animation, AnimationParams, Easing, motion_enabled, set_animations_enabled};
