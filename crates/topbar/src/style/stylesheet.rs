@@ -49,6 +49,12 @@ const CONTRAST_PIVOT: f64 = 0.179;
 /// Horizontal padding inside a widget's content box, in pixels.
 const WIDGET_PADDING_X: u32 = 10;
 
+/// Alpha of a state colour used as a fill rather than as text.
+///
+/// Enough to read as tinted against a dark surface, far short of enough to
+/// compete with the number it sits beside.
+const STATE_FILL_ALPHA: f64 = 0.16;
+
 /// Fraction of the bar height taken by the gap above and below a widget.
 const WIDGET_INSET_SCALE: f64 = 0.14;
 /// Font size as a fraction of the widget height.
@@ -218,6 +224,8 @@ fn root_block(config: &Config) -> String {
     --color-state-success: {success};
     --color-state-warning: {warning};
     --color-state-urgent: {urgent};
+    --color-state-success-fill: {success_fill};
+    --color-state-urgent-fill: {urgent_fill};
 }}
 "#,
         bar_height = bar.size,
@@ -263,6 +271,13 @@ fn root_block(config: &Config) -> String {
         success = color_or(&theme.states.success, Rgb::new(0x22, 0xc5, 0x5e)).to_hex(),
         warning = color_or(&theme.states.warning, Rgb::new(0xf5, 0x9e, 0x0b)).to_hex(),
         urgent = color_or(&theme.states.urgent, Rgb::new(0xef, 0x44, 0x44)).to_hex(),
+        // The same two colours at a low alpha, for a chip that is tinted
+        // rather than filled. GTK's `alpha()` does not resolve a custom
+        // property, so the tint is computed here instead of in a rule.
+        success_fill =
+            color_or(&theme.states.success, Rgb::new(0x22, 0xc5, 0x5e)).to_rgba(STATE_FILL_ALPHA),
+        urgent_fill =
+            color_or(&theme.states.urgent, Rgb::new(0xef, 0x44, 0x44)).to_rgba(STATE_FILL_ALPHA),
     )
 }
 
@@ -698,6 +713,197 @@ button.forecast-retry:hover {
     background-color: var(--color-widget-hover);
 }
 
+/* ===== Crypto ===== */
+
+/* Tabular figures, so a price crossing a digit boundary does not shuffle
+   everything to the right of it sideways. */
+.crypto label {
+    font-feature-settings: "tnum";
+}
+
+/* Each entry is one unit — logo then number — so the gap inside it is tighter
+   than the gap between entries, which is what stops three prices reading as
+   six things. */
+.crypto-entry > *:not(:last-child) {
+    margin-right: 4px;
+}
+
+/* The number is what the eye goes to and the logo beside it is the label, so
+   the number keeps the full foreground whatever the logo is doing. */
+.crypto-value {
+    color: var(--color-foreground);
+}
+
+/* The logos are textures and take no colour from CSS. This rule is for the
+   symbolic glyph that stands in when one fails to decode: it has to read as a
+   placeholder rather than as a fourth asset. Their pixel sizes come from Rust,
+   which is where the size a logo is drawn at is decided. */
+.crypto-icon {
+    color: var(--color-foreground-muted);
+}
+
+/* The denominator's logo sits on the numerator's shoulder. The disc behind it
+   is what separates the two marks; it is the panel's own background, which is
+   also near enough the popover's for the same badge to work on both. */
+.crypto-badge {
+    padding: 1px;
+    border-radius: 9999px;
+    background-color: var(--color-bar-background);
+}
+
+.crypto-popover {
+    min-width: 260px;
+}
+
+/* The gear sits tight against the surface's padding, as the forecast's does,
+   so the title line is not pushed in by a button's own box. */
+.crypto-header {
+    margin-right: -6px;
+}
+
+button.crypto-configure,
+button.crypto-back {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground-muted);
+    -gtk-icon-size: 16px;
+}
+
+button.crypto-configure:hover,
+button.crypto-back:hover {
+    background-color: var(--color-widget-hover);
+    color: var(--color-foreground);
+}
+
+button.crypto-configure:active,
+button.crypto-back:active {
+    background-color: var(--color-widget-pressed);
+}
+
+/* The back button leads the settings header, so its negative margin is on the
+   other side from the gear's. */
+button.crypto-back {
+    margin-left: -6px;
+}
+
+.crypto-list {
+    margin-top: 2px;
+}
+
+.crypto-row {
+    min-height: 28px;
+}
+
+/* The name is the row's label and the price is its answer, so the name is the
+   quieter of the two. */
+.crypto-name {
+    color: var(--color-foreground-muted);
+}
+
+.crypto-row-value {
+    font-feature-settings: "tnum";
+    font-weight: 700;
+}
+
+/* The change is a chip rather than coloured text: a tinted pill reads as a
+   badge attached to the price, where coloured text would read as a second,
+   competing number. */
+.crypto-change {
+    min-width: 54px;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    color: var(--color-foreground-disabled);
+    font-size: 0.85em;
+    font-feature-settings: "tnum";
+}
+
+.crypto-change.crypto-change-up {
+    background-color: var(--color-state-success-fill);
+    color: var(--color-state-success);
+}
+
+.crypto-change.crypto-change-down {
+    background-color: var(--color-state-urgent-fill);
+    color: var(--color-state-urgent);
+}
+
+.crypto-updated {
+    margin-top: 4px;
+    color: var(--color-foreground-disabled);
+    font-size: 0.9em;
+}
+
+/* ===== Crypto settings ===== */
+
+.crypto-settings {
+    min-width: 260px;
+}
+
+/* A heading is a label rather than a frame: the popover is small enough that
+   two words in the accent-free muted colour are all the separation two lists
+   need. */
+.crypto-section {
+    margin-top: 6px;
+    color: var(--color-foreground-muted);
+    font-size: 0.85em;
+    font-weight: 700;
+}
+
+.crypto-setting-row {
+    min-height: 32px;
+}
+
+/* The stock switch is the one control in the panel that ships its own colour,
+   and the colour it ships is the toolkit's blue. The accent belongs to the
+   user's config. */
+.crypto-setting-row switch:checked {
+    background-color: var(--color-accent);
+}
+
+.crypto-setting-row switch:checked > slider {
+    background-color: var(--color-on-accent);
+}
+
+button.crypto-reorder,
+button.crypto-remove {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 9999px;
+    color: var(--color-foreground-muted);
+    -gtk-icon-size: 14px;
+}
+
+button.crypto-reorder:hover,
+button.crypto-remove:hover {
+    background-color: var(--color-widget-hover);
+    color: var(--color-foreground);
+}
+
+/* An arrow with nowhere to go is dimmed rather than hidden, so the row does
+   not change width as an entry moves up and down the list. */
+button.crypto-reorder:disabled,
+button.crypto-remove:disabled {
+    color: var(--color-foreground-disabled);
+    opacity: 0.4;
+}
+
+.crypto-add-pair {
+    margin-top: 4px;
+}
+
+.crypto-pair-slash {
+    color: var(--color-foreground-muted);
+}
+
 /* ===== Location dialog ===== */
 
 /* The window is only a transparent frame; the dialog inside it is what is
@@ -804,6 +1010,14 @@ button.dialog-button {
 
 button.dialog-button:hover {
     background-color: var(--color-widget-hover);
+}
+
+/* A button with nothing to do says so: the Add in the crypto settings is
+   disabled for a pair that is already shown, and a full-contrast label on it
+   would look like a control that simply did not work. */
+button.dialog-button:disabled {
+    background-color: transparent;
+    color: var(--color-foreground-disabled);
 }
 
 button.dialog-button-primary {
@@ -1242,6 +1456,8 @@ mod tests {
     --color-state-success: #22c55e;
     --color-state-warning: #f59e0b;
     --color-state-urgent: #ef4444;
+    --color-state-success-fill: rgba(34, 197, 94, 0.16);
+    --color-state-urgent-fill: rgba(239, 68, 68, 0.16);
 }
 ";
 

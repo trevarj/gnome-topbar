@@ -69,6 +69,7 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
         return None;
     }
 
+    prefer_dark();
     style::apply(&display, &style::generate(&config.current()));
 
     // The panel's own failures are shown as banners, which means the single
@@ -97,6 +98,21 @@ fn start(app: &Application, config: &SharedConfig, services: &Services) -> Optio
         }
     );
     Some(manager)
+}
+
+/// Ask the stock theme for its dark variant.
+///
+/// The panel styles everything it paints itself, so this changes nothing about
+/// the bar, the popovers or the banners. It is about the handful of controls
+/// that come from GTK rather than from the generated sheet — a switch, a
+/// dropdown, a disabled button — which would otherwise arrive in Adwaita's
+/// light colours and sit as white rectangles in a black popover. There is one
+/// palette in v2 and it is dark; this is the toolkit being told so.
+fn prefer_dark() {
+    let Some(settings) = gtk4::Settings::default() else {
+        return;
+    };
+    settings.set_gtk_application_prefer_dark_theme(true);
 }
 
 /// Pin GDK to Wayland unless the user asked for something else.

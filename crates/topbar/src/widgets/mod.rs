@@ -3,6 +3,7 @@
 mod app_icon;
 mod clock;
 mod control_panel;
+mod crypto;
 mod keyboard_layout;
 pub mod notifications;
 mod rounded_picture;
@@ -58,6 +59,10 @@ pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<Mounte
         "weather" => {
             let weather = weather::WeatherWidget::new(&config.widgets.weather, context);
             Some(MountedWidget::new(weather.root(), weather))
+        }
+        "crypto" => {
+            let crypto = crypto::CryptoWidget::new(&config.widgets.crypto, context);
+            Some(MountedWidget::new(crypto.root(), crypto))
         }
         "keyboard_layout" => {
             let layout = keyboard_layout::KeyboardLayoutWidget::new(

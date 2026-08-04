@@ -90,6 +90,57 @@ pub const FORECAST_STALE: &str = "forecast-stale";
 /// The button that asks for a fresh one.
 pub const FORECAST_RETRY: &str = "forecast-retry";
 
+/// The crypto widget.
+pub const CRYPTO: &str = "crypto";
+/// One entry on the bar: its logo (or two) and its number.
+pub const CRYPTO_ENTRY: &str = "crypto-entry";
+/// An asset's logo, wherever it is drawn.
+pub const CRYPTO_ICON: &str = "crypto-icon";
+/// The denominator's logo on a pair, on the numerator's shoulder.
+pub const CRYPTO_BADGE: &str = "crypto-badge";
+/// An entry's number on the bar.
+pub const CRYPTO_VALUE: &str = "crypto-value";
+
+/// The crypto popover, both views.
+pub const CRYPTO_POPOVER: &str = "crypto-popover";
+/// The header row of either view.
+pub const CRYPTO_HEADER: &str = "crypto-header";
+/// The gear that opens the settings view.
+pub const CRYPTO_CONFIGURE: &str = "crypto-configure";
+/// The button that comes back from it.
+pub const CRYPTO_BACK: &str = "crypto-back";
+/// The column of price rows.
+pub const CRYPTO_LIST: &str = "crypto-list";
+/// One price row.
+pub const CRYPTO_ROW: &str = "crypto-row";
+/// What the row's entry is called.
+pub const CRYPTO_NAME: &str = "crypto-name";
+/// Its price, written out.
+pub const CRYPTO_ROW_VALUE: &str = "crypto-row-value";
+/// The 24-hour change chip beside it.
+pub const CRYPTO_CHANGE: &str = "crypto-change";
+/// Set on a chip that went up.
+pub const CRYPTO_CHANGE_UP: &str = "crypto-change-up";
+/// Set on one that went down.
+pub const CRYPTO_CHANGE_DOWN: &str = "crypto-change-down";
+/// The dimmed line saying how old the prices are.
+pub const CRYPTO_UPDATED: &str = "crypto-updated";
+
+/// The settings view.
+pub const CRYPTO_SETTINGS: &str = "crypto-settings";
+/// One of its headings.
+pub const CRYPTO_SECTION: &str = "crypto-section";
+/// One of its rows.
+pub const CRYPTO_SETTING_ROW: &str = "crypto-setting-row";
+/// An up or down arrow on one.
+pub const CRYPTO_REORDER: &str = "crypto-reorder";
+/// The cross that takes a pair off the bar.
+pub const CRYPTO_REMOVE: &str = "crypto-remove";
+/// The row that builds a new pair.
+pub const CRYPTO_ADD_PAIR: &str = "crypto-add-pair";
+/// The slash between its two dropdowns.
+pub const CRYPTO_PAIR_SLASH: &str = "crypto-pair-slash";
+
 /// The location dialog's layer-shell window.
 pub const LOCATION_WINDOW: &str = "location-window";
 /// The dimmed surface behind it.
@@ -337,6 +388,30 @@ pub const ALL: &[&str] = &[
     FORECAST_PRECIPITATION,
     FORECAST_STALE,
     FORECAST_RETRY,
+    CRYPTO,
+    CRYPTO_ENTRY,
+    CRYPTO_ICON,
+    CRYPTO_BADGE,
+    CRYPTO_VALUE,
+    CRYPTO_POPOVER,
+    CRYPTO_HEADER,
+    CRYPTO_CONFIGURE,
+    CRYPTO_BACK,
+    CRYPTO_LIST,
+    CRYPTO_ROW,
+    CRYPTO_NAME,
+    CRYPTO_ROW_VALUE,
+    CRYPTO_CHANGE,
+    CRYPTO_CHANGE_UP,
+    CRYPTO_CHANGE_DOWN,
+    CRYPTO_UPDATED,
+    CRYPTO_SETTINGS,
+    CRYPTO_SECTION,
+    CRYPTO_SETTING_ROW,
+    CRYPTO_REORDER,
+    CRYPTO_REMOVE,
+    CRYPTO_ADD_PAIR,
+    CRYPTO_PAIR_SLASH,
     LOCATION_WINDOW,
     LOCATION_BACKDROP,
     LOCATION_DIALOG,
