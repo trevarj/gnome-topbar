@@ -76,6 +76,26 @@ pub enum SvcError {
     #[error("coordinates {0} are out of range")]
     Coordinates(String),
 
+    /// No sound server is answering.
+    #[error("no sound server is answering")]
+    AudioUnavailable,
+
+    /// The sound server has no device of that kind to act on.
+    ///
+    /// Carries `"output"` or `"input"` so the log line says which, while the
+    /// user-facing sentence stays the same either way — a user who asked for
+    /// the volume and got nothing does not need the word "sink".
+    #[error("the sound server has no usable {0} device")]
+    AudioDevice(&'static str),
+
+    /// This machine has no backlight to adjust.
+    #[error("no backlight device was found under /sys/class/backlight")]
+    NoBacklight,
+
+    /// The idle inhibitor could not be taken or released.
+    #[error("logind refused the idle inhibitor: {0}")]
+    Inhibitor(String),
+
     /// A service task has stopped, so its commands go nowhere.
     #[error("the {0} service is not running")]
     ServiceStopped(&'static str),
@@ -100,6 +120,10 @@ impl SvcError {
             Self::Http(_) => "Could not reach the service",
             Self::RateLimited(_) => "Rate limited, retrying later",
             Self::Coordinates(_) => "Those coordinates are out of range",
+            Self::AudioUnavailable => "Could not reach the sound server",
+            Self::AudioDevice(_) => "No audio device is available",
+            Self::NoBacklight => "This screen has no adjustable backlight",
+            Self::Inhibitor(_) => "Could not change the idle inhibitor",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
     }
@@ -126,6 +150,10 @@ mod tests {
             SvcError::Http("connection timed out".into()),
             SvcError::RateLimited("you have exceeded the rate limit".into()),
             SvcError::Coordinates("100, 0".into()),
+            SvcError::AudioUnavailable,
+            SvcError::AudioDevice("output"),
+            SvcError::NoBacklight,
+            SvcError::Inhibitor("Interactive authentication required".into()),
             SvcError::ServiceStopped("notifications"),
         ];
         for error in errors {
