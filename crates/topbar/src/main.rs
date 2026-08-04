@@ -1,16 +1,17 @@
 //! gnome-topbar — GNOME Shell-inspired GTK4 top bar for niri.
 //!
-//! M0 is the scaffold: the CLI surface, configuration loading/validation, and
-//! logging are real; the panel UI itself lands from M1 onward.
+//! The binary is both the panel and its command-line client: with no
+//! subcommand it loads the configuration and runs the bar, and every
+//! subcommand talks to a running panel over the IPC socket.
 
 #![warn(missing_docs)]
 
 mod anim;
+mod app;
 mod bar;
 mod cli;
 mod fonts;
 mod ipc_client;
-mod panel;
 mod style;
 mod surfaces;
 mod widgets;
@@ -21,7 +22,7 @@ use clap::Parser;
 use topbar_core::config::{Config, ConfigLoad, EXAMPLE_CONFIG_TOML, Warning};
 use topbar_core::ipc::{self, IpcRequest, IpcResponse};
 use topbar_core::logging;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::cli::{Cli, Command, DumpAction, PopoverAction, VisibilityAction};
 
@@ -71,10 +72,7 @@ fn main() -> ExitCode {
     }
 
     describe(&load);
-    debug!("linked against {}", panel::linked_stack());
-    info!("gnome-topbar v2 scaffold: UI not implemented yet (milestone M0)");
-    println!("gnome-topbar v2 scaffold: UI not implemented yet (milestone M0)");
-    ExitCode::SUCCESS
+    app::run(load.config)
 }
 
 /// `--check-config` output: one status line, then every warning on stderr.
