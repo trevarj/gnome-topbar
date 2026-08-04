@@ -2,9 +2,8 @@
 //!
 //! Anything the panel has to remember across restarts but must never write
 //! back into the user's `config.toml` lives in
-//! `$XDG_STATE_HOME/topbar/state.json`: the notification history and the
-//! Do Not Disturb flag today, the crypto widget's runtime entries and the
-//! weather coordinates later.
+//! `$XDG_STATE_HOME/topbar/state.json`: the notification history, the Do Not
+//! Disturb flag, the weather coordinates, and the crypto widget's entries.
 //!
 //! One task owns the file. Callers hand it *edits* rather than whole
 //! documents, so two services updating different sections cannot clobber each
@@ -20,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use crate::crypto::PersistedCrypto;
 use crate::notifications::PersistedNotifications;
 use crate::weather::PersistedWeather;
 
@@ -44,6 +44,8 @@ pub struct PersistedState {
     pub notifications: PersistedNotifications,
     /// The weather location the setup dialog last saved.
     pub weather: PersistedWeather,
+    /// The price entries the crypto settings view last saved.
+    pub crypto: PersistedCrypto,
 }
 
 /// One queued change to the state document.

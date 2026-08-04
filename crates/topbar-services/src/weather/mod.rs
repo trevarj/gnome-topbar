@@ -4,7 +4,6 @@
 //!   model.rs   the published snapshot                     (pure)
 //!   wmo.rs     code -> words and an Adwaita icon name     (pure)
 //!   api.rs     the two Open-Meteo URLs and their bodies   (pure + I/O)
-//!   policy.rs  when to fetch next                         (pure)
 //!   import.rs  v1's saved coordinates, read once          (pure + I/O)
 //!   task.rs    the one owner of all of it
 //! ```
@@ -13,6 +12,8 @@
 //! all render from the single [`WeatherState`] this service publishes. v1 kept
 //! two caches and had the control panel shell out for a second copy of the
 //! same forecast; there is nowhere here for that to happen.
+//!
+//! When to fetch next is [`crate::refresh`], which the crypto service shares.
 //!
 //! Refreshing is stale-while-revalidate throughout: a failed fetch keeps the
 //! last good reading on screen with the time it was taken, retries on a
@@ -23,7 +24,6 @@
 mod api;
 mod import;
 mod model;
-mod policy;
 mod task;
 mod wmo;
 

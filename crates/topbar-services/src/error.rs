@@ -55,6 +55,15 @@ pub enum SvcError {
     #[error("web request failed: {0}")]
     Http(String),
 
+    /// A web service answered 429: too many requests, come back later.
+    ///
+    /// Its own variant rather than an [`SvcError::Http`] because the panel's
+    /// answer to it is different — wait longer, keep what is on screen — and
+    /// because "could not reach the service" would be a lie about a service
+    /// that answered promptly and in full.
+    #[error("rate limited: {0}")]
+    RateLimited(String),
+
     /// A latitude/longitude pair that is not a point on Earth.
     #[error("coordinates {0} are out of range")]
     Coordinates(String),
@@ -79,6 +88,7 @@ impl SvcError {
             Self::GoneNotification(_) => "That notification is no longer available",
             Self::NoPlayer(_) => "No media player is available",
             Self::Http(_) => "Could not reach the service",
+            Self::RateLimited(_) => "Rate limited, retrying later",
             Self::Coordinates(_) => "Those coordinates are out of range",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
@@ -102,6 +112,7 @@ mod tests {
             SvcError::GoneNotification(7),
             SvcError::NoPlayer("org.mpris.MediaPlayer2.spotify".into()),
             SvcError::Http("connection timed out".into()),
+            SvcError::RateLimited("you have exceeded the rate limit".into()),
             SvcError::Coordinates("100, 0".into()),
             SvcError::ServiceStopped("notifications"),
         ];

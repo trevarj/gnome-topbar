@@ -14,12 +14,12 @@ use tracing::{debug, info, warn};
 
 use crate::connectivity::ConnectivityState;
 use crate::error::SvcError;
+use crate::refresh::Refresh;
 use crate::state_store::StateStore;
 use crate::weather::api::{self, Endpoints};
 use crate::weather::model::{
     GeocodeResult, LocationView, Phase, WeatherData, WeatherState, phase_after_failure,
 };
-use crate::weather::policy::Refresh;
 use crate::weather::{PersistedLocation, Settings};
 
 /// What the panel can ask of the weather service.

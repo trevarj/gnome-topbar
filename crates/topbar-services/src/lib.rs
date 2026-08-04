@@ -10,10 +10,12 @@
 #![warn(missing_docs)]
 
 pub mod connectivity;
+pub mod crypto;
 pub mod error;
 pub mod media;
 pub mod niri;
 pub mod notifications;
+pub mod refresh;
 pub mod runtime;
 pub mod state_store;
 pub mod weather;
@@ -29,6 +31,7 @@ mod private_bus;
 pub use tokio::sync::watch;
 
 pub use connectivity::{Connectivity, ConnectivityState};
+pub use crypto::{Asset, Crypto, CryptoHandle, CryptoState, Entry, EntryQuote, Quote};
 pub use error::SvcError;
 pub use media::{ArtRef, Media, MediaHandle, MediaState, PlaybackStatus, PlayerView};
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};

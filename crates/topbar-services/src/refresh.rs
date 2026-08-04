@@ -1,11 +1,12 @@
 //! When to fetch next.
 //!
-//! Two rules and no clock, so both are testable:
+//! Shared by every service that polls somebody else's web API — the weather and
+//! the crypto prices today. Two rules and no clock, so both are testable:
 //!
 //! - **Success** schedules the configured interval with up to ±10% of jitter.
-//!   Every panel on every machine would otherwise ask Open-Meteo for the
-//!   weather at the same second past the half hour, having all been started by
-//!   the same `spawn-at-startup` line.
+//!   Every panel on every machine would otherwise ask Open-Meteo (or CoinGecko)
+//!   the same question at the same second past the half hour, having all been
+//!   started by the same `spawn-at-startup` line.
 //! - **Failure** schedules a backoff that starts at a minute and doubles up to
 //!   the interval, so a service that is down is asked once a minute at first
 //!   and then progressively left alone. The ladder is deliberately *not*

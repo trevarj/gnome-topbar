@@ -13,6 +13,7 @@ use tokio::runtime;
 use topbar_core::Config;
 
 use crate::connectivity::Connectivity;
+use crate::crypto::Crypto;
 use crate::media::Media;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
@@ -61,6 +62,8 @@ pub struct Services {
     pub connectivity: Connectivity,
     /// The weather, as one cache for the whole panel.
     pub weather: Weather,
+    /// Crypto prices, as one cache for the whole panel.
+    pub crypto: Crypto,
 }
 
 impl Services {
@@ -71,6 +74,7 @@ impl Services {
     pub fn start(config: &Config) -> Self {
         let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
         let weather = config.widgets.weather.clone();
+        let crypto = config.widgets.crypto.clone();
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -83,7 +87,8 @@ impl Services {
                 niri: Niri::start(niri_socket),
                 notifications: Notifications::start(state.notifications, store.clone(), None),
                 media: Media::start(None),
-                weather: Weather::start(&weather, state.weather, store, &connectivity),
+                weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
+                crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
                 connectivity,
             }
         })
