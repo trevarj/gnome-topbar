@@ -8,6 +8,7 @@
 mod anim;
 mod bar;
 mod cli;
+mod fonts;
 mod ipc_client;
 mod panel;
 mod style;
