@@ -319,7 +319,10 @@ impl Drop for ToastSurface {
 }
 
 /// The connector name of every monitor GDK currently reports.
-fn connectors() -> Vec<String> {
+///
+/// Shared with the OSD, which picks its host the same way and for the same
+/// reason: whatever the user is looking at.
+pub fn connectors() -> Vec<String> {
     let Some(display) = gdk::Display::default() else {
         return Vec::new();
     };

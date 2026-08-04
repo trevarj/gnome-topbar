@@ -385,6 +385,19 @@ pub const TOAST_ACTION: &str = "toast-action";
 /// The close button revealed while the pointer is over a banner.
 pub const TOAST_CLOSE: &str = "toast-close";
 
+/// The volume/brightness capsule's layer-shell window.
+pub const OSD_WINDOW: &str = "osd-window";
+/// The capsule itself.
+pub const OSD_CAPSULE: &str = "osd-capsule";
+/// Its icon.
+pub const OSD_ICON: &str = "osd-icon";
+/// CSS name of the custom widget that draws the fill.
+pub const OSD_BAR: &str = "osd-bar";
+/// The line explaining an icon-only capsule.
+pub const OSD_CAPTION: &str = "osd-caption";
+/// The numeric percentage, shown only when `[osd] show_value` is on.
+pub const OSD_VALUE: &str = "osd-value";
+
 /// The shared tooltip's layer-shell window.
 pub const TOOLTIP_WINDOW: &str = "tooltip-window";
 /// The tooltip's painted surface.
@@ -571,6 +584,12 @@ pub const ALL: &[&str] = &[
     TOAST_ACTIONS,
     TOAST_ACTION,
     TOAST_CLOSE,
+    OSD_WINDOW,
+    OSD_CAPSULE,
+    OSD_ICON,
+    OSD_BAR,
+    OSD_CAPTION,
+    OSD_VALUE,
     TOOLTIP_WINDOW,
     TOOLTIP_SURFACE,
     TOOLTIP_LABEL,

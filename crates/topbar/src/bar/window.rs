@@ -11,6 +11,7 @@ use crate::anim;
 use crate::bar::{BarContext, Section, SectionedBar};
 use crate::fonts;
 use crate::style::{self, classes};
+use crate::surfaces::osd::OsdSurface;
 use crate::surfaces::toast::ToastSurface;
 use crate::widgets::{self, MountedWidget};
 
@@ -31,6 +32,11 @@ pub struct BarWindow {
     /// Owned by the bar rather than by a widget: banners appear whether or not
     /// the user configured a clock, and they go away with the monitor.
     _toasts: std::rc::Rc<ToastSurface>,
+    /// This monitor's volume/brightness capsule, when `[osd]` enables one.
+    ///
+    /// Owned here for the same reason, and `None` rather than hidden when the
+    /// feature is switched off: an OSD nobody wants should not have a surface.
+    _osd: Option<std::rc::Rc<OsdSurface>>,
 }
 
 impl BarWindow {
@@ -125,7 +131,26 @@ impl BarWindow {
             window,
             _widgets: mounted,
             _toasts: ToastSurface::new(monitor, connector, config, services),
+            _osd: OsdSurface::new(monitor, connector, config, services),
         }
+    }
+
+    /// Whether this bar is on screen.
+    pub fn is_visible(&self) -> bool {
+        self.window.is_visible()
+    }
+
+    /// Show or hide this bar.
+    ///
+    /// The window is hidden, not destroyed: the widgets keep their
+    /// subscriptions and their timers, so a bar coming back is the bar that
+    /// went away rather than a fresh one with a blank clock. The exclusive
+    /// zone goes with the surface, so the desktop reclaims the strip.
+    pub fn set_visible(&self, visible: bool) {
+        if self.window.is_visible() == visible {
+            return;
+        }
+        self.window.set_visible(visible);
     }
 }
 

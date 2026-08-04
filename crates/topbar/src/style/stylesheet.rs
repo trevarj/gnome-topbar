@@ -49,6 +49,13 @@ const CONTRAST_PIVOT: f64 = 0.179;
 /// Horizontal padding inside a widget's content box, in pixels.
 const WIDGET_PADDING_X: u32 = 10;
 
+/// Horizontal padding inside the OSD capsule, in pixels.
+///
+/// Stated in Rust as well as in the sheet because the capsule's overall width
+/// is a design constraint — GNOME 42's is about 220px — and the test that
+/// checks it has to be able to add the parts up.
+pub(crate) const OSD_PADDING: u32 = 20;
+
 /// Alpha of a state colour used as a fill rather than as text.
 ///
 /// Enough to read as tinted against a dark surface, far short of enough to
@@ -195,6 +202,7 @@ fn root_block(config: &Config) -> String {
     --radius-surface: {radius_surface}px;
     --radius-popover: {radius_popover}px;
     --radius-card: 12px;
+    --osd-padding: {osd_padding}px;
 
     /* Typography */
     --font-family: {font_family};
@@ -240,6 +248,7 @@ fn root_block(config: &Config) -> String {
         radius_widget = widget_radius(config),
         radius_surface = (bar.size / 3).max(6),
         radius_popover = POPOVER_RADIUS,
+        osd_padding = OSD_PADDING,
         font_family = theme.typography.font_family,
         font_size = font_size(bar.size),
         icon_size = round_to_even((f64::from(bar.size) * ICON_SCALE) as u32),
@@ -1498,6 +1507,46 @@ window.tooltip-window {
     font-size: var(--font-size);
     color: var(--color-foreground);
 }
+
+/* ===== The volume/brightness capsule ===== */
+
+window.osd-window {
+    background: transparent;
+}
+
+/* GNOME 42's pill: one row, fully rounded, nothing else on it. The bar and
+   the icon are drawn from Rust (see surfaces/osd_bar.rs), so the only thing
+   CSS decides here is the surface it all sits on. */
+.osd-capsule {
+    background-color: var(--color-popover);
+    border: 1px solid var(--color-surface-border);
+    border-radius: 9999px;
+    box-shadow: 0 2px 8px var(--color-popover-shadow);
+    color: var(--color-foreground);
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    padding: 16px var(--osd-padding);
+}
+
+.osd-icon {
+    -gtk-icon-size: 24px;
+    color: var(--color-foreground);
+}
+
+/* The custom widget reads its own `color` for the unfilled track; the fill
+   itself is the configured accent, which CSS cannot hand to Rust. */
+osd-bar {
+    color: var(--color-foreground);
+}
+
+.osd-caption {
+    color: var(--color-foreground-muted);
+}
+
+.osd-value {
+    color: var(--color-foreground);
+    font-variant-numeric: tabular-nums;
+}
 "#;
 
 thread_local! {
@@ -1559,6 +1608,7 @@ mod tests {
     --radius-surface: 12px;
     --radius-popover: 16px;
     --radius-card: 12px;
+    --osd-padding: 20px;
 
     /* Typography */
     --font-family: NotoSans, Iosevka SS12, Symbols Nerd Font Mono, Symbols Nerd Font;
