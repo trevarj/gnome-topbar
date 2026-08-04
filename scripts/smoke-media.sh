@@ -91,7 +91,13 @@ rss() {
   awk '/^VmRSS:/ { print $2 }' "/proc/$SMOKE_PANEL_PID/status"
 }
 
+# Screenshot, after giving the nested compositor time to present.
+#
+# niri runs inside a winit window here, and a window nobody is looking at is
+# throttled: `grim` hands back the last frame that was *presented*, which can
+# be seconds behind the last frame that was drawn. Waiting is the whole fix.
 shot() {
+  sleep 3
   grim "$art/$1.png"
   echo "smoke-media: $1"
 }
@@ -99,7 +105,6 @@ shot() {
 # --- (c) nothing on the bus -------------------------------------------------
 # The panel opened its control panel a second in; with no player there must be
 # no media card at all and the column must look exactly like M4's.
-sleep 1
 shot media-0-no-players
 
 # --- (a) one player ---------------------------------------------------------
@@ -109,7 +114,6 @@ shot media-0-no-players
   --art "file://$art/cover-a.png" --status Playing \
   --length 221000000 --position 72000000 --no-next >/dev/null 2>&1 &
 one=$!
-sleep 2
 shot media-1-one-player
 
 # --- (b) two players --------------------------------------------------------
@@ -117,14 +121,12 @@ shot media-1-one-player
   --artist "Aphex Twin" --album "Drukqs" --art "file://$art/cover-b.png" \
   --status Paused --length 120000000 >/dev/null 2>&1 &
 two=$!
-sleep 2
 shot media-2-two-players
 
 # The card follows what is playing without anyone clicking anything: the first
 # player stops, the second starts, and the switcher's ring moves with it.
 control smokeone SetStatus '"Paused"'
 control smoketwo SetStatus '"Playing"'
-sleep 2
 shot media-3-relevance-moved
 
 # The other half of the rule — a pin, which outranks all of this — is only
@@ -180,10 +182,8 @@ awk -v warm="${warm:-$before}" -v after="$after" 'BEGIN {
 # The placeholder, not the last track's picture: art is cleared on the same
 # grace period it is fetched on.
 control smoketwo SetTrack "Nothing To Look At" "Nobody" "" 90000000
-sleep 1
 shot media-5-no-cover
 
 # --- the players go away ----------------------------------------------------
 kill "$one" "$two" 2>/dev/null || true
-sleep 2
 shot media-6-players-gone
