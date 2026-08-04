@@ -44,6 +44,10 @@ pub enum SvcError {
     #[error("notification {0} no longer exists")]
     GoneNotification(u32),
 
+    /// There is no media player to act on, or the one named has gone.
+    #[error("no media player answered: {0}")]
+    NoPlayer(String),
+
     /// A service task has stopped, so its commands go nowhere.
     #[error("the {0} service is not running")]
     ServiceStopped(&'static str),
@@ -62,6 +66,7 @@ impl SvcError {
             Self::Bus(_) => "Could not reach the session bus",
             Self::NameTaken(_) => "Another notification daemon is running",
             Self::GoneNotification(_) => "That notification is no longer available",
+            Self::NoPlayer(_) => "No media player is available",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
     }
@@ -82,6 +87,7 @@ mod tests {
             SvcError::Bus("connection refused".into()),
             SvcError::NameTaken("org.freedesktop.Notifications".into()),
             SvcError::GoneNotification(7),
+            SvcError::NoPlayer("org.mpris.MediaPlayer2.spotify".into()),
             SvcError::ServiceStopped("notifications"),
         ];
         for error in errors {

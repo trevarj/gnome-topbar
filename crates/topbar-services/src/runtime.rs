@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 use niri_ipc::socket::SOCKET_PATH_ENV;
 use tokio::runtime;
 
+use crate::media::Media;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
 use crate::state_store::StateStore;
@@ -51,6 +52,8 @@ pub struct Services {
     pub niri: Niri,
     /// The notification daemon.
     pub notifications: Notifications,
+    /// The MPRIS media players.
+    pub media: Media,
 }
 
 impl Services {
@@ -67,6 +70,7 @@ impl Services {
             Self {
                 niri: Niri::start(niri_socket),
                 notifications: Notifications::start(state.notifications, store, None),
+                media: Media::start(None),
             }
         })
     }

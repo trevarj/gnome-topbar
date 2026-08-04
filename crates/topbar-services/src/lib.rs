@@ -10,10 +10,14 @@
 #![warn(missing_docs)]
 
 pub mod error;
+pub mod media;
 pub mod niri;
 pub mod notifications;
 pub mod runtime;
 pub mod state_store;
+
+#[cfg(test)]
+mod private_bus;
 
 /// The channel type every service publishes its state through.
 ///
@@ -23,6 +27,7 @@ pub mod state_store;
 pub use tokio::sync::watch;
 
 pub use error::SvcError;
+pub use media::{ArtRef, Media, MediaHandle, MediaState, PlaybackStatus, PlayerView};
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
 pub use notifications::{
     Action, CloseReason, GroupView, IconSource, ImageData, NotifState, NotificationView,

@@ -1,92 +1,24 @@
 //! The daemon on a real bus — a **private** one, always.
 //!
-//! Every test here starts its own `dbus-daemon` and points both the panel and
-//! the client at it by explicit address. Nothing in this file reads
-//! `$DBUS_SESSION_BUS_ADDRESS`, which is what makes it safe to run `cargo
-//! test` on a live desktop: the developer's notification daemon is never
-//! touched, and the name this code requests is requested on a bus that exists
-//! only for the length of one test.
+//! Every test here starts its own `dbus-daemon` (see
+//! [`crate::private_bus`]) and points both the panel and the client at it by
+//! explicit address, which is what makes it safe to run `cargo test` on a live
+//! desktop: the developer's notification daemon is never touched, and the name
+//! this code requests is requested on a bus that exists only for the length of
+//! one test.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use zbus::Connection;
 use zbus::zvariant::Value;
 
 use super::*;
 use crate::notifications::server::{NOTIFICATIONS_NAME, NOTIFICATIONS_PATH};
+use crate::private_bus::{PrivateBus, private_bus};
 
 /// How long a test waits for a signal before failing.
 const PATIENCE: Duration = Duration::from_secs(10);
-
-/// A `dbus-daemon` that lives exactly as long as one test.
-struct PrivateBus {
-    child: Child,
-    address: String,
-}
-
-impl PrivateBus {
-    /// Start one, or `None` when this machine cannot run a bus.
-    ///
-    /// `dbus-daemon` needs a machine id, which a Nix build sandbox does not
-    /// have, so these tests run in the dev shell and on a real desktop and sit
-    /// out `nix flake check`. Everything they cover about *behaviour* is also
-    /// covered by the detached tests next door; what is only covered here is
-    /// the wire protocol itself.
-    fn start() -> Option<Self> {
-        let mut child = Command::new("dbus-daemon")
-            .args(["--session", "--print-address", "--nofork"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-
-        let stdout = child.stdout.take().expect("piped stdout");
-        let mut address = String::new();
-        let read = BufReader::new(stdout).read_line(&mut address);
-        let address = address.trim().to_string();
-
-        if read.is_err() || !address.starts_with("unix:") {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-
-        Some(Self { child, address })
-    }
-
-    /// A fresh client connection to this bus.
-    async fn connect(&self) -> Connection {
-        zbus::connection::Builder::address(self.address.as_str())
-            .expect("a well-formed private bus address")
-            .build()
-            .await
-            .expect("the private bus accepts connections")
-    }
-}
-
-impl Drop for PrivateBus {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-/// Start a bus, or explain why the test is being skipped.
-macro_rules! private_bus {
-    () => {
-        match PrivateBus::start() {
-            Some(bus) => bus,
-            None => {
-                eprintln!("skipping: no private bus available (dbus-daemon needs a machine id)");
-                return;
-            }
-        }
-    };
-}
 
 /// The client side of the protocol, exactly as an application sees it.
 #[zbus::proxy(
@@ -135,7 +67,7 @@ async fn serving(bus: &PrivateBus, label: &str) -> Notifications {
     let notifications = Notifications::start(
         PersistedNotifications::default(),
         store,
-        Some(bus.address.clone()),
+        Some(bus.address().to_string()),
     );
     notifications
         .startup()
@@ -492,7 +424,7 @@ async fn a_daemon_that_will_not_step_aside_is_reported_rather_than_fought() {
     let notifications = Notifications::start(
         PersistedNotifications::default(),
         store,
-        Some(bus.address.clone()),
+        Some(bus.address().to_string()),
     );
 
     let error = notifications

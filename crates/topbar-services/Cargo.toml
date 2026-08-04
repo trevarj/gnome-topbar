@@ -8,9 +8,21 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# Builds the `topbar-fake-player` test-support binary and the module behind
+# it. Never enabled for the packaged panel; the visual smoke run turns it on
+# to put players on its private bus.
+fake-player = []
+
+[[bin]]
+name = "topbar-fake-player"
+path = "src/bin/fake_player.rs"
+required-features = ["fake-player"]
+
 [dependencies]
 topbar-core = { workspace = true }
 futures-util = { workspace = true }
+minreq = { workspace = true }
 niri-ipc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
