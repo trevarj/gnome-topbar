@@ -48,6 +48,8 @@
 #                         path in $SMOKE_FAKE_PLAYER. Off by default: it is
 #                         a second binary to link and only the media driver
 #                         wants it.
+#   TOPBAR_SMOKE_TRAY     the same for `topbar-fake-sni`, handed over in
+#                         $SMOKE_FAKE_SNI. Only the tray driver wants it.
 #   TOPBAR_SMOKE_STATE    a state.json copied into the sandboxed
 #                         $XDG_STATE_HOME/topbar before the panel starts, so a
 #                         run can begin from state a previous session
@@ -108,6 +110,12 @@ if [ -n "${TOPBAR_SMOKE_PLAYERS:-}" ]; then
   player_abs=$(pwd)/target/debug/topbar-fake-player
 fi
 
+sni_abs=""
+if [ -n "${TOPBAR_SMOKE_TRAY:-}" ]; then
+  cargo build -p topbar-services --features fake-sni --bin topbar-fake-sni
+  sni_abs=$(pwd)/target/debug/topbar-fake-sni
+fi
+
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
 binary_abs=$(pwd)/target/debug/topbar
@@ -122,6 +130,7 @@ timeout "${timeout_s}s" dbus-run-session --config-file="$bus_config" -- niri -- 
 set -eu
 export SMOKE_ARTIFACTS="$3"
 export SMOKE_FAKE_PLAYER="$5"
+export SMOKE_FAKE_SNI="$6"
 "$1" --config "$2" -v >"$3/panel.log" 2>&1 &
 panel_pid=$!
 # The driver reads /proc/$SMOKE_PANEL_PID/status to watch the panel grow.
@@ -135,7 +144,7 @@ fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
-' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs"
+' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs" "$sni_abs"
 
 echo "--- panel log ---"
 cat "$artifact_dir_abs/panel.log" 2>/dev/null || true

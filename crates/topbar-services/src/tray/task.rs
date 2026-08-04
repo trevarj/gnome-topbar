@@ -60,6 +60,8 @@ pub(super) enum Command {
     SecondaryActivate(String, Reply<()>),
     /// A scroll over the icon.
     Scroll(String, i32, ScrollAxis, Reply<()>),
+    /// Ask the application to put up a menu of its own.
+    ContextMenu(String, Reply<()>),
     /// Fetch the item's menu, ready to draw.
     Menu(String, Reply<MenuNode>),
     /// Report that something happened to a menu row.
@@ -378,6 +380,13 @@ impl Tray {
                 self.act(&id, reply, move |proxy| async move {
                     proxy.scroll(delta, axis.as_str()).await
                 })
+            }
+            Command::ContextMenu(id, reply) => {
+                self.act(
+                    &id,
+                    reply,
+                    |proxy| async move { proxy.context_menu(0, 0).await },
+                )
             }
             Command::Menu(id, reply) => self.fetch_menu(&id, reply),
             Command::MenuEvent(id, item_id, event, reply) => {

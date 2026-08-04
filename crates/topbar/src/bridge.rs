@@ -114,6 +114,29 @@ where
     });
 }
 
+/// Run a service call that answers with something, and use the answer.
+///
+/// The sibling of [`act`], for the calls a widget cannot simply fire and
+/// forget: the tray has to *have* a menu before it can draw one. The future
+/// runs on the service runtime and `then` runs on the main thread with what it
+/// produced; a failure takes the same single reporting path a failed [`act`]
+/// does, so a menu that never arrives says so rather than opening blank.
+pub fn request<T, F>(scope: ActionScope, future: F, then: impl FnOnce(T) + 'static)
+where
+    T: Send + 'static,
+    F: Future<Output = Result<T, SvcError>> + Send + 'static,
+{
+    let answer = Runtime::handle().spawn(future);
+    glib::spawn_future_local(async move {
+        match answer.await {
+            Ok(Ok(value)) => then(value),
+            Ok(Err(error)) => report(scope, &error),
+            // The runtime dropped the task, which only happens on shutdown.
+            Err(_) => report(scope, &SvcError::ServiceStopped(scope.widget())),
+        }
+    });
+}
+
 thread_local! {
     /// The daemon [`report`] raises its own banners through.
     ///

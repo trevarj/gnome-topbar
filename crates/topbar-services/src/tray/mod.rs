@@ -122,6 +122,17 @@ impl TrayHandle {
             .await
     }
 
+    /// Ask the application to put up a menu of its own.
+    ///
+    /// The fallback for an item that declares `ItemIsMenu` but publishes no
+    /// dbusmenu object to draw: the panel has nothing to render, so it hands
+    /// the job back to the application, which is exactly what the
+    /// specification says `ContextMenu` is for.
+    pub async fn context_menu(&self, id: &str) -> Result<(), SvcError> {
+        self.ask(|reply| Command::ContextMenu(id.to_string(), reply))
+            .await
+    }
+
     /// The item's menu, ready to draw.
     ///
     /// Fetched fresh every time: a tray menu is built by the application when

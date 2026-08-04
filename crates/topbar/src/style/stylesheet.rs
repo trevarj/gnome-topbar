@@ -225,6 +225,7 @@ fn root_block(config: &Config) -> String {
     --color-state-warning: {warning};
     --color-state-urgent: {urgent};
     --color-state-success-fill: {success_fill};
+    --color-state-warning-fill: {warning_fill};
     --color-state-urgent-fill: {urgent_fill};
 }}
 "#,
@@ -276,6 +277,8 @@ fn root_block(config: &Config) -> String {
         // property, so the tint is computed here instead of in a rule.
         success_fill =
             color_or(&theme.states.success, Rgb::new(0x22, 0xc5, 0x5e)).to_rgba(STATE_FILL_ALPHA),
+        warning_fill =
+            color_or(&theme.states.warning, Rgb::new(0xf5, 0x9e, 0x0b)).to_rgba(STATE_FILL_ALPHA),
         urgent_fill =
             color_or(&theme.states.urgent, Rgb::new(0xef, 0x44, 0x44)).to_rgba(STATE_FILL_ALPHA),
     )
@@ -1348,6 +1351,135 @@ button.toast-action:active {
     background-color: var(--color-widget-pressed);
 }
 
+/* ===== System tray ===== */
+
+/* The pill holds the icons; each icon is its own button inside it, so hovering
+   one lights that one rather than the whole tray. */
+.tray .content {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.tray-icons {
+    /* No spacing of its own: the buttons carry their own padding, and a gap on
+       top of it would leave dead ground between two hover targets. */
+    padding: 0;
+}
+
+.tray-item,
+.tray-overflow {
+    padding: 2px 4px;
+    border-radius: 6px;
+}
+
+.tray-item:hover,
+.tray-overflow:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.tray-item:active,
+.tray-overflow:active {
+    background-color: var(--color-widget-pressed);
+}
+
+.tray-item-icon {
+    color: var(--color-foreground);
+}
+
+/* An item that wants attention: the icon takes the warning colour, and the
+   tint behind it is what the pulse animates. */
+.tray-item-attention {
+    color: var(--color-state-warning);
+}
+
+.tray-item-tint {
+    border-radius: 6px;
+}
+
+/* Only an item that is shouting is tinted; the box is there on every item so
+   the pulse has something to animate without a relayout. */
+.tray-item-shouting .tray-item-tint {
+    background-color: var(--color-state-warning-fill);
+}
+
+.tray-overflow-popover {
+    padding: 8px;
+}
+
+.tray-overflow-grid {
+    padding: 0;
+}
+
+/* ===== Tray menus ===== */
+
+.tray-menu {
+    padding: 6px;
+    min-width: 180px;
+}
+
+.tray-menu-list {
+    padding: 0;
+}
+
+.tray-menu-row,
+.tray-menu-back {
+    padding: 6px 8px;
+    border-radius: 8px;
+    color: var(--color-foreground);
+}
+
+.tray-menu-row:hover,
+.tray-menu-back:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.tray-menu-row:active,
+.tray-menu-back:active {
+    background-color: var(--color-widget-pressed);
+}
+
+/* A row the application has switched off: dimmed, and with no hover at all,
+   because a hover on something inert is a promise the row cannot keep. */
+.tray-menu-row.disabled,
+.tray-menu-row.disabled:hover,
+.tray-menu-row.disabled .tray-menu-label {
+    background-color: transparent;
+    color: var(--color-foreground-disabled);
+}
+
+.tray-menu-label {
+    color: inherit;
+}
+
+.tray-menu-mark,
+.tray-menu-icon {
+    color: var(--color-foreground-muted);
+}
+
+.tray-menu-row .tray-menu-mark {
+    color: var(--color-accent);
+}
+
+.tray-menu-chevron {
+    color: var(--color-foreground-muted);
+}
+
+.tray-menu-separator {
+    background-color: var(--color-surface-border);
+    margin: 4px 8px;
+    min-height: 1px;
+}
+
+.tray-menu-back {
+    color: var(--color-foreground-muted);
+    margin-bottom: 2px;
+}
+
+.tray-menu-empty {
+    padding: 12px;
+    color: var(--color-foreground-muted);
+}
+
 /* ===== Tooltip ===== */
 
 window.tooltip-window {
@@ -1457,6 +1589,7 @@ mod tests {
     --color-state-warning: #f59e0b;
     --color-state-urgent: #ef4444;
     --color-state-success-fill: rgba(34, 197, 94, 0.16);
+    --color-state-warning-fill: rgba(245, 158, 11, 0.16);
     --color-state-urgent-fill: rgba(239, 68, 68, 0.16);
 }
 ";

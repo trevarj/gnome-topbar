@@ -20,6 +20,11 @@ use std::process::ExitCode;
 
 use topbar_services::tray::fake::{DEFAULT_MENU, FakeSni, Recipe, parse_menu};
 
+/// How many times registration is retried while no watcher is listening.
+const REGISTRATION_ATTEMPTS: u32 = 60;
+/// How long between those attempts.
+const REGISTRATION_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// Parse `WIDTHxHEIGHT:AARRGGBB`, e.g. `22x14:ff3584e4`.
 fn pixmap(spec: &str) -> Result<(i32, i32, u32), String> {
     let (size, colour) = spec
@@ -101,9 +106,22 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if let Err(error) = item.register().await {
-        eprintln!("topbar-fake-sni: no watcher took the registration: {error}");
-        return ExitCode::FAILURE;
+    // Real applications wait for a watcher rather than giving up on the first
+    // refusal, and so does this one — which is also what lets the smoke run
+    // start its applications before the panel that is going to draw them.
+    let mut left = REGISTRATION_ATTEMPTS;
+    loop {
+        match item.register().await {
+            Ok(()) => break,
+            Err(error) if left == 0 => {
+                eprintln!("topbar-fake-sni: no watcher took the registration: {error}");
+                return ExitCode::FAILURE;
+            }
+            Err(_) => {
+                left -= 1;
+                tokio::time::sleep(REGISTRATION_INTERVAL).await;
+            }
+        }
     }
 
     // Both lines matter to the smoke driver: the first is what it addresses

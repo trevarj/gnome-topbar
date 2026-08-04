@@ -8,6 +8,7 @@ mod keyboard_layout;
 pub mod notifications;
 mod rounded_picture;
 mod shell;
+mod tray;
 mod weather;
 mod workspaces;
 
@@ -63,6 +64,10 @@ pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<Mounte
         "crypto" => {
             let crypto = crypto::CryptoWidget::new(&config.widgets.crypto, context);
             Some(MountedWidget::new(crypto.root(), crypto))
+        }
+        "tray" => {
+            let tray = tray::TrayWidget::new(config, context);
+            Some(MountedWidget::new(tray.root(), tray))
         }
         "keyboard_layout" => {
             let layout = keyboard_layout::KeyboardLayoutWidget::new(

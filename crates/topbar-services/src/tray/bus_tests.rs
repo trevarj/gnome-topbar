@@ -465,6 +465,38 @@ async fn an_item_with_no_menu_says_so_rather_than_hanging() {
 }
 
 #[tokio::test]
+async fn an_item_that_is_a_menu_with_no_menu_is_asked_to_show_its_own() {
+    // Some applications set ItemIsMenu and publish no dbusmenu object at all.
+    // The specification's answer is ContextMenu: hand the job back.
+    let bus = private_bus!();
+    let mut menuless = recipe("selfmenued");
+    menuless.item_is_menu = true;
+    menuless.menu = None;
+
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let mut state = tray.state();
+    wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
+
+    let item = start(&bus, &menuless).await;
+    let settled = wait_for(&mut state, "the item", |state| !state.is_empty()).await;
+    assert!(settled.items[0].item_is_menu);
+    assert!(!settled.items[0].has_menu);
+
+    tray.handle()
+        .context_menu(&item.item_id().await)
+        .await
+        .expect("the request is sent");
+
+    let calls = tokio::time::timeout(PATIENCE, item.acted())
+        .await
+        .expect("ContextMenu arrives at the application");
+    assert!(
+        calls.iter().any(|call| call.starts_with("ContextMenu")),
+        "{calls:?}"
+    );
+}
+
+#[tokio::test]
 async fn every_click_and_scroll_reaches_the_application() {
     let bus = private_bus!();
     let mut clicked = recipe("clicked");

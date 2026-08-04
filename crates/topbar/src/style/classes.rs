@@ -175,6 +175,51 @@ pub const KEYBOARD_LAYOUT: &str = "keyboard-layout";
 /// The keyboard-layout widget's icon.
 pub const KEYBOARD_LAYOUT_ICON: &str = "keyboard-layout-icon";
 
+/// The system tray.
+pub const TRAY: &str = "tray";
+/// The row of item icons inside it.
+pub const TRAY_ICONS: &str = "tray-icons";
+/// One item's icon button, on the bar or in the overflow grid.
+pub const TRAY_ITEM: &str = "tray-item";
+/// The icon inside it.
+pub const TRAY_ITEM_ICON: &str = "tray-item-icon";
+/// The warning tint painted behind an item that wants attention.
+pub const TRAY_ITEM_TINT: &str = "tray-item-tint";
+/// Set on the button of an item that wants attention.
+pub const TRAY_ITEM_SHOUTING: &str = "tray-item-shouting";
+/// Set on a *themed* icon that wants attention, which may be recoloured.
+pub const TRAY_ITEM_ATTENTION: &str = "tray-item-attention";
+/// The chevron that opens the overflow popover.
+pub const TRAY_OVERFLOW: &str = "tray-overflow";
+/// That popover.
+pub const TRAY_OVERFLOW_POPOVER: &str = "tray-overflow-popover";
+/// The grid of icons in it.
+pub const TRAY_OVERFLOW_GRID: &str = "tray-overflow-grid";
+
+/// An application's own menu, as a popover.
+pub const TRAY_MENU: &str = "tray-menu";
+/// The column of rows in it.
+pub const TRAY_MENU_LIST: &str = "tray-menu-list";
+/// One row.
+pub const TRAY_MENU_ROW: &str = "tray-menu-row";
+/// A row's label.
+pub const TRAY_MENU_LABEL: &str = "tray-menu-label";
+/// A row's own icon.
+pub const TRAY_MENU_ICON: &str = "tray-menu-icon";
+/// The checkmark or radio column.
+pub const TRAY_MENU_MARK: &str = "tray-menu-mark";
+/// The chevron on a row that leads into a submenu.
+pub const TRAY_MENU_CHEVRON: &str = "tray-menu-chevron";
+/// The rule between groups of rows.
+pub const TRAY_MENU_SEPARATOR: &str = "tray-menu-separator";
+/// The row that leads back out of a submenu.
+pub const TRAY_MENU_BACK: &str = "tray-menu-back";
+/// What a menu with nothing in it says.
+pub const TRAY_MENU_EMPTY: &str = "tray-menu-empty";
+
+/// Set on a control the thing behind it has switched off.
+pub const DISABLED: &str = "disabled";
+
 /// The popover host's layer-shell window.
 pub const POPOVER_WINDOW: &str = "popover-window";
 /// The box inside the popover window that reserves room for the drop shadow.
@@ -428,6 +473,27 @@ pub const ALL: &[&str] = &[
     DIALOG_BUTTON_PRIMARY,
     KEYBOARD_LAYOUT,
     KEYBOARD_LAYOUT_ICON,
+    TRAY,
+    TRAY_ICONS,
+    TRAY_ITEM,
+    TRAY_ITEM_ICON,
+    TRAY_ITEM_TINT,
+    TRAY_ITEM_SHOUTING,
+    TRAY_ITEM_ATTENTION,
+    TRAY_OVERFLOW,
+    TRAY_OVERFLOW_POPOVER,
+    TRAY_OVERFLOW_GRID,
+    TRAY_MENU,
+    TRAY_MENU_LIST,
+    TRAY_MENU_ROW,
+    TRAY_MENU_LABEL,
+    TRAY_MENU_ICON,
+    TRAY_MENU_MARK,
+    TRAY_MENU_CHEVRON,
+    TRAY_MENU_SEPARATOR,
+    TRAY_MENU_BACK,
+    TRAY_MENU_EMPTY,
+    DISABLED,
     POPOVER_WINDOW,
     POPOVER_WRAPPER,
     POPOVER_SURFACE,
