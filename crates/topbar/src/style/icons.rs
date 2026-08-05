@@ -133,6 +133,9 @@ pub fn wifi_signal(bucket: u8) -> &'static str {
     WIFI_SIGNAL[(bucket as usize).min(WIFI_SIGNAL.len() - 1)]
 }
 
+/// There is something to install.
+pub const UPDATES: &str = "software-update-available-symbolic";
+
 /// The chevron that opens an expandable row.
 pub const EXPAND: &str = "pan-down-symbolic";
 /// The mark against the item in force — a checkmark, and also what a radio
@@ -239,6 +242,7 @@ mod tests {
             VPN_DISCONNECTED,
             EXPAND,
             SELECTED,
+            UPDATES,
         ];
         for name in names
             .iter()

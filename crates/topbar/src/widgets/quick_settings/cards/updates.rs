@@ -31,11 +31,8 @@ use gtk4::{Align, Image, Label, Orientation, Spinner};
 use topbar_services::{Services, UpdatesState};
 
 use crate::bridge::{self, BindingGuard};
-use crate::style::classes;
+use crate::style::{classes, icons};
 use crate::widgets::quick_settings::set_text;
-
-/// The icon Adwaita uses for "there is something to install".
-const ICON: &str = "software-update-available-symbolic";
 
 /// Space between the icon, the text and the spinner.
 const GAP: i32 = 12;
@@ -58,7 +55,7 @@ impl UpdatesCard {
         root.add_css_class(classes::QS_UPDATES);
         root.set_visible(false);
 
-        let icon = Image::from_icon_name(ICON);
+        let icon = Image::from_icon_name(icons::UPDATES);
         icon.add_css_class(classes::QS_ICON);
         icon.set_valign(Align::Center);
         root.append(&icon);
@@ -155,11 +152,6 @@ impl UpdatesCard {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_icon_is_the_symbolic_one_adwaita_ships() {
-        assert!(ICON.ends_with("-symbolic"));
-    }
 
     #[test]
     fn the_card_is_absent_for_all_three_reasons_a_user_cannot_tell_apart() {

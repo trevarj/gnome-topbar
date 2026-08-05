@@ -147,7 +147,7 @@ fn arch(captured: &Captured) -> Count {
             return Count::Unusable(format!("checkupdates exited {}", status(code)));
         }
     }
-    lines_to_count(captured.stdout.lines())
+    lines_to_count(captured.stdout.lines().map(package_name))
 }
 
 /// `dnf -q check-update`.
@@ -301,9 +301,8 @@ sqlite 3.47.1-1 -> 3.47.2-1
         assert_eq!(count, 4);
         assert_eq!(
             detail.as_deref(),
-            Some(
-                "linux 6.12.4.arch1-1 -> 6.12.5.arch1-1, mesa 1:24.3.1-1 -> 1:24.3.2-1, firefox 133.0-1 -> 133.0.3-1"
-            )
+            Some("linux, mesa, firefox"),
+            "the subtitle is names, not a table of versions"
         );
     }
 
