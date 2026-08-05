@@ -206,6 +206,18 @@ const SMOKE_VOLUME: u32 = 70;
 #[cfg(debug_assertions)]
 const SMOKE_PASSWORD: &str = "topbar-smoke-psk-9f3a";
 
+/// One of the smoke run's parameters, or a complaint in the log.
+#[cfg(debug_assertions)]
+fn smoke_env(name: &str) -> Option<String> {
+    match std::env::var(name).ok().filter(|value| !value.is_empty()) {
+        Some(value) => Some(value),
+        None => {
+            tracing::warn!("smoke: {name} is not set");
+            None
+        }
+    }
+}
+
 /// Ways for the smoke run to open things a pointer would.
 ///
 /// `TOPBAR_SMOKE_OPEN=quick_settings` already opens the panel through the
@@ -262,6 +274,64 @@ fn install_smoke_actions(
                             topbar_services::battery::LIMIT_PRESET.1,
                         )
                         .await
+                });
+            });
+        }
+    });
+
+    // Joining a network needs a click on a row, and there is no pointer. The
+    // SSID comes from the environment so one action covers every scenario, and
+    // the panel is opened onto the list first so whatever happens next — a
+    // spinner, a password row — is on screen for the frame that follows.
+    popovers::register_smoke_action("quick-settings-wifi-connect", {
+        let network = services.network.handle().clone();
+        let built = Rc::clone(built);
+        move || {
+            let Some(ssid) = smoke_env("TOPBAR_SMOKE_SSID") else {
+                return;
+            };
+            popovers::dispatch(
+                &topbar_core::ipc::PopoverAction::Show(WIDGET_NAME.to_string()),
+                None,
+            );
+            let network = network.clone();
+            let built = Rc::clone(&built);
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                if let Some(panel) = built.borrow().clone() {
+                    panel.expand(Block::WiFi);
+                }
+                tracing::info!("smoke: joining {ssid}");
+                attempt(
+                    inline::names::WIFI,
+                    async move { network.connect(ssid).await },
+                );
+            });
+        }
+    });
+
+    // The same for a VPN row, so a tunnel the *panel* asked for is what spins
+    // and what reverts. A tunnel brought up from outside has no pending state
+    // and would prove nothing about the policy.
+    popovers::register_smoke_action("quick-settings-vpn-connect", {
+        let network = services.network.handle().clone();
+        let built = Rc::clone(built);
+        move || {
+            let Some(uuid) = smoke_env("TOPBAR_SMOKE_VPN_UUID") else {
+                return;
+            };
+            popovers::dispatch(
+                &topbar_core::ipc::PopoverAction::Show(WIDGET_NAME.to_string()),
+                None,
+            );
+            let network = network.clone();
+            let built = Rc::clone(&built);
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                if let Some(panel) = built.borrow().clone() {
+                    panel.expand(Block::Vpn);
+                }
+                tracing::info!("smoke: switching VPN {uuid} on");
+                attempt(inline::names::VPN, async move {
+                    network.set_vpn(uuid, true).await
                 });
             });
         }

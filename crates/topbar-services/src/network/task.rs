@@ -48,6 +48,14 @@ use crate::state_store::StateStore;
 /// not make the card transmit four times.
 const SCAN_INTERVAL: Duration = Duration::from_secs(10);
 
+/// How long a scan may be believed to be running.
+///
+/// The spinner stops when the access-point list changes, which is what
+/// finishing looks like. A scan that finds *nothing new* changes no list, and a
+/// card that has gone away answers nothing at all — so the spinner is bounded
+/// as well, because one that never stops is a panel that looks stuck.
+const SCAN_SETTLE: Duration = Duration::from_secs(6);
+
 /// How many events may be queued before a forwarder waits.
 const EVENTS: usize = 64;
 
@@ -133,6 +141,8 @@ enum Event {
         /// `NM_ACTIVE_CONNECTION_STATE_REASON_*`.
         reason: u32,
     },
+    /// A scan has had long enough.
+    ScanSettled,
 }
 
 /// One access point, as the task tracks it.
@@ -191,6 +201,8 @@ struct World {
     access: Access,
     publisher: watch::Sender<Arc<NetworkState>>,
     store: Option<StateStore>,
+    /// Where the signal forwarders — and the scan timer — put their events.
+    events: mpsc::Sender<Event>,
 
     /// Whether NetworkManager answered at all.
     available: bool,
@@ -300,7 +312,7 @@ pub(crate) async fn run(
 
     // Subscribed before the first read, so a change that lands between the two
     // is queued rather than lost.
-    spawn_signals(&connection, events);
+    spawn_signals(&connection, events.clone());
 
     let mut world = World {
         connection: connection.clone(),
@@ -309,6 +321,7 @@ pub(crate) async fn run(
         access,
         publisher,
         store,
+        events,
         available: false,
         nm_state: 0,
         wireless_enabled: false,
@@ -791,6 +804,7 @@ impl World {
                 state,
                 reason,
             } => self.active_changed(&path, state, reason).await,
+            Event::ScanSettled => self.scanning = false,
         }
         self.publish();
     }
@@ -1144,6 +1158,13 @@ impl World {
         self.last_scan = Some(Instant::now());
         self.scanning = true;
         self.publish();
+        // The backstop, so a card that answers nothing does not leave a
+        // spinner turning for the rest of the session.
+        let events = self.events.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(SCAN_SETTLE).await;
+            let _ = events.send(Event::ScanSettled).await;
+        });
         match wireless.request_scan(HashMap::new()).await {
             Ok(()) => Ok(()),
             Err(error) => {

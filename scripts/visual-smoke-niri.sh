@@ -66,6 +66,17 @@
 #                         The value is passed to the fake as extra arguments,
 #                         so a scenario can choose which bus names it answers
 #                         to and what the battery reads.
+#   TOPBAR_SMOKE_NM       build `topbar-fake-nm`, start it on the private
+#                         session bus, and point the panel's network service at
+#                         it with TOPBAR_SMOKE_NM_BUS. The real NetworkManager
+#                         is on the SYSTEM bus and *is* the developer's live
+#                         connection: a smoke run must never join a network,
+#                         switch a radio, ask a card to scan, or register a
+#                         secret agent there — a second agent would intercept
+#                         the password prompts the session's own panel is
+#                         waiting for. The value is passed to the fake as extra
+#                         arguments, so a scenario says what is in range and
+#                         what is saved. The driver is handed $SMOKE_FAKE_NM.
 #   TOPBAR_SMOKE_STATE    a state.json copied into the sandboxed
 #                         $XDG_STATE_HOME/topbar before the panel starts, so a
 #                         run can begin from state a previous session
@@ -164,6 +175,12 @@ if [ -n "${TOPBAR_SMOKE_POWER:-}" ]; then
   power_abs=$(pwd)/target/debug/topbar-fake-power
 fi
 
+nm_abs=""
+if [ -n "${TOPBAR_SMOKE_NM:-}" ]; then
+  cargo build -p topbar-services --features fake-nm --bin topbar-fake-nm
+  nm_abs=$(pwd)/target/debug/topbar-fake-nm
+fi
+
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
 binary_abs=$(pwd)/target/debug/topbar
@@ -181,6 +198,7 @@ export SMOKE_FAKE_PLAYER="$5"
 export SMOKE_FAKE_SNI="$6"
 export SMOKE_TOPBAR="$1"
 export SMOKE_CONFIG="$2"
+export SMOKE_FAKE_NM="${10}"
 
 pulse_pid=""
 if [ -n "$7" ]; then
@@ -232,6 +250,23 @@ if [ -n "$8" ]; then
   done
 fi
 
+nm_pid=""
+if [ -n "${10}" ]; then
+  # shellcheck disable=SC2086
+  "${10}" ${11} >"$3/fake-nm.log" 2>&1 &
+  nm_pid=$!
+  # The panel talks to this one instead of the system bus. Debug builds only;
+  # the packaged binary ignores the variable entirely, and a debug build
+  # *without* it refuses every mutation rather than touching the real network.
+  TOPBAR_SMOKE_NM_BUS="$DBUS_SESSION_BUS_ADDRESS"
+  export TOPBAR_SMOKE_NM_BUS
+  waited=0
+  while ! grep -q "^ready$" "$3/fake-nm.log" 2>/dev/null && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+fi
+
 "$1" --config "$2" -v >"$3/panel.log" 2>&1 &
 panel_pid=$!
 # The driver reads /proc/$SMOKE_PANEL_PID/status to watch the panel grow.
@@ -247,11 +282,13 @@ else
 fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
+[ -n "$nm_pid" ] && kill "$nm_pid" 2>/dev/null
 [ -n "$power_pid" ] && kill "$power_pid" 2>/dev/null
 [ -n "$pulse_pid" ] && kill "$pulse_pid" 2>/dev/null
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
 ' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs" "$sni_abs" \
-  "${TOPBAR_SMOKE_PULSE:-}" "$power_abs" "${TOPBAR_SMOKE_POWER:-}"
+  "${TOPBAR_SMOKE_PULSE:-}" "$power_abs" "${TOPBAR_SMOKE_POWER:-}" \
+  "$nm_abs" "${TOPBAR_SMOKE_NM:-}"
 
 echo "--- panel log ---"
 cat "$artifact_dir_abs/panel.log" 2>/dev/null || true

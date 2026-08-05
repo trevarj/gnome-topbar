@@ -98,6 +98,13 @@ show_week_numbers = true
 # network = true
 # bluetooth = true
 # vpn = true
+#   Lists every NetworkManager VPN and WireGuard profile and switches them.
+#   A profile whose secrets are stored — WireGuard keys, or an OpenVPN
+#   password in the keyring — connects from the panel. One that wants a
+#   password typed in each time does not: answering that means running the
+#   plugin's own auth-dialog binary, which topbar does not do. Such a profile
+#   reports "Could not change the network" under its row; connect it once with
+#   nm-applet or `nmcli` and let NetworkManager store the secret.
 # idle_inhibitor = true
 # updates = true
 # audio = true

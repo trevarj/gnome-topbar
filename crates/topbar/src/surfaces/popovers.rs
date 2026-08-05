@@ -239,6 +239,12 @@ fn unregister(entry: &Rc<Entry>) {
 /// nothing, the first registered popover for that widget answers.
 pub fn dispatch(action: &PopoverAction, connector: Option<&str>) -> bool {
     match action {
+        // A registered smoke action first, so `topbar popover show
+        // quick-settings-wifi-password` reaches something that is not a
+        // popover at all. That is how a driver sequences several steps inside
+        // one session: `TOPBAR_SMOKE_OPEN` fires exactly once, at start-up.
+        // Debug builds only — `smoke_action` registers nothing otherwise.
+        PopoverAction::Show(widget) if smoke_action(widget) => true,
         PopoverAction::Show(widget) => with_entry(widget, connector, Entry::open),
         PopoverAction::Toggle(widget) => with_entry(widget, connector, Entry::toggle),
         PopoverAction::Hide(Some(widget)) => with_entry(widget, connector, Entry::close),

@@ -1640,6 +1640,7 @@ osd-bar {
 .qs-toggle-expand,
 .qs-radio-row,
 .qs-network-row,
+.qs-password-entry,
 .qs-password-button,
 .qs-vpn-row,
 .qs-limit-button {
@@ -1923,6 +1924,10 @@ osd-bar {
 
 .qs-password-entry:focus-within {
     border-color: var(--color-accent);
+    /* Adwaita's focus ring is its own blue and ignores the border colour, so
+       it is named here as well; a stock-blue ring inside an accent-green panel
+       is the one thing on it that looks like it came from another program. */
+    outline-color: var(--color-accent);
 }
 
 .qs-password-button {
