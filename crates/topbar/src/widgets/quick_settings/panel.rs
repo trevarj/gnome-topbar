@@ -48,12 +48,18 @@ use crate::widgets::quick_settings::expander::{Accordion, Section};
 
 /// The panel's width, from the UX spec. GNOME's own is 360 too.
 pub const WIDTH: i32 = 360;
-/// How much of the monitor the panel may take before its content scrolls.
+/// The gap left between the foot of the panel and the bottom of the monitor.
 ///
-/// The bar is already excluded by the compositor — the popover host asks for
-/// an exclusive zone of zero — so this is a margin against the bottom of the
-/// screen rather than against the bar.
-const BOTTOM_MARGIN: i32 = 48;
+/// Room for the drop shadow and a little air, no more. The panel is meant to
+/// use the screen it is given, and whatever does not fit scrolls.
+const BOTTOM_MARGIN: i32 = 12;
+
+/// The shortest the panel's content is ever squeezed to.
+///
+/// A monitor short enough to reach this is one the panel cannot fit on at all,
+/// and a scroller is a better answer there than a surface taller than the
+/// screen.
+const MIN_CONTENT_HEIGHT: i32 = 240;
 
 /// One of the panel's expandable blocks, for the smoke hook.
 #[cfg(debug_assertions)]
@@ -281,7 +287,6 @@ impl Panel {
     /// zone*, so a coordinate on the monitor is the bar's own reserved height
     /// plus the margin. GDK4 has no work-area call, so the number is read off
     /// the bar's layer surface — which is the window that reserved it.
-    #[cfg(debug_assertions)]
     fn bar_height() -> i32 {
         use gtk4_layer_shell::LayerShell;
 
@@ -306,8 +311,45 @@ impl Panel {
     fn clamp_height(&self) {
         let height = self.monitor.geometry().height();
         self.scroll
-            .set_max_content_height((height - BOTTOM_MARGIN).max(240));
+            .set_max_content_height(max_content_height(height, self.surface_top()));
     }
+
+    /// How far down the monitor the panel's own surface starts.
+    ///
+    /// The compositor takes the bar's exclusive zone off the top by itself, and
+    /// `bar.popover_offset` is the gap the host adds below it. Read off the
+    /// window rather than passed in: the panel is built once, and the host that
+    /// owns it is the only thing that knows where it put the surface.
+    ///
+    /// The margin is still zero the first time a panel is refreshed — the host
+    /// places the surface after it asks its content to render — so the first
+    /// open budgets `popover_offset` pixels too many. That is at most twelve,
+    /// and it costs twelve pixels of a list that was already scrolling.
+    fn surface_top(&self) -> i32 {
+        use gtk4_layer_shell::{Edge, LayerShell};
+
+        let offset = self
+            .root
+            .root()
+            .and_then(|root| root.downcast::<gtk4::Window>().ok())
+            .filter(LayerShell::is_layer_window)
+            .map_or(0, |window| LayerShell::margin(&window, Edge::Top));
+        Self::bar_height() + offset
+    }
+}
+
+/// The tallest the panel's content may be, on a monitor `monitor_height`
+/// pixels tall whose panel starts `surface_top` pixels down it.
+///
+/// `surface_top` is not something that can be left out. A budget taken from the
+/// full height of the monitor is too tall by exactly the distance the panel
+/// starts down it, and the surface runs off the bottom of the screen — the foot
+/// of the panel, which is where the updates and system cards live, simply is not
+/// drawn. It went unnoticed because the margin it was traded against happened to
+/// be about the height of a bar: the arithmetic was wrong and the result was
+/// right, on one bar height, on one monitor.
+fn max_content_height(monitor_height: i32, surface_top: i32) -> i32 {
+    (monitor_height - surface_top - BOTTOM_MARGIN).max(MIN_CONTENT_HEIGHT)
 }
 
 /// Walk `widget` and its children, logging every control's screen rectangle.
@@ -401,5 +443,34 @@ impl PopoverContent for Panel {
         // still sitting under the header the next time the panel was opened,
         // in red, about something that had happened days earlier.
         crate::surfaces::inline::clear_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_panel_is_budgeted_from_where_it_starts_not_from_the_whole_screen() {
+        // A 1080p screen, the shipped 36px bar and the 1px offset the example
+        // config uses: the panel starts 37 pixels down and has the rest.
+        assert_eq!(max_content_height(1080, 37), 1080 - 37 - BOTTOM_MARGIN);
+
+        // The bug this replaces: budgeting from the full height of the monitor
+        // put the foot of the panel below the bottom of the screen. Whatever
+        // the bar costs has to come off, and the result plus the offset must
+        // still fit on the monitor with the gap intact.
+        for bar in [24, 36, 48, 64] {
+            for offset in [0, 1, 12] {
+                let top = bar + offset;
+                assert!(max_content_height(1080, top) + top <= 1080 - BOTTOM_MARGIN);
+            }
+        }
+    }
+
+    #[test]
+    fn a_screen_too_short_for_the_panel_gets_a_scroller_rather_than_a_negative() {
+        assert_eq!(max_content_height(200, 37), MIN_CONTENT_HEIGHT);
+        assert_eq!(max_content_height(0, 0), MIN_CONTENT_HEIGHT);
     }
 }
