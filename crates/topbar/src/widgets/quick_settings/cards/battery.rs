@@ -95,6 +95,13 @@ impl BatteryCard {
         let detail = Label::new(None);
         detail.add_css_class(classes::QS_CARD_LINE);
         detail.set_xalign(0.0);
+        // Wrapped, because it is the longest line in the panel and the panel
+        // has no way to be wider. `WIDTH` is a *minimum*, and the scroller
+        // refuses a horizontal scrollbar, so a label that will not wrap or
+        // ellipsize sets the panel's width itself — "Charging stops at 80%,
+        // resumes below 75%" in a larger font stack is how a 360px panel
+        // silently becomes a 390px one.
+        detail.set_wrap(true);
         detail.set_visible(false);
         root.append(&detail);
 
