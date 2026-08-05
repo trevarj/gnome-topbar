@@ -12,9 +12,17 @@
 //!
 //! Logging out is *not* here: under niri that is the compositor's own business
 //! and goes through [`crate::niri`].
+//!
+//! And it obeys [`Access`], for the bluntest reason in the project: logind is on
+//! the **system** bus, there is no way to put a stand-in one in front of a test,
+//! and a hold that ran to the end in a smoke session would suspend the machine
+//! the session is running on. Every other service whose daemon is something of
+//! the user's already reads-only in a development build; this is the one where
+//! forgetting costs a reboot mid-test.
 
 use crate::error::SvcError;
 use crate::logind::{self, ManagerProxy};
+use crate::network::Access;
 
 /// One thing logind can be asked to do to the machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +87,11 @@ impl Power {
     /// polkit raises it anyway and this call fails with a message the row
     /// shows.
     pub async fn act(&self, action: PowerAction) -> Result<(), SvcError> {
+        if !self.access().writable() {
+            return Err(SvcError::PowerAction(
+                "this build does not act on the machine".into(),
+            ));
+        }
         let manager = self.manager().await?;
         let answer = match action {
             PowerAction::Suspend => manager.suspend(false).await,
@@ -104,6 +117,15 @@ impl Power {
             PowerAction::ShutDown => manager.can_power_off().await,
         };
         answer.as_deref().map_or(true, permits)
+    }
+
+    /// Whether this build may act on the machine.
+    ///
+    /// An explicit address is a logind of the caller's own — the bus tests
+    /// bring one up. Without one, only the packaged panel touches the real
+    /// thing; a development build asks, and is told no, and the row says so.
+    fn access(&self) -> Access {
+        Access::decide(self.address.as_deref(), !cfg!(debug_assertions))
     }
 
     /// A manager proxy on a connection of this call's own.
@@ -146,6 +168,23 @@ mod tests {
         // Anything logind adds later is treated as permission: the call
         // itself is the authority, and a refusal is visible.
         assert!(permits("maybe"));
+    }
+
+    #[tokio::test]
+    async fn a_development_build_never_reaches_the_real_logind() {
+        // No address means the *system* bus, and there is no way to put a
+        // stand-in in front of it. The pointer-driven smoke run holds the
+        // power rows down; without this, one of them would suspend the machine
+        // the run is inside.
+        let power = Power::new(None);
+        let error = power
+            .act(PowerAction::ShutDown)
+            .await
+            .expect_err("a debug build must refuse before it connects");
+        assert!(
+            format!("{error}").contains("does not act on the machine"),
+            "{error}"
+        );
     }
 }
 
