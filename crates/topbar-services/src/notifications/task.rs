@@ -451,11 +451,20 @@ impl Daemon {
         match (paused, toast.deadline) {
             // Pausing: bank what is left so resuming does not restart it.
             (true, Some(deadline)) => {
-                toast.remaining = Some(deadline.saturating_duration_since(Instant::now()));
+                let left = deadline.saturating_duration_since(Instant::now());
+                // Logged because it is otherwise invisible: the pointer is on
+                // the banner, nothing on screen changes, and the only evidence
+                // that the timer stopped is the banner still being there a
+                // minute later. A smoke run reads this line.
+                debug!("banner {id} paused with {}ms left", left.as_millis());
+                toast.remaining = Some(left);
                 toast.deadline = None;
             }
             (false, None) => {
-                toast.deadline = toast.remaining.map(|left| Instant::now() + left);
+                toast.deadline = toast.remaining.map(|left| {
+                    debug!("banner {id} resumed with {}ms left", left.as_millis());
+                    Instant::now() + left
+                });
             }
             _ => {}
         }

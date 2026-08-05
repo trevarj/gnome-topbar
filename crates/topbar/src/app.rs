@@ -123,6 +123,8 @@ fn start(
         reloader,
     ));
     surfaces::popovers::install_smoke_hook();
+    #[cfg(debug_assertions)]
+    surfaces::dump::install();
     info!(
         "topbar is running (motion {}, blur {})",
         if anim::motion_enabled() {

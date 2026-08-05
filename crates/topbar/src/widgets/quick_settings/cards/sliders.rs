@@ -30,7 +30,7 @@ use crate::anim::ripple;
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
-use crate::widgets::quick_settings::expander::{ROW_REVEAL_MS, Section};
+use crate::widgets::expander::{ROW_REVEAL_MS, Section};
 use crate::widgets::quick_settings::model;
 use crate::widgets::quick_settings::{attempt, set_icon};
 

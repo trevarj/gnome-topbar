@@ -471,7 +471,10 @@ pub const QS_SCROLL: &str = "qs-scroll";
 /// The column of blocks inside the scroller.
 pub const QS_CONTENT: &str = "qs-content";
 /// One expandable section's slot, below the row that opens it.
-pub const QS_SECTION: &str = "qs-section";
+///
+/// Shared: Quick Settings' cards and the notification groups both open this
+/// way, and the slot is drawn the same in either.
+pub const SECTION: &str = "expander-section";
 
 /// The header row: the battery pill, the lock button and the power button.
 pub const QS_HEADER: &str = "qs-header";
@@ -802,7 +805,7 @@ pub const ALL: &[&str] = &[
     QS_PANEL,
     QS_SCROLL,
     QS_CONTENT,
-    QS_SECTION,
+    SECTION,
     QS_HEADER,
     QS_BATTERY_PILL,
     QS_BATTERY_PERCENT,

@@ -53,7 +53,7 @@ impl Section {
     /// The same, at a duration of the caller's choosing.
     pub fn with_duration(content: &impl IsA<gtk4::Widget>, duration_ms: u64) -> Rc<Self> {
         let slot = SlideBox::new();
-        slot.add_css_class(classes::QS_SECTION);
+        slot.add_css_class(classes::SECTION);
         slot.set_child(content);
         slot.set_reveal(0.0);
         // Hidden rather than zero-height: an invisible child is not measured,

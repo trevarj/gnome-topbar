@@ -38,9 +38,9 @@ use crate::anim::{Animation, AnimationParams, Easing, RotateBox, ripple};
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
+use crate::widgets::expander::{Accordion, REVEAL_MS, Section};
 use crate::widgets::quick_settings::cards::bluetooth::BluetoothList;
 use crate::widgets::quick_settings::cards::network::{self, VpnList, WifiList};
-use crate::widgets::quick_settings::expander::{Accordion, REVEAL_MS, Section};
 use crate::widgets::quick_settings::model::{self, Toggle};
 use crate::widgets::quick_settings::{attempt, set_icon, set_text};
 

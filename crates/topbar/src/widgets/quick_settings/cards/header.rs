@@ -22,7 +22,7 @@ use crate::anim::ripple;
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
-use crate::widgets::quick_settings::expander::{Accordion, Section};
+use crate::widgets::expander::{Accordion, Section};
 use crate::widgets::quick_settings::{attempt, set_icon, set_text};
 
 /// Space between the pill and the buttons.

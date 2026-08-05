@@ -546,6 +546,14 @@ window.click-catcher-window,
     border-color: transparent;
 }
 
+/* An expandable section's slot, wherever one is opened: Quick Settings' cards
+   and the notification groups both use it. The clip is what lets its content be
+   drawn part-way out of the slot while the reveal runs — see
+   anim/slide_box.rs. */
+.expander-section {
+    background: transparent;
+}
+
 /* ===== Control panel ===== */
 
 /* The columns are fixed width so nothing reflows as content arrives; the
@@ -1718,12 +1726,6 @@ osd-bar {
 
 .qs-content > *:last-child {
     margin-bottom: 0;
-}
-
-/* An expandable section's slot. The clip is what lets its content be drawn
-   part-way out of it while the reveal runs — see anim/slide_box.rs. */
-.qs-section {
-    background: transparent;
 }
 
 /* --- Header --- */

@@ -214,6 +214,28 @@ pub fn window_top(config: &Config) -> i32 {
     config.bar.popover_offset as i32
 }
 
+/// How far down the monitor a surface that honours exclusive zones starts.
+///
+/// The bar's own reserved height. The compositor takes it off the top before it
+/// places anything else, so a coordinate on the monitor is this plus whatever
+/// margin the surface asked for. GDK4 has no work-area call, so the number is
+/// read off the layer surface that reserved it — which is the bar.
+pub fn bar_height() -> i32 {
+    use gtk4_layer_shell::LayerShell;
+
+    // By index rather than through the typed iterator: GTK reports the
+    // toplevel list's item type as `GtkWidget`, and asking gio for `GtkWindow`s
+    // out of it asserts.
+    let toplevels = gtk4::Window::toplevels();
+    (0..toplevels.n_items())
+        .filter_map(|index| toplevels.item(index))
+        .filter_map(|object| object.downcast::<gtk4::Window>().ok())
+        .filter(LayerShell::is_layer_window)
+        .map(|window| LayerShell::exclusive_zone(&window))
+        .find(|zone| *zone > 0)
+        .unwrap_or_default()
+}
+
 // ---------------------------------------------------------------------------
 // The host
 // ---------------------------------------------------------------------------

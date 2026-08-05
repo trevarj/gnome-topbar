@@ -4,7 +4,6 @@
 //!   model.rs     icon order, grid order, slider bounds, device marking (pure)
 //!   button.rs    the bar button's row of status icons
 //!   panel.rs     the panel itself, on the shared popover host
-//!   expander.rs  one expandable section open at a time
 //!   hold.rs      hold-to-confirm, for the power rows
 //!   cards/       the blocks the panel is made of
 //! ```
@@ -24,7 +23,6 @@
 
 mod button;
 pub mod cards;
-mod expander;
 mod hold;
 mod model;
 mod panel;

@@ -5,6 +5,7 @@ mod clock;
 mod control_panel;
 mod crypto;
 mod custom;
+mod expander;
 mod headset;
 mod keyboard_layout;
 pub mod notifications;

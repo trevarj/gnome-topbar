@@ -28,7 +28,7 @@
 //! The height is bounded by a scroller, not by the surface: the panel grows
 //! with its content until it would run past the work area, and after that the
 //! content scrolls inside it. Expanding a card therefore changes the surface
-//! height once — see [`super::expander`] for why once matters.
+//! height once — see [`crate::widgets::expander`] for why once matters.
 
 use std::rc::Rc;
 
@@ -39,12 +39,13 @@ use topbar_services::{NetworkState, Services};
 
 use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
+use crate::surfaces::layer_popover;
 use crate::surfaces::popovers::PopoverContent;
+use crate::widgets::expander::{Accordion, Section};
 use crate::widgets::quick_settings::cards::{
     battery::BatteryCard, header::Header, network::WiredRow, power::PowerSection,
     resources::ResourceOverview, sliders::Sliders, toggles::Toggles, updates::UpdatesCard,
 };
-use crate::widgets::quick_settings::expander::{Accordion, Section};
 
 /// The panel's width, from the UX spec. GNOME's own is 360 too.
 pub const WIDTH: i32 = 360;
@@ -273,34 +274,17 @@ impl Panel {
         };
         // Anchored top-left, so the margins *are* the surface's origin — and
         // the bar's exclusive zone has already been taken off the top by the
-        // compositor, which is why nothing is added for it here.
+        // compositor, which is why it is added here rather than measured.
         let origin_x = LayerShell::margin(&window, Edge::Left);
-        let origin_y = LayerShell::margin(&window, Edge::Top) + Self::bar_height();
+        let origin_y = LayerShell::margin(&window, Edge::Top) + layer_popover::bar_height();
         tracing::info!("qs-dump: origin {origin_x} {origin_y}");
 
-        dump_tree(&self.root.clone().upcast(), &window, origin_x, origin_y);
-    }
-
-    /// How far down the monitor the popover surface starts.
-    ///
-    /// The compositor honours a top margin from the *bottom of the exclusive
-    /// zone*, so a coordinate on the monitor is the bar's own reserved height
-    /// plus the margin. GDK4 has no work-area call, so the number is read off
-    /// the bar's layer surface — which is the window that reserved it.
-    fn bar_height() -> i32 {
-        use gtk4_layer_shell::LayerShell;
-
-        // By index rather than through the typed iterator: GTK reports the
-        // toplevel list's item type as `GtkWidget`, and asking gio for
-        // `GtkWindow`s out of it asserts.
-        let toplevels = gtk4::Window::toplevels();
-        (0..toplevels.n_items())
-            .filter_map(|index| toplevels.item(index))
-            .filter_map(|object| object.downcast::<gtk4::Window>().ok())
-            .filter(LayerShell::is_layer_window)
-            .map(|window| LayerShell::exclusive_zone(&window))
-            .find(|zone| *zone > 0)
-            .unwrap_or_default()
+        crate::surfaces::dump::tree(
+            &self.root.clone().upcast(),
+            &window,
+            (origin_x, origin_y),
+            "qs-dump",
+        );
     }
 
     /// Bound the panel's height to the monitor it is on.
@@ -334,7 +318,7 @@ impl Panel {
             .and_then(|root| root.downcast::<gtk4::Window>().ok())
             .filter(LayerShell::is_layer_window)
             .map_or(0, |window| LayerShell::margin(&window, Edge::Top));
-        Self::bar_height() + offset
+        layer_popover::bar_height() + offset
     }
 }
 
@@ -350,68 +334,6 @@ impl Panel {
 /// right, on one bar height, on one monitor.
 fn max_content_height(monitor_height: i32, surface_top: i32) -> i32 {
     (monitor_height - surface_top - BOTTOM_MARGIN).max(MIN_CONTENT_HEIGHT)
-}
-
-/// Walk `widget` and its children, logging every control's screen rectangle.
-///
-/// Only the things a pointer can act on are worth a line: a driver looking for
-/// "the Wi-Fi chevron" wants one match, not the four boxes it is nested in.
-#[cfg(debug_assertions)]
-fn dump_tree(widget: &gtk4::Widget, window: &gtk4::Window, origin_x: i32, origin_y: i32) {
-    if !widget.is_visible() {
-        return;
-    }
-    // The power rows are the exception: they are overlays with a gesture on
-    // them rather than buttons, because what they draw is a fill behind their
-    // own content. They are still the most important thing in the panel to be
-    // able to press, so they are named explicitly.
-    let interactive = widget.is::<gtk4::Button>()
-        || widget.is::<gtk4::Scale>()
-        || widget.is::<gtk4::Switch>()
-        || widget.is::<gtk4::Editable>()
-        || widget.has_css_class(classes::QS_POWER_ROW);
-    if interactive && let Some(bounds) = widget.compute_bounds(window) {
-        // The text on it as well as the classes it wears: four pills in the
-        // grid are the same widget with the same classes, and a driver that
-        // could only say "the fourth one" would click the wrong control the
-        // first time a machine turned out to have no VPN profiles. Every line
-        // of it, because the Power Mode pill is titled with the profile and
-        // says what kind of thing that is only on its second line.
-        tracing::info!(
-            "qs-dump: {} [{}] \"{}\" {} {} {} {} sensitive={}",
-            widget.type_().name(),
-            widget.css_classes().join("."),
-            labels_of(widget).join(" · "),
-            origin_x + bounds.x().round() as i32,
-            origin_y + bounds.y().round() as i32,
-            bounds.width().round() as i32,
-            bounds.height().round() as i32,
-            widget.is_sensitive(),
-        );
-    }
-
-    let mut child = widget.first_child();
-    while let Some(current) = child {
-        dump_tree(&current, window, origin_x, origin_y);
-        child = current.next_sibling();
-    }
-}
-
-/// Every visible label under `widget`, which is what a control is called.
-#[cfg(debug_assertions)]
-fn labels_of(widget: &gtk4::Widget) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut child = widget.first_child();
-    while let Some(current) = child {
-        if current.is_visible() {
-            match current.clone().downcast::<gtk4::Label>() {
-                Ok(label) => found.push(label.text().to_string()),
-                Err(_) => found.extend(labels_of(&current)),
-            }
-        }
-        child = current.next_sibling();
-    }
-    found
 }
 
 impl PopoverContent for Panel {
