@@ -227,6 +227,16 @@ case "$scenario" in
     pointer_park
     check shot 02-history topbar-popover
 
+    # One Tab into a panel that has just taken the keyboard. Whatever it lands
+    # on has to say so: the column clears Adwaita's focus ring along with its
+    # background images, and until this pass it drew nothing in its place. This
+    # is the only step in the run that presses a key before it looks — a
+    # pointer-driven panel must never draw a ring.
+    echo "--- one Tab, and the focus has to be visible"
+    key_press Tab
+    pointer_park
+    check shot 02b-focus-ring
+
     echo "--- the group header expands the stack"
     # By type *and* class *and* name. The pattern is matched against
     # "<GtkType> <classes> <label>", and the two single-notification groups
