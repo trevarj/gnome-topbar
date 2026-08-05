@@ -90,6 +90,19 @@ impl Connectivity {
         }
     }
 
+    /// Wrap a channel a test drives by hand.
+    ///
+    /// The custom-widget tests want to flip the machine offline and back
+    /// without standing a NetworkManager up to do it, and every consumer takes
+    /// a `Connectivity` rather than a receiver.
+    #[cfg(test)]
+    pub(crate) fn from_receiver(state: watch::Receiver<Arc<ConnectivityState>>) -> Self {
+        Self {
+            state,
+            network: None,
+        }
+    }
+
     /// Start a network service and follow it. Tests only.
     ///
     /// The weather and crypto bus tests want a `Connectivity` pointed at a

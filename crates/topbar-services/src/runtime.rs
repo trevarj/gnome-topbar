@@ -18,6 +18,7 @@ use crate::bluetooth::Bluetooth;
 use crate::brightness::Brightness;
 use crate::connectivity::Connectivity;
 use crate::crypto::Crypto;
+use crate::custom::CustomWidgets;
 use crate::inhibitor::Inhibitor;
 use crate::ipc::Ipc;
 use crate::media::Media;
@@ -83,6 +84,8 @@ pub struct Services {
     pub updates: Updates,
     /// Crypto prices, as one cache for the whole panel.
     pub crypto: Crypto,
+    /// Every configured `custom-*` widget's script, one runner each.
+    pub custom: CustomWidgets,
     /// The system tray.
     pub tray: Tray,
     /// The sound server.
@@ -157,6 +160,7 @@ impl Services {
         let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
         let weather = config.widgets.weather.clone();
         let crypto = config.widgets.crypto.clone();
+        let custom = config.widgets.custom.clone();
         // The tray picks its pixmaps for the size the widget will draw them
         // at, so the icon that arrives is the icon that is shown.
         let icon_size = config
@@ -188,6 +192,7 @@ impl Services {
                 weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
                 updates: Updates::with_root(&updates, &connectivity, root),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
+                custom: CustomWidgets::start(&custom, &connectivity),
                 tray: Tray::start(icon_size, None),
                 audio: Audio::start(allow_overdrive),
                 brightness: Brightness::start(None),
