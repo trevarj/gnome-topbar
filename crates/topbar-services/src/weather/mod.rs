@@ -42,6 +42,7 @@ use tracing::info;
 
 use crate::connectivity::Connectivity;
 use crate::error::SvcError;
+use crate::lazy::Deferred;
 use crate::state_store::StateStore;
 
 pub use api::Endpoints;
@@ -114,15 +115,21 @@ impl Settings {
 pub struct Weather {
     handle: WeatherHandle,
     state: watch::Receiver<Arc<WeatherState>>,
+    task: Deferred,
 }
 
 impl Weather {
     /// Start the service from the configuration and what was remembered.
+    ///
+    /// `wanted` is whether anything draws weather: the `weather` widget, or the
+    /// clock's control panel with its forecast card. A panel with neither asks
+    /// Open-Meteo for nothing until a reload adds one.
     pub(crate) fn start(
         config: &WeatherConfig,
         persisted: PersistedWeather,
         store: StateStore,
         connectivity: &Connectivity,
+        wanted: bool,
     ) -> Self {
         let startup = startup_location(persisted.location, config, import::from_v1);
         if startup.persist
@@ -143,7 +150,13 @@ impl Weather {
             Some(store),
             connectivity.state(),
             startup.location,
+            wanted,
         )
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The same, with everything named explicitly. Tests use this to point the
@@ -156,7 +169,7 @@ impl Weather {
         connectivity: watch::Receiver<Arc<crate::connectivity::ConnectivityState>>,
         location: Option<LocationView>,
     ) -> Self {
-        Self::spawn(settings, endpoints, store, connectivity, location)
+        Self::spawn(settings, endpoints, store, connectivity, location, true)
     }
 
     fn spawn(
@@ -165,21 +178,26 @@ impl Weather {
         store: Option<StateStore>,
         connectivity: watch::Receiver<Arc<crate::connectivity::ConnectivityState>>,
         location: Option<LocationView>,
+        wanted: bool,
     ) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(WeatherState::default()));
-        tokio::spawn(task::run(
-            queue,
-            publisher,
-            settings,
-            endpoints,
-            store,
-            connectivity,
-            location,
-        ));
+        let task = Deferred::spawn(
+            wanted,
+            task::run(
+                queue,
+                publisher,
+                settings,
+                endpoints,
+                store,
+                connectivity,
+                location,
+            ),
+        );
         Self {
             handle: WeatherHandle { commands },
             state,
+            task,
         }
     }
 

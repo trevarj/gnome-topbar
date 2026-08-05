@@ -154,11 +154,64 @@ fn smoke(variable: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Which optional services a configuration actually asks for.
+///
+/// Derived from widget placement rather than from a switch of its own: a
+/// service exists to feed a surface, so the question "does anything draw this"
+/// already has an answer in the file. See [`crate::lazy`] for what "not wanted"
+/// costs — the handles are real either way, the task is not started.
+///
+/// Everything absent from here is unconditional, and each for a reason: audio,
+/// brightness and the inhibitor answer `topbar volume`/`brightness`/`inhibit`
+/// with no bar in sight; niri drives the OSD and every per-output decision;
+/// notifications is a *role* on the session bus rather than a widget; the
+/// network is what connectivity is projected from, and weather, crypto and
+/// `requires_network` scripts all gate on that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Demand {
+    /// A `crypto` widget is placed.
+    crypto: bool,
+    /// A `weather` widget is placed, or the clock's control panel draws one.
+    weather: bool,
+    /// A `headset` widget is placed.
+    headset: bool,
+    /// A `tray` widget is placed.
+    tray: bool,
+    /// The clock's control panel is on the bar; it is what draws media.
+    media: bool,
+    /// The Quick Settings menu is placed.
+    quick_settings: bool,
+    /// Quick Settings, or a `system_monitor` widget.
+    resources: bool,
+}
+
+impl Demand {
+    /// Read the demand out of a configuration.
+    fn of(config: &Config) -> Self {
+        let placed = |name: &str| config.widgets.placed().any(|widget| widget == name);
+        let control_panel = placed("clock") && config.widgets.clock.control_panel;
+        let quick_settings = placed("quick_settings");
+        Self {
+            crypto: placed("crypto"),
+            weather: placed("weather") || control_panel,
+            headset: placed("headset"),
+            tray: placed("tray"),
+            media: control_panel,
+            quick_settings,
+            resources: quick_settings || placed("system_monitor"),
+        }
+    }
+}
+
 impl Services {
     /// Start every service. Call once, from `main`, before GTK.
     ///
     /// Blocking here is deliberate and momentary: services are spawned onto
     /// the runtime, not awaited, so this returns as soon as their tasks exist.
+    ///
+    /// Optional services are started only if something in `config` draws them
+    /// — see [`Demand`]. A reload that adds such a widget calls
+    /// [`Self::start_if_needed`], which is why the two live next to each other.
     pub fn start(config: &Config) -> Self {
         let niri_socket = std::env::var_os(SOCKET_PATH_ENV).map(PathBuf::from);
         let weather = config.widgets.weather.clone();
@@ -179,6 +232,9 @@ impl Services {
         let nm_bus = smoke(SMOKE_NM_BUS);
         let bluez_bus = smoke(SMOKE_BLUEZ_BUS);
         let root = smoke(SMOKE_ROOT).map_or_else(|| PathBuf::from("/"), PathBuf::from);
+        let demand = Demand::of(config);
+        let placed: std::collections::BTreeSet<String> =
+            config.widgets.placed().map(str::to_string).collect();
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -192,21 +248,27 @@ impl Services {
             Self {
                 niri: Niri::start(niri_socket),
                 notifications: Notifications::start(state.notifications, store.clone(), None),
-                media: Media::start(None),
-                weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
-                updates: Updates::with_root(&updates, &connectivity, root),
-                crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
-                custom: CustomWidgets::start(&custom, &connectivity),
-                headset: Headset::start(&headset),
-                tray: Tray::start(icon_size, None),
+                media: Media::start(None, demand.media),
+                weather: Weather::start(
+                    &weather,
+                    state.weather,
+                    store.clone(),
+                    &connectivity,
+                    demand.weather,
+                ),
+                updates: Updates::with_root(&updates, &connectivity, root, demand.quick_settings),
+                crypto: Crypto::start(&crypto, state.crypto, store, &connectivity, demand.crypto),
+                custom: CustomWidgets::start(&custom, &connectivity, &|name| placed.contains(name)),
+                headset: Headset::start(&headset, demand.headset),
+                tray: Tray::start(icon_size, None, demand.tray),
                 audio: Audio::start(allow_overdrive),
                 brightness: Brightness::start(None),
                 inhibitor: Inhibitor::start(None),
-                battery: Battery::start(power_bus.clone(), power_sysfs),
-                power_profiles: PowerProfiles::start(power_bus),
-                bluetooth: Bluetooth::start(bluez_bus),
-                resources: Resources::start(),
-                privacy: Privacy::start(),
+                battery: Battery::start(power_bus.clone(), power_sysfs, demand.quick_settings),
+                power_profiles: PowerProfiles::start(power_bus, demand.quick_settings),
+                bluetooth: Bluetooth::start(bluez_bus, demand.quick_settings),
+                resources: Resources::start(demand.resources),
+                privacy: Privacy::start(demand.quick_settings),
                 power: Power::new(None),
                 ipc: Ipc::start(),
                 network,
@@ -214,11 +276,142 @@ impl Services {
             }
         })
     }
+
+    /// Start whatever a freshly loaded configuration now asks for.
+    ///
+    /// The other half of [`Demand`]: a reload that places a `crypto` widget on
+    /// a panel that never had one has to start the service before the widget is
+    /// built, or the widget subscribes to a snapshot nothing will ever fill.
+    /// Starting is idempotent, so this is safe to call on every reload, and it
+    /// is one-way — a widget taken off the bar leaves its service running,
+    /// because stopping it would mean deciding what "stopped" means for a
+    /// pairing agent, a tray host and a state file.
+    ///
+    /// Returns the names of the services this call started, for the log.
+    pub fn start_if_needed(&self, config: &Config) -> Vec<&'static str> {
+        let demand = Demand::of(config);
+        let mut started = Vec::new();
+        let checks: [(bool, &'static str, &dyn Fn() -> bool); 11] = [
+            (demand.crypto, "crypto", &|| self.crypto.ensure_started()),
+            (demand.weather, "weather", &|| self.weather.ensure_started()),
+            (demand.headset, "headset", &|| self.headset.ensure_started()),
+            (demand.tray, "tray", &|| self.tray.ensure_started()),
+            (demand.media, "media", &|| self.media.ensure_started()),
+            (demand.resources, "resources", &|| {
+                self.resources.ensure_started()
+            }),
+            (demand.quick_settings, "updates", &|| {
+                self.updates.ensure_started()
+            }),
+            (demand.quick_settings, "battery", &|| {
+                self.battery.ensure_started()
+            }),
+            (demand.quick_settings, "bluetooth", &|| {
+                self.bluetooth.ensure_started()
+            }),
+            (demand.quick_settings, "power-profiles", &|| {
+                self.power_profiles.ensure_started()
+            }),
+            (demand.quick_settings, "privacy", &|| {
+                self.privacy.ensure_started()
+            }),
+        ];
+        for (wanted, name, start) in checks {
+            if wanted && start() {
+                started.push(name);
+            }
+        }
+        started
+    }
+
+    /// Bring the `custom-*` runners in line with a freshly loaded config.
+    ///
+    /// Separate from [`Self::start_if_needed`] because it needs the *previous*
+    /// configuration too: a section that did not change keeps the runner it
+    /// has, timer and all.
+    pub fn sync_custom(&self, previous: &Config, config: &Config) {
+        let placed: std::collections::BTreeSet<&str> = config.widgets.placed().collect();
+        self.custom.sync(
+            &config.widgets.custom,
+            &self.connectivity,
+            &|name| placed.contains(name),
+            &previous.widgets.custom,
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The configuration this project is written for.
+    const LIVE_CONFIG: &str = include_str!("../../topbar-core/tests/fixtures/live-config.toml");
+
+    #[test]
+    fn the_live_configuration_asks_for_everything_it_draws() {
+        let (config, _) = Config::parse(LIVE_CONFIG).expect("the live config parses");
+        let demand = Demand::of(&config);
+
+        assert!(demand.weather, "a weather widget is placed");
+        assert!(demand.headset, "a headset widget is placed");
+        assert!(demand.tray, "a tray widget is placed");
+        assert!(demand.quick_settings);
+        assert!(demand.resources, "quick_settings and a system_monitor");
+        assert!(demand.media, "the clock opens a control panel");
+        assert!(
+            !demand.crypto,
+            "the live config uses the custom-* script, not the built-in widget"
+        );
+    }
+
+    #[test]
+    fn a_bar_that_draws_nothing_optional_asks_for_nothing() {
+        let (config, _) = Config::parse(
+            "[widgets]\nleft = []\ncenter = [\"clock\"]\nright = []\n\
+             \n[widgets.clock]\ncontrol_panel = false\n",
+        )
+        .expect("a minimal config parses");
+        let demand = Demand::of(&config);
+
+        assert_eq!(
+            demand,
+            Demand {
+                crypto: false,
+                weather: false,
+                headset: false,
+                tray: false,
+                media: false,
+                quick_settings: false,
+                resources: false,
+            },
+            "a clock with no control panel needs no optional service at all"
+        );
+    }
+
+    #[test]
+    fn the_control_panel_is_what_asks_for_the_weather_and_the_players() {
+        let (config, _) = Config::parse(
+            "[widgets]\nleft = []\ncenter = [\"clock\"]\nright = []\n\
+             \n[widgets.clock]\ncontrol_panel = true\n",
+        )
+        .expect("a config with a control panel parses");
+        let demand = Demand::of(&config);
+
+        assert!(demand.weather, "the panel draws a forecast card");
+        assert!(demand.media, "the panel draws the media controls");
+        assert!(!demand.quick_settings);
+    }
+
+    #[test]
+    fn a_system_monitor_on_its_own_still_needs_the_sampler() {
+        let (config, _) =
+            Config::parse("[widgets]\nleft = []\ncenter = []\nright = [\"system_monitor\"]\n")
+                .expect("a config with a system monitor parses");
+        let demand = Demand::of(&config);
+
+        assert!(demand.resources);
+        assert!(!demand.quick_settings, "nothing else came with it");
+    }
 
     #[test]
     fn handle_is_stable_across_calls() {

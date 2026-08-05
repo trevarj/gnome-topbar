@@ -25,7 +25,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 
 /// Start the panel's Bluetooth service against `bus`.
 fn panel(bus: &PrivateBus) -> Bluetooth {
-    Bluetooth::start(Some(bus.address().to_string()))
+    Bluetooth::start(Some(bus.address().to_string()), true)
 }
 
 /// Wait until the snapshot satisfies `wanted`, or fail saying what it was.
@@ -413,7 +413,7 @@ async fn a_read_only_panel_registers_no_agent_and_writes_nothing() {
 
     // Forced, because the only other way to produce this policy is to point a
     // test at the developer's own adapter and watch what it does not do.
-    let bluetooth = Bluetooth::with_access(Some(bus.address().to_string()), Access::ReadOnly);
+    let bluetooth = Bluetooth::with_access(Some(bus.address().to_string()), Access::ReadOnly, true);
     let state = settle(&bluetooth, "the device list", |state| {
         !state.devices.is_empty()
     })

@@ -68,21 +68,29 @@ pub(crate) struct Endpoint {
 pub struct PowerProfiles {
     handle: PowerProfilesHandle,
     state: watch::Receiver<Arc<PowerProfilesState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl PowerProfiles {
     /// Start following the daemon.
     ///
     /// `address` overrides the system bus, for the bus tests and for the smoke
-    /// run's stand-in daemon.
-    pub(crate) fn start(address: Option<String>) -> Self {
+    /// run's stand-in daemon. `wanted` is whether the Quick Settings menu — the
+    /// only thing with a Power Mode toggle in it — is on the bar.
+    pub(crate) fn start(address: Option<String>, wanted: bool) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(PowerProfilesState::default()));
-        tokio::spawn(task::run(queue, publisher, address));
+        let task = crate::lazy::Deferred::spawn(wanted, task::run(queue, publisher, address));
         Self {
             handle: PowerProfilesHandle { commands },
             state,
+            task,
         }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The handle commands are sent through.

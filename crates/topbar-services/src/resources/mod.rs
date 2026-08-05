@@ -46,18 +46,30 @@ pub const MIN_INTERVAL: Duration = Duration::from_secs(1);
 pub struct Resources {
     handle: ResourcesHandle,
     state: watch::Receiver<Arc<ResourceState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl Resources {
     /// Start sampling.
-    pub(crate) fn start() -> Self {
+    ///
+    /// `wanted` is whether anything reads the samples: the `system_monitor`
+    /// widget, or the Quick Settings resource card. Neither on the bar means
+    /// `/proc` is not read every few seconds for nobody.
+    pub(crate) fn start(wanted: bool) -> Self {
         let (commands, queue) = mpsc::channel(4);
         let (publisher, state) = watch::channel(Arc::new(ResourceState::default()));
-        tokio::spawn(task::run(queue, publisher, DEFAULT_INTERVAL));
+        let task =
+            crate::lazy::Deferred::spawn(wanted, task::run(queue, publisher, DEFAULT_INTERVAL));
         Self {
             handle: ResourcesHandle { commands },
             state,
+            task,
         }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The handle the interval is set through.
@@ -121,7 +133,7 @@ mod tests {
         // The one test that reads the real /proc, and it only reads. What it
         // proves is that the three files exist, parse, and reach a snapshot —
         // the arithmetic itself is checked against fixtures in `model`.
-        let resources = Resources::start();
+        let resources = Resources::start(true);
         resources.handle().configure(MIN_INTERVAL).await;
 
         let mut state = resources.state();

@@ -36,6 +36,7 @@ use tracing::warn;
 
 use crate::connectivity::Connectivity;
 use crate::error::SvcError;
+use crate::lazy::Deferred;
 use crate::state_store::StateStore;
 
 pub use api::Endpoints;
@@ -72,15 +73,21 @@ pub fn interval(config: &CryptoConfig) -> Duration {
 pub struct Crypto {
     handle: CryptoHandle,
     state: watch::Receiver<Arc<CryptoState>>,
+    task: Deferred,
 }
 
 impl Crypto {
     /// Start the service from the configuration and what was remembered.
+    ///
+    /// `wanted` is whether a `crypto` widget is on the bar. A panel without one
+    /// gets the handles and an empty snapshot but asks CoinGecko for nothing —
+    /// see [`crate::lazy`] — until a reload places the widget.
     pub(crate) fn start(
         config: &CryptoConfig,
         persisted: PersistedCrypto,
         store: StateStore,
         connectivity: &Connectivity,
+        wanted: bool,
     ) -> Self {
         Self::spawn(
             interval(config),
@@ -88,7 +95,13 @@ impl Crypto {
             Some(store),
             connectivity.state(),
             resolve_entries(persisted.entries.as_deref(), &config.entries),
+            wanted,
         )
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The same, with everything named explicitly. Tests use this to point the
@@ -101,7 +114,7 @@ impl Crypto {
         connectivity: watch::Receiver<Arc<crate::connectivity::ConnectivityState>>,
         entries: Vec<Entry>,
     ) -> Self {
-        Self::spawn(interval, endpoints, store, connectivity, entries)
+        Self::spawn(interval, endpoints, store, connectivity, entries, true)
     }
 
     fn spawn(
@@ -110,24 +123,29 @@ impl Crypto {
         store: Option<StateStore>,
         connectivity: watch::Receiver<Arc<crate::connectivity::ConnectivityState>>,
         entries: Vec<Entry>,
+        wanted: bool,
     ) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(CryptoState {
             entries: entries.clone(),
             ..CryptoState::default()
         }));
-        tokio::spawn(task::run(
-            queue,
-            publisher,
-            interval,
-            endpoints,
-            store,
-            connectivity,
-            entries,
-        ));
+        let task = Deferred::spawn(
+            wanted,
+            task::run(
+                queue,
+                publisher,
+                interval,
+                endpoints,
+                store,
+                connectivity,
+                entries,
+            ),
+        );
         Self {
             handle: CryptoHandle { commands },
             state,
+            task,
         }
     }
 

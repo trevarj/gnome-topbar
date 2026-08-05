@@ -57,6 +57,7 @@ const QUEUE: usize = 8;
 pub struct Battery {
     handle: BatteryHandle,
     state: watch::Receiver<Arc<BatteryState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl Battery {
@@ -65,15 +66,24 @@ impl Battery {
     /// `address` overrides the system bus and `root` the location of the
     /// kernel's power supplies; both exist so a test — and the smoke run's
     /// stand-in UPower — can be pointed somewhere harmless.
-    pub(crate) fn start(address: Option<String>, root: Option<PathBuf>) -> Self {
+    ///
+    /// `wanted` is whether the Quick Settings menu is on the bar; it is the
+    /// only thing that draws a battery.
+    pub(crate) fn start(address: Option<String>, root: Option<PathBuf>, wanted: bool) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(BatteryState::default()));
         let root = root.unwrap_or_else(|| PathBuf::from(POWER_SUPPLY));
-        tokio::spawn(task::run(queue, publisher, address, root));
+        let task = crate::lazy::Deferred::spawn(wanted, task::run(queue, publisher, address, root));
         Self {
             handle: BatteryHandle { commands },
             state,
+            task,
         }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The handle commands are sent through.

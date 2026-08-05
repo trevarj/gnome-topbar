@@ -111,7 +111,7 @@ async fn a_player_already_on_the_bus_is_found_and_read() {
         .await
         .expect("the fake player takes its name");
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     let settled = wait_for(&mut state, "the player to be read", |state| {
         state.active().is_some_and(|view| view.title.is_some())
@@ -132,7 +132,7 @@ async fn a_player_already_on_the_bus_is_found_and_read() {
 #[tokio::test]
 async fn a_player_that_starts_later_is_picked_up() {
     let bus = private_bus!();
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     wait_for(&mut state, "an empty bus", |state| state.is_empty()).await;
 
@@ -159,7 +159,7 @@ async fn a_property_change_reaches_the_panel() {
         .expect("the fake player takes its name");
     let control = control(&bus, &player).await;
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     wait_for(&mut state, "the player to be read", |state| {
         state.active().is_some_and(|view| view.title.is_some())
@@ -202,7 +202,7 @@ async fn a_player_that_quits_is_dropped_and_taken_off_the_card() {
         .await
         .expect("the fake player takes its name");
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     wait_for(&mut state, "the player to be read", |state| {
         all_read(state, 1)
@@ -234,7 +234,7 @@ async fn the_playing_player_takes_the_card_from_the_paused_one() {
         .expect("a second paused player");
     let loud_control = control(&bus, &loud).await;
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     wait_for(&mut state, "both players to be read", |state| {
         all_read(state, 2)
@@ -281,7 +281,7 @@ async fn a_pinned_player_keeps_the_card_until_it_goes_away() {
         .expect("a second player");
     let other_control = control(&bus, &other).await;
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     wait_for(&mut state, "both players to be read", |state| {
         all_read(state, 2)
@@ -346,7 +346,7 @@ async fn a_command_reaches_the_player_it_is_meant_for() {
         .await
         .expect("a paused player");
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     wait_for(&mut state, "the player to be read", |state| {
         all_read(state, 1)
@@ -411,7 +411,7 @@ async fn the_position_is_polled_only_while_the_panel_is_looking() {
         .expect("the player's playback interface");
     let track = ObjectPath::try_from("/io/github/trevarj/topbar/track/1").expect("a track path");
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     let settled = wait_for(&mut state, "the player", |state| {
         state
@@ -481,7 +481,7 @@ async fn album_art_on_disk_is_read_and_handed_to_the_panel() {
         .expect("a player with a cover");
     let control = control(&bus, &player).await;
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     let settled = wait_for(&mut state, "the cover", |state| {
         state.active().is_some_and(|view| view.art.is_some())
@@ -529,7 +529,7 @@ async fn a_player_that_says_nothing_at_all_is_still_a_player() {
         .await
         .expect("a player with nothing to say");
 
-    let media = Media::start(Some(bus.address().to_string()));
+    let media = Media::start(Some(bus.address().to_string()), true);
     let mut state = media.state();
     let settled = wait_for(&mut state, "the player", |state| !state.is_empty()).await;
 

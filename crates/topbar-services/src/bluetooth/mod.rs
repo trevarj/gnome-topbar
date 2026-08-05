@@ -64,6 +64,7 @@ const QUEUE: usize = 8;
 pub struct Bluetooth {
     handle: BluetoothHandle,
     state: watch::Receiver<Arc<BtState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl Bluetooth {
@@ -72,9 +73,11 @@ impl Bluetooth {
     /// `address` overrides the system bus, which is how the bus tests and the
     /// smoke run point this at a BlueZ of their own. It is also the signal that
     /// changing things is safe — see [`Access`].
-    pub(crate) fn start(address: Option<String>) -> Self {
+    /// `wanted` is whether the Quick Settings menu is on the bar; nothing else
+    /// draws Bluetooth, and a panel without it registers no pairing agent.
+    pub(crate) fn start(address: Option<String>, wanted: bool) -> Self {
         let access = Access::decide(address.as_deref(), packaged());
-        Self::with_access(address, access)
+        Self::with_access(address, access, wanted)
     }
 
     /// The same, with the policy decided by the caller.
@@ -82,17 +85,24 @@ impl Bluetooth {
     /// Only the bus tests use this, and only to force `ReadOnly` against a
     /// BlueZ they own — which is the one way to check that policy without
     /// pointing a test at somebody's real adapter to see what it does not do.
-    pub(crate) fn with_access(address: Option<String>, access: Access) -> Self {
+    pub(crate) fn with_access(address: Option<String>, access: Access, wanted: bool) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(BtState {
             access,
             ..BtState::default()
         }));
-        tokio::spawn(task::run(queue, publisher, address, access));
+        let task =
+            crate::lazy::Deferred::spawn(wanted, task::run(queue, publisher, address, access));
         Self {
             handle: BluetoothHandle { commands },
             state,
+            task,
         }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The handle commands are sent through.

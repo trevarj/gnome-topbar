@@ -95,6 +95,8 @@ impl UpdatesState {
 #[derive(Clone)]
 pub struct Updates {
     state: watch::Receiver<Arc<UpdatesState>>,
+    commands: tokio::sync::mpsc::Sender<UpdatesConfig>,
+    task: crate::lazy::Deferred,
 }
 
 impl Updates {
@@ -104,19 +106,38 @@ impl Updates {
     /// same seam the state store uses, and for the same reason: the alternative
     /// is a test that can only check the distribution the developer happens to
     /// be running.
+    /// `wanted` is whether the Quick Settings menu — the only thing with an
+    /// updates card in it — is on the bar.
     pub(crate) fn with_root(
         config: &UpdatesConfig,
         connectivity: &Connectivity,
         root: PathBuf,
+        wanted: bool,
     ) -> Self {
         let (publisher, state) = watch::channel(Arc::new(UpdatesState::default()));
-        tokio::spawn(task::run(
-            publisher,
-            config.clone(),
-            connectivity.clone(),
-            root,
-        ));
-        Self { state }
+        let (commands, queue) = tokio::sync::mpsc::channel(2);
+        let task = crate::lazy::Deferred::spawn(
+            wanted,
+            task::run(publisher, config.clone(), connectivity.clone(), root, queue),
+        );
+        Self {
+            state,
+            commands,
+            task,
+        }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
+    }
+
+    /// Apply a changed `[updates]` section. Hot reload is what calls this.
+    ///
+    /// The check starts over rather than being edited: which command runs at
+    /// all is decided from the whole section at once.
+    pub async fn configure(&self, config: &UpdatesConfig) {
+        let _ = self.commands.send(config.clone()).await;
     }
 
     /// Subscribe to update state.

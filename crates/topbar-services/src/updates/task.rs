@@ -31,18 +31,48 @@ use crate::refresh::Refresh;
 const MIN_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Follow pending updates until the handle is dropped.
+///
+/// `commands` carries a replacement `[updates]` section. There is no in-place
+/// edit: the interval, the command and the flake directory together decide
+/// *what runs at all*, so a change to any of them starts the service over from
+/// [`plan`] with the timer reset. That is also why "nothing to count" waits
+/// here rather than returning — a file that later names a command has to be
+/// able to bring the card to life.
 pub(crate) async fn run(
     publisher: watch::Sender<Arc<UpdatesState>>,
     config: UpdatesConfig,
     connectivity: Connectivity,
     root: PathBuf,
+    mut commands: tokio::sync::mpsc::Receiver<UpdatesConfig>,
 ) {
+    let mut config = config;
+    while let Some(next) = serve(&publisher, &config, &connectivity, &root, &mut commands).await {
+        info!("updates: the configuration changed; starting the check over");
+        config = next;
+    }
+    debug!("the updates service has stopped");
+}
+
+/// Run one configuration's worth of checking.
+///
+/// Returns the configuration to start over with, or `None` when the panel is
+/// shutting down.
+async fn serve(
+    publisher: &watch::Sender<Arc<UpdatesState>>,
+    config: &UpdatesConfig,
+    connectivity: &Connectivity,
+    root: &std::path::Path,
+    commands: &mut tokio::sync::mpsc::Receiver<UpdatesConfig>,
+) -> Option<UpdatesConfig> {
     let interval = Duration::from_secs(config.check_interval).max(MIN_INTERVAL);
-    let Some(plan) = plan(&config, &root) else {
+    let Some(plan) = plan(config, root) else {
         // Nothing to run. The snapshot stays at its default — unavailable,
-        // count zero — and the card never appears.
-        return;
+        // count zero — and the card never appears. A reload may still say
+        // something that changes that.
+        return commands.recv().await;
     };
+    let publisher = publisher.clone();
+    let connectivity = connectivity.clone();
 
     let mut connectivity = connectivity.state();
     let mut online = connectivity.borrow_and_update().online;
@@ -79,12 +109,11 @@ pub(crate) async fn run(
             () = &mut timer => {
                 due = task.check().await;
             }
+            reconfigured = commands.recv() => return reconfigured,
             // Every subscriber has gone: the panel is shutting down.
-            () = task.publisher.closed() => break,
+            () = task.publisher.closed() => return None,
         }
     }
-
-    debug!("the updates service has no subscribers left; stopping");
 }
 
 /// What the service is going to run, and how to read it.

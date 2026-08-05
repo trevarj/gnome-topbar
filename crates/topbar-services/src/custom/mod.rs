@@ -143,22 +143,60 @@ impl CustomExec {
     }
 }
 
-/// Every configured `custom-*` widget, by name.
+/// Every `custom-*` widget that is both configured and on the bar, by name.
 ///
-/// Cloning is cheap: it is a map of watch subscriptions.
+/// Cloning is cheap and shares one map: a reload that changes a script has to
+/// reach the copy every already-built widget is reading, which is why the map
+/// is behind a lock rather than cloned per holder.
 #[derive(Clone, Default)]
 pub struct CustomWidgets {
-    widgets: BTreeMap<String, CustomExec>,
+    widgets: Arc<std::sync::Mutex<BTreeMap<String, CustomExec>>>,
 }
 
 impl CustomWidgets {
-    /// Start a task for every configured widget that has a script.
+    /// Start a task for every *placed* widget that has a script.
+    ///
+    /// A `custom-*` section that no section of the bar names is configuration
+    /// for a widget that does not exist, and running its script every half hour
+    /// would be a subprocess for nobody.
     pub(crate) fn start(
         configured: &BTreeMap<String, CustomWidgetConfig>,
         connectivity: &Connectivity,
+        placed: &dyn Fn(&str) -> bool,
     ) -> Self {
-        let mut widgets = BTreeMap::new();
+        let widgets = Self::default();
+        widgets.sync(configured, connectivity, placed, &BTreeMap::new());
+        widgets
+    }
+
+    /// Bring the running scripts in line with a freshly loaded configuration.
+    ///
+    /// `previous` is what was configured before, so a widget whose section did
+    /// not change keeps the runner it has — restarting it would reset its timer
+    /// and blank its label for no reason. Everything else is (re)started, and
+    /// anything no longer placed or no longer configured is dropped, which ends
+    /// its task the next time it looks at its publisher.
+    pub(crate) fn sync(
+        &self,
+        configured: &BTreeMap<String, CustomWidgetConfig>,
+        connectivity: &Connectivity,
+        placed: &dyn Fn(&str) -> bool,
+        previous: &BTreeMap<String, CustomWidgetConfig>,
+    ) {
+        let mut widgets = self
+            .widgets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        widgets.retain(|name, _| placed(name) && configured.contains_key(name));
+
         for (name, config) in configured {
+            if !placed(name) {
+                continue;
+            }
+            if widgets.contains_key(name) && previous.get(name) == Some(config) {
+                continue;
+            }
             let exec = match config
                 .exec
                 .as_deref()
@@ -183,12 +221,15 @@ impl CustomWidgets {
             };
             widgets.insert(name.clone(), exec);
         }
-        Self { widgets }
     }
 
-    /// The widget called `name`, if it was configured.
-    pub fn get(&self, name: &str) -> Option<&CustomExec> {
-        self.widgets.get(name)
+    /// The widget called `name`, if it is configured and placed.
+    pub fn get(&self, name: &str) -> Option<CustomExec> {
+        self.widgets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(name)
+            .cloned()
     }
 }
 
@@ -308,7 +349,7 @@ mod tests {
 
         let (_sender, receiver) = watch::channel(Arc::new(ConnectivityState::default()));
         let connectivity = Connectivity::from_receiver(receiver);
-        let widgets = CustomWidgets::start(&configured, &connectivity);
+        let widgets = CustomWidgets::start(&configured, &connectivity, &|_| true);
 
         assert!(
             widgets
@@ -325,5 +366,61 @@ mod tests {
                 .is_none()
         );
         assert!(widgets.get("custom-missing").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_script_nothing_places_is_never_run() {
+        let mut configured = BTreeMap::new();
+        configured.insert(
+            "custom-crypto".to_string(),
+            CustomWidgetConfig {
+                exec: Some("prices".to_string()),
+                ..CustomWidgetConfig::default()
+            },
+        );
+
+        let (_sender, receiver) = watch::channel(Arc::new(ConnectivityState::default()));
+        let connectivity = Connectivity::from_receiver(receiver);
+        let widgets = CustomWidgets::start(&configured, &connectivity, &|_| false);
+        assert!(
+            widgets.get("custom-crypto").is_none(),
+            "a section no bar names must not get a runner"
+        );
+
+        // The reload that places it is what starts it.
+        widgets.sync(&configured, &connectivity, &|_| true, &BTreeMap::new());
+        assert!(widgets.get("custom-crypto").is_some());
+    }
+
+    #[tokio::test]
+    async fn a_section_that_did_not_change_keeps_its_runner() {
+        let mut configured = BTreeMap::new();
+        configured.insert(
+            "custom-crypto".to_string(),
+            CustomWidgetConfig {
+                exec: Some("prices".to_string()),
+                ..CustomWidgetConfig::default()
+            },
+        );
+
+        let (_sender, receiver) = watch::channel(Arc::new(ConnectivityState::default()));
+        let connectivity = Connectivity::from_receiver(receiver);
+        let widgets = CustomWidgets::start(&configured, &connectivity, &|_| true);
+        let before = widgets.get("custom-crypto").expect("started");
+
+        // Same section: the timer must not be reset under a running widget.
+        widgets.sync(&configured, &connectivity, &|_| true, &configured);
+        let after = widgets.get("custom-crypto").expect("still there");
+        assert!(
+            before.state().same_channel(&after.state()),
+            "an unchanged script should keep the runner it has"
+        );
+
+        // A changed one is replaced, so the new command line takes effect.
+        let mut changed = configured.clone();
+        changed.get_mut("custom-crypto").expect("present").interval = 900;
+        widgets.sync(&changed, &connectivity, &|_| true, &configured);
+        let replaced = widgets.get("custom-crypto").expect("restarted");
+        assert!(!before.state().same_channel(&replaced.state()));
     }
 }

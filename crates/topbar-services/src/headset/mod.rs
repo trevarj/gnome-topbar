@@ -23,10 +23,13 @@ mod task;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use topbar_core::config::HeadsetConfig;
 
 pub use model::HeadsetReading;
+
+use crate::lazy::Deferred;
+use task::Poll;
 
 /// Everything the panel knows about the headset.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,23 +42,50 @@ pub struct HeadsetState {
 #[derive(Clone)]
 pub struct Headset {
     state: watch::Receiver<Arc<HeadsetState>>,
+    commands: mpsc::Sender<Poll>,
+    task: Deferred,
 }
 
 impl Headset {
     /// Start polling `headsetcontrol`.
-    pub(crate) fn start(config: &HeadsetConfig) -> Self {
+    ///
+    /// `wanted` is whether a `headset` widget is on the bar. Without one there
+    /// is no subprocess every few seconds for a reading nobody draws.
+    pub(crate) fn start(config: &HeadsetConfig, wanted: bool) -> Self {
         let (publisher, state) = watch::channel(Arc::new(HeadsetState::default()));
-        tokio::spawn(task::run(
-            publisher,
-            config.command.clone(),
-            Duration::from_secs(config.interval.max(1)),
-        ));
-        Self { state }
+        let (commands, queue) = mpsc::channel(2);
+        let task = Deferred::spawn(wanted, task::run(publisher, poll(config), queue));
+        Self {
+            state,
+            commands,
+            task,
+        }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// Subscribe to the headset battery.
     pub fn state(&self) -> watch::Receiver<Arc<HeadsetState>> {
         self.state.clone()
+    }
+
+    /// Apply a changed `[widgets.headset]`. Hot reload is what calls this.
+    ///
+    /// Not fallible: a service that has stopped is a panel that is shutting
+    /// down, and there is nothing a caller could do about either.
+    pub async fn configure(&self, config: &HeadsetConfig) {
+        let _ = self.commands.send(poll(config)).await;
+    }
+}
+
+/// What the service polls, out of `[widgets.headset]`.
+fn poll(config: &HeadsetConfig) -> Poll {
+    Poll {
+        command: config.command.clone(),
+        interval: Duration::from_secs(config.interval.max(1)),
     }
 }
 
@@ -70,11 +100,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_command_that_is_not_installed_leaves_the_widget_quiet() {
-        let headset = Headset::start(&HeadsetConfig {
-            command: "topbar-no-such-headsetcontrol".to_string(),
-            interval: 1,
-            ..HeadsetConfig::default()
-        });
+        let headset = Headset::start(
+            &HeadsetConfig {
+                command: "topbar-no-such-headsetcontrol".to_string(),
+                interval: 1,
+                ..HeadsetConfig::default()
+            },
+            true,
+        );
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert_eq!(headset.state().borrow().reading, None);
     }

@@ -57,6 +57,7 @@ const QUEUE: usize = 32;
 pub struct Media {
     handle: MediaHandle,
     state: watch::Receiver<Arc<MediaState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl Media {
@@ -65,14 +66,22 @@ impl Media {
     /// `address` overrides the session bus; production passes `None` and the
     /// tests pass a private bus, which is what keeps a test run from taking
     /// over the music the developer is listening to.
-    pub(crate) fn start(address: Option<String>) -> Self {
+    /// `wanted` is whether anything draws media: today that is the clock's
+    /// control panel. A panel with no control panel follows no players.
+    pub(crate) fn start(address: Option<String>, wanted: bool) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(MediaState::default()));
-        tokio::spawn(task::run(queue, publisher, address));
+        let task = crate::lazy::Deferred::spawn(wanted, task::run(queue, publisher, address));
         Self {
             handle: MediaHandle { commands },
             state,
+            task,
         }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The handle commands are sent through.

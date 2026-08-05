@@ -64,6 +64,7 @@ pub const DEFAULT_ICON_SIZE: i32 = 18;
 pub struct Tray {
     handle: TrayHandle,
     state: watch::Receiver<Arc<TrayState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl Tray {
@@ -73,14 +74,26 @@ impl Tray {
     /// `widgets.tray.pixmap_icon_size`. `address` overrides the session bus;
     /// production passes `None` and the tests pass a private bus, which is what
     /// keeps a test run from taking the desktop's tray away from it.
-    pub(crate) fn start(target_size: i32, address: Option<String>) -> Self {
+    ///
+    /// `wanted` is whether a `tray` widget is on the bar. A panel without one
+    /// must not register a StatusNotifierWatcher at all: owning that name tells
+    /// every application on the session to hand its icon to a host that would
+    /// then draw nothing.
+    pub(crate) fn start(target_size: i32, address: Option<String>, wanted: bool) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(TrayState::default()));
-        tokio::spawn(task::run(queue, publisher, target_size, address));
+        let task =
+            crate::lazy::Deferred::spawn(wanted, task::run(queue, publisher, target_size, address));
         Self {
             handle: TrayHandle { commands },
             state,
+            task,
         }
+    }
+
+    /// Start the task if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// The handle commands are sent through.

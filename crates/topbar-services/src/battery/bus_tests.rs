@@ -16,6 +16,7 @@ fn client(bus: &PrivateBus, root: &TempRoot) -> Battery {
     Battery::start(
         Some(bus.address().to_string()),
         Some(root.path().to_path_buf()),
+        true,
     )
 }
 

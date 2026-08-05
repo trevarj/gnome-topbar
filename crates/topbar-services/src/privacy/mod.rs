@@ -44,27 +44,36 @@ pub struct PrivacyState {
 #[derive(Clone)]
 pub struct Privacy {
     state: watch::Receiver<Arc<PrivacyState>>,
+    task: crate::lazy::Deferred,
 }
 
 impl Privacy {
     /// Start following PipeWire's node graph.
     ///
-    /// The thread is spawned unconditionally and reports nothing on a machine
-    /// with no PipeWire — which is the same answer as "nothing is being
-    /// shared", and the right one.
-    pub(crate) fn start() -> Self {
+    /// The thread reports nothing on a machine with no PipeWire — which is the
+    /// same answer as "nothing is being shared", and the right one. `wanted` is
+    /// whether the Quick Settings menu, which owns the privacy dots, is on the
+    /// bar: without it there is nowhere for a dot to appear.
+    pub(crate) fn start(wanted: bool) -> Self {
         let (publisher, state) = watch::channel(Arc::new(PrivacyState::default()));
         // A plain thread rather than a tokio task: PipeWire's main loop is a C
         // loop that owns its connection and blocks, and putting it on a runtime
         // worker would take that worker out of the pool for the session.
-        std::thread::Builder::new()
-            .name("topbar-privacy".to_string())
-            .spawn(move || worker::run(publisher))
-            .map_or_else(
-                |error| tracing::warn!("privacy: could not start the PipeWire thread: {error}"),
-                |_| (),
-            );
-        Self { state }
+        let task = crate::lazy::Deferred::run(wanted, move || {
+            std::thread::Builder::new()
+                .name("topbar-privacy".to_string())
+                .spawn(move || worker::run(publisher))
+                .map_or_else(
+                    |error| tracing::warn!("privacy: could not start the PipeWire thread: {error}"),
+                    |_| (),
+                );
+        });
+        Self { state, task }
+    }
+
+    /// Start the thread if it was held back. Returns whether this call did it.
+    pub(crate) fn ensure_started(&self) -> bool {
+        self.task.start()
     }
 
     /// Subscribe to privacy state.
@@ -101,7 +110,7 @@ mod tests {
         // sharing their screen right now is not something a test may have an
         // opinion about, and a test that required a live sound server to pass
         // is a test that fails in the gate.
-        let privacy = Privacy::start();
+        let privacy = Privacy::start(true);
         tokio::time::sleep(std::time::Duration::from_millis(600)).await;
         assert!(
             !privacy.current().screen_sharing,

@@ -78,7 +78,7 @@ impl CustomWidget {
         // The runner is keyed by the same name the section is, so this is only
         // ever `None` if the configuration and the service bundle were built
         // from different documents — a defect, not a state to design for.
-        let exec = context.services.custom.get(name).cloned();
+        let exec = context.services.custom.get(name);
         if exec.is_none() {
             warn!("`{name}` has no script runner behind it");
         }

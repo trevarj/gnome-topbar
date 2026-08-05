@@ -12,7 +12,7 @@ use crate::private_bus::{PrivateBus, private_bus};
 
 /// Start the panel's client against `bus`.
 fn client(bus: &PrivateBus) -> PowerProfiles {
-    PowerProfiles::start(Some(bus.address().to_string()))
+    PowerProfiles::start(Some(bus.address().to_string()), true)
 }
 
 /// Wait for the client to report a daemon.

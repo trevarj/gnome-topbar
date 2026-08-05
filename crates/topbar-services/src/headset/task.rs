@@ -27,52 +27,94 @@ const OUTPUT_CAP: usize = 64 * 1024;
 /// the status is not checked here and the output is.
 const ARGUMENTS: [&str; 3] = ["-b", "-o", "json"];
 
-/// Poll `command` every `interval` until the last handle is dropped.
+/// What the poll is: which tool, how often.
+///
+/// Sent again when `[widgets.headset]` changes under a running panel, which is
+/// what makes a reloaded interval take effect without a restart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Poll {
+    /// The tool to run.
+    pub(crate) command: String,
+    /// How long between readings.
+    pub(crate) interval: Duration,
+}
+
+/// Poll `headsetcontrol` until the last handle is dropped.
 pub(crate) async fn run(
     publisher: watch::Sender<Arc<HeadsetState>>,
-    command: String,
-    interval: Duration,
+    poll: Poll,
+    mut commands: tokio::sync::mpsc::Receiver<Poll>,
 ) {
-    let mut argv = vec![command];
+    let mut poll = poll;
+    let mut spec = command_line(&poll);
+    let mut ticker = timer(poll.interval);
+
+    loop {
+        tokio::select! {
+            reconfigured = commands.recv() => {
+                let Some(next) = reconfigured else {
+                    // The service handle is gone, which only happens when the
+                    // panel is on its way out.
+                    break;
+                };
+                if next == poll {
+                    continue;
+                }
+                debug!("the headset is now read with `{}` every {:?}", next.command, next.interval);
+                poll = next;
+                spec = command_line(&poll);
+                ticker = timer(poll.interval);
+            }
+            _ = ticker.tick() => {
+                if publisher.is_closed() {
+                    break;
+                }
+
+                // Awaited rather than spawned, so two `headsetcontrol`
+                // processes can never be talking to the same HID device at
+                // once.
+                let reading = match proc::capture(&spec).await {
+                    Ok(captured) => model::parse(&captured.stdout),
+                    Err(error) => {
+                        // The usual reason is that the tool is not installed,
+                        // which is the normal state of most machines rather
+                        // than a fault.
+                        trace!("the headset could not be read: {error}");
+                        None
+                    }
+                };
+
+                let state = HeadsetState { reading };
+                if **publisher.borrow() == state {
+                    continue;
+                }
+                debug!("the headset is now {:?}", state.reading);
+                let _ = publisher.send(Arc::new(state));
+            }
+        }
+    }
+
+    debug!("the headset service has no subscribers left; stopping");
+}
+
+/// The command line one reading takes.
+fn command_line(poll: &Poll) -> CmdSpec {
+    let mut argv = vec![poll.command.clone()];
     argv.extend(ARGUMENTS.iter().map(|argument| (*argument).to_string()));
-    let spec = CmdSpec {
+    CmdSpec {
         argv,
         timeout: TIMEOUT,
         max_output_bytes: OUTPUT_CAP,
-    };
+    }
+}
 
+/// A timer that does not burst after a slow reading.
+fn timer(interval: Duration) -> tokio::time::Interval {
     let mut ticker = tokio::time::interval(interval);
     // A poll that overran its interval must not be followed by a burst of
     // catch-up polls: the reading that matters is the current one.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-    loop {
-        ticker.tick().await;
-        if publisher.is_closed() {
-            break;
-        }
-
-        // Awaited rather than spawned, so two `headsetcontrol` processes can
-        // never be talking to the same HID device at once.
-        let reading = match proc::capture(&spec).await {
-            Ok(captured) => model::parse(&captured.stdout),
-            Err(error) => {
-                // The usual reason is that the tool is not installed, which is
-                // the normal state of most machines rather than a fault.
-                trace!("the headset could not be read: {error}");
-                None
-            }
-        };
-
-        let state = HeadsetState { reading };
-        if **publisher.borrow() == state {
-            continue;
-        }
-        debug!("the headset is now {:?}", state.reading);
-        let _ = publisher.send(Arc::new(state));
-    }
-
-    debug!("the headset service has no subscribers left; stopping");
+    ticker
 }
 
 #[cfg(test)]
@@ -102,10 +144,14 @@ mod tests {
         }
 
         let (publisher, state) = watch::channel(Arc::new(HeadsetState::default()));
+        let (_commands, queue) = tokio::sync::mpsc::channel(1);
         let task = tokio::spawn(run(
             publisher,
-            script.display().to_string(),
-            Duration::from_millis(50),
+            Poll {
+                command: script.display().to_string(),
+                interval: Duration::from_millis(50),
+            },
+            queue,
         ));
 
         let mut state = state;

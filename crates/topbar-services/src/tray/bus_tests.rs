@@ -126,7 +126,7 @@ async fn the_panel_becomes_the_watcher_on_a_bus_that_has_none() {
         "a fresh bus has no watcher"
     );
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -155,7 +155,7 @@ async fn the_panel_becomes_the_watcher_on_a_bus_that_has_none() {
 #[tokio::test]
 async fn an_application_that_registers_appears_on_the_bar() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -211,7 +211,7 @@ async fn an_application_already_registered_is_found_at_startup() {
 
     let item = start(&bus, &recipe("early")).await;
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     let settled = wait_for(&mut state, "the item that was already there", |state| {
         !state.is_empty()
@@ -230,7 +230,7 @@ async fn an_application_already_registered_is_found_at_startup() {
 #[tokio::test]
 async fn an_application_that_quits_is_taken_off_the_bar() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -261,7 +261,7 @@ async fn a_passive_item_is_not_drawn_and_coming_back_puts_it_on_the_bar() {
     let mut quiet = recipe("quiet");
     quiet.status = "Passive".to_string();
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -293,7 +293,7 @@ async fn a_passive_item_is_not_drawn_and_coming_back_puts_it_on_the_bar() {
 #[tokio::test]
 async fn a_new_icon_signal_reaches_the_panel() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -331,7 +331,7 @@ async fn a_new_icon_signal_reaches_the_panel() {
 #[tokio::test]
 async fn a_status_flip_to_needs_attention_reaches_the_panel() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -360,7 +360,7 @@ async fn a_pixmap_keeps_the_shape_the_application_gave_it() {
     // take the smallest that is big enough for the 18px it asked for.
     drawn.pixmaps = vec![(8, 4, 0xff_20_20_20), (24, 12, 0xff_35_84_e4)];
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -389,7 +389,7 @@ async fn a_menu_comes_down_whole_and_about_to_show_is_asked_first() {
     let mut with_menu = recipe("menued");
     with_menu.menu = Some(DEFAULT_MENU.to_string());
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -447,7 +447,7 @@ async fn a_menu_comes_down_whole_and_about_to_show_is_asked_first() {
 #[tokio::test]
 async fn an_item_with_no_menu_says_so_rather_than_hanging() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -473,7 +473,7 @@ async fn an_item_that_is_a_menu_with_no_menu_is_asked_to_show_its_own() {
     menuless.item_is_menu = true;
     menuless.menu = None;
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -502,7 +502,7 @@ async fn every_click_and_scroll_reaches_the_application() {
     let mut clicked = recipe("clicked");
     clicked.menu = Some(DEFAULT_MENU.to_string());
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -563,7 +563,7 @@ async fn an_item_served_at_its_own_path_is_still_reachable() {
     // own rather than at /StatusNotifierItem. The identifier carries the path
     // precisely so a click still lands on the right object.
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -585,7 +585,7 @@ async fn an_item_served_at_its_own_path_is_still_reachable() {
 #[tokio::test]
 async fn a_burst_of_re_registrations_does_not_rebuild_the_bar() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -613,7 +613,7 @@ async fn a_burst_of_re_registrations_does_not_rebuild_the_bar() {
 #[tokio::test]
 async fn a_burst_of_changes_is_published_once_it_settles() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -652,7 +652,7 @@ async fn a_burst_of_changes_is_published_once_it_settles() {
 #[tokio::test]
 async fn several_items_keep_their_places() {
     let bus = private_bus!();
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
@@ -693,7 +693,7 @@ async fn an_item_that_publishes_nothing_usable_gets_the_placeholder() {
     bare.title = String::new();
     bare.tooltip_title = String::new();
 
-    let tray = Tray::start(TARGET, Some(bus.address().to_string()));
+    let tray = Tray::start(TARGET, Some(bus.address().to_string()), true);
     let mut state = tray.state();
     wait_for(&mut state, "an empty tray", TrayState::is_empty).await;
 
