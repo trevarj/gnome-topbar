@@ -246,6 +246,27 @@ case "$scenario" in
     pointer_park
     check shot 03-expanded
 
+    echo "--- and a notification arriving elsewhere does not shut it"
+    # The column throws its cards away and builds new ones whenever the history
+    # changes. A group that closed itself because a message landed in another
+    # application is a group that shut under the reader's hand.
+    notify -a Fractal -i mail-unread-symbolic "#topbar" "one more, while a group is open"
+    sleep 5
+    dump
+    rows_after_arrival=$(count_of notification-row)
+    echo "smoke-notifications: rows $rows_expanded -> $rows_after_arrival after an arrival"
+    # Not "as many as before": the arrival is Fractal's *second* notification,
+    # so that group stops being a group of one — it collapses behind its own
+    # preview line and takes its row with it. Telegram's three are the point,
+    # and if the rebuild had closed Telegram too there would be one row left in
+    # the whole column.
+    [ "$rows_after_arrival" -gt "$rows_collapsed" ] || {
+      echo "smoke-notifications: the open group collapsed when something arrived" >&2
+      fail=1
+    }
+    pointer_park
+    check shot 03b-still-expanded
+
     echo "--- a row reveals its close button under the pointer"
     check hover_on notification-row 1
     check shot 04-row-hover
@@ -324,14 +345,19 @@ case "$scenario" in
     dump
 
     echo "--- hovering it stalls the timer"
-    check hover_on toast 1
+    check hover_on "GtkBox vertical toast" 1
     dump
     check shot 02-banner-hover
     grep -a "banner .* paused" "$art/panel.log" >/dev/null 2>&1 ||
       echo "smoke-notifications: the panel never reported a pause" >&2
 
     echo "--- and the action pill answers a click"
-    check click_on Reply
+    # By type and class as well as by the word on it: the banner itself is
+    # locatable — it has to be, for the hover — and its label list is every
+    # label inside it, including the ones on its own buttons. `click_on Reply`
+    # pressed the *banner*, which took the "I have read it" path, dismissed the
+    # thing the sender was waiting on and reported an action that never fired.
+    check click_on "GtkButton toast-action Reply"
     waited=0
     while [ "$waited" -lt 15 ]; do
       grep -q reply "$art/action.out" 2>/dev/null && break
@@ -350,11 +376,11 @@ case "$scenario" in
     check assert_unmapped topbar-toast "the action closed the banner"
 
     echo "--- a short-lived banner outlives its timer while the pointer is on it"
-    notify -a Fractal -i user-available -t 3000 \
+    notify -a Fractal -i mail-unread-symbolic -t 3000 \
       "#topbar" "three seconds, and the pointer is about to stop the clock"
     check assert_mapped topbar-toast "the short banner arrived"
     dump
-    check hover_on toast 1
+    check hover_on "GtkBox vertical toast" 1
     # Well past its three seconds. A timer that had kept running would have
     # taken the banner away by now.
     sleep 8
@@ -370,21 +396,23 @@ case "$scenario" in
     check assert_unmapped topbar-toast "the resumed timer ran out"
 
     echo "--- the close button dismisses one by hand"
-    notify -a Telegram -i telegram -t 60000 "Grace Hopper" "closing this by hand"
+    notify -a Telegram -i chat-message-new-symbolic -t 60000 \
+      "Grace Hopper" "closing this by hand"
     check assert_mapped topbar-toast "the banner to close arrived"
     dump
-    check hover_on toast 1
+    check hover_on "GtkBox vertical toast" 1
     check shot 04-close-revealed
     check click_on toast-close
     check assert_unmapped topbar-toast "the close button dismissed it"
 
     echo "--- three at once, and a critical one that will not go away"
-    notify -a Telegram -i telegram -t 60000 "Ada Lovelace" "one"
-    notify -a Fractal -i user-available -t 60000 "#topbar" "two"
-    notify -a "Software Updater" -i system-software-update -t 60000 "Updates" "three"
+    notify -a Telegram -i chat-message-new-symbolic -t 60000 "Ada Lovelace" "one"
+    notify -a Fractal -i mail-unread-symbolic -t 60000 "#topbar" "two"
+    notify -a "Software Updater" -i software-update-available-symbolic -t 60000 \
+      "Updates" "three"
     check shot 05-stack topbar-toast
     dump
-    stacked=$(count_of toast)
+    stacked=$(count_of "GtkBox vertical toast")
     echo "smoke-notifications: $stacked banners on screen"
     [ "$stacked" = "3" ] || {
       echo "smoke-notifications: expected three banners, found $stacked" >&2
@@ -392,7 +420,7 @@ case "$scenario" in
     }
 
     echo "--- a critical banner evicts the oldest ordinary one"
-    notify -a Battery -u critical -i battery-caution "Battery low" "5% remaining"
+    notify -a Battery -u critical -i battery-level-10-symbolic "Battery low" "5% remaining"
     sleep 4
     dump
     pointer_park
@@ -402,19 +430,23 @@ case "$scenario" in
   # The shapes a real desktop produces that a tidy fixture never does.
   edges)
     echo "--- a long application name, a huge body, and markup"
-    notify -a "Mokrinskiy Corporate Messenger Enterprise Edition" \
-      -i mail-unread "A summary far longer than the column it has to fit inside" \
+    notify -t 120000 -a "Mokrinskiy Corporate Messenger Enterprise Edition" \
+      -i mail-unread-symbolic \
+      -A read="Mark everything as read" -A later="Remind me tomorrow morning" \
+      -A open=Open \
+      "A summary far longer than the column it has to fit inside" \
       "The body is longer still: it runs past two lines and has to end in an ellipsis rather than half a letter, which is what a clipped label looks like when nobody checks. It also carries <b>bold</b>, <i>italic</i> and <u>underlined</u> markup, an unclosed <b>tag, an escaped ampersand (Tom & Jerry) and an <img src=x> element no notification has any business sending."
-    notify -a Telegram -h string:desktop-entry:org.telegram.desktop \
+    notify -t 120000 -a Telegram -h string:desktop-entry:org.telegram.desktop \
       -i telegram "Ada" "short one"
     sleep 4
     check shot 01-banner-long topbar-toast
 
     echo "--- an icon from a file on disk, and one the theme has never heard of"
-    notify -a Camera -i "$SMOKE_ARTIFACTS/icon.png" "From a file" "image-path resolution"
+    notify -t 120000 -a Camera -i "$SMOKE_ARTIFACTS/icon.png" \
+      "From a file" "image-path resolution"
     sleep 3
     check shot 02-icon-file topbar-toast
-    notify -a Nothing "No icon at all" "the generic glyph is the last resort"
+    notify -t 120000 -a Nothing "No icon at all" "the generic glyph is the last resort"
     sleep 3
     check shot 03-icon-fallback topbar-toast
 
@@ -430,9 +462,9 @@ case "$scenario" in
     check shot 04-long-history topbar-popover
 
     echo "--- the column scrolls inside itself rather than growing"
-    check scroll_on notification-list 1 5
+    check scroll_on notification-row 1 5
     check shot 05-scrolled
-    check scroll_on notification-list 1 -5
+    check scroll_on notification-row 1 -5
 
     echo "--- a replacement lands inside a group that is open"
     check dump_until notification-group-header

@@ -10,12 +10,15 @@
 //! dnd           Do Not Disturb
 //! ```
 //!
-//! Expansion is per-open state, which is what v1 did and what GNOME does: the
-//! flag lives on the row widget, and the rows are rebuilt whenever the history
-//! changes or the panel is reopened, so a group the user opened last time comes
-//! back collapsed. The list is a place to catch up, not a tree to navigate.
+//! Expansion is per-open state, which is what v1 did and what GNOME does: a
+//! group the user opened last time comes back collapsed, because the list is a
+//! place to catch up rather than a tree to navigate. It is *per open*, though,
+//! and not per render — the cards are thrown away and rebuilt whenever anything
+//! arrives, and a group that closed itself because a message landed in another
+//! application is a group that shut under the reader's hand.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use chrono::{DateTime, Local};
@@ -26,7 +29,7 @@ use gtk4::{
 };
 use topbar_services::{CloseReason, GroupView, NotifState, NotificationView, Services};
 
-use crate::anim::{Animation, AnimationParams, Easing, RotateBox};
+use crate::anim::{Animation, AnimationParams, Easing, RotateBox, ripple};
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::{classes, icons};
 use crate::widgets::expander::{REVEAL_MS, Section};
@@ -76,6 +79,12 @@ pub struct Column {
     /// walking the widget tree once a minute to find labels by class would be
     /// both slower and easier to get wrong.
     ages: RefCell<Vec<(i64, Label)>>,
+    /// The groups the user has opened, by group key, until the panel closes.
+    ///
+    /// Held here rather than on the cards because the cards do not survive a
+    /// notification arriving. Cleared on every open, which is what makes
+    /// expansion per-open state.
+    expanded: Rc<RefCell<HashSet<String>>>,
     services: Services,
     binding: RefCell<Option<BindingGuard>>,
 }
@@ -98,6 +107,7 @@ impl Column {
         let clear_all = Button::with_label("Clear");
         clear_all.add_css_class(classes::NOTIFICATION_CLEAR_ALL);
         clear_all.set_focus_on_click(false);
+        ripple::install(&clear_all);
         header.append(&clear_all);
 
         let list = gtk4::Box::new(Orientation::Vertical, 8);
@@ -153,6 +163,7 @@ impl Column {
             dnd,
             syncing: Rc::new(Cell::new(false)),
             ages: RefCell::new(Vec::new()),
+            expanded: Rc::new(RefCell::new(HashSet::new())),
             services: services.clone(),
             binding: RefCell::new(None),
         });
@@ -201,6 +212,11 @@ impl Column {
     /// been sitting closed for an hour never shows an hour-old list — and the
     /// ages in it are recomputed at the same moment.
     pub fn refresh(&self) {
+        // Opening is what makes expansion per-open: whatever was left open an
+        // hour ago comes back closed, and everything after this point in the
+        // session is the user's own doing.
+        self.expanded.borrow_mut().clear();
+
         let receiver = self.services.notifications.state();
         let state = receiver.borrow().clone();
         self.render(&state);
@@ -314,6 +330,10 @@ impl Column {
 
         content.append(&chevron);
         expander.set_child(Some(&content));
+        // Every button in the panel answers a press. This one is the largest
+        // click target in the column and was the only one of its size that
+        // showed nothing at all when it was hit.
+        ripple::install(&expander);
 
         let header = gtk4::Box::new(Orientation::Horizontal, 2);
         header.append(&expander);
@@ -323,6 +343,7 @@ impl Column {
         clear.set_focus_on_click(false);
         clear.set_valign(Align::Center);
         clear.set_tooltip_text(Some(&format!("Clear {}", group.app_name)));
+        ripple::install(&clear);
         clear.connect_clicked({
             let handle = self.services.notifications.handle().clone();
             let key = group.key.clone();
@@ -356,12 +377,32 @@ impl Column {
         let section = Section::new(&rows);
         card.append(section.root());
 
+        // A card the user had open before this rebuild comes back open, and
+        // comes back open *silently*: the rebuild is a notification arriving
+        // somewhere else, not a click, and nothing the user did should look
+        // like it is being replayed at them.
+        if self.expanded.borrow().contains(&group.key) {
+            section.expand_now();
+            preview.set_visible(false);
+            chevron.set_angle(CHEVRON_TURN);
+        }
+
         let rotation = Animation::new(&chevron);
-        expander.connect_clicked(move |_| {
-            let expanded = !section.is_expanded();
-            section.set_expanded(expanded);
-            preview.set_visible(!expanded);
-            turn(&chevron, &rotation, expanded);
+        expander.connect_clicked({
+            let open = Rc::clone(&self.expanded);
+            let key = group.key.clone();
+            move |_| {
+                let expanded = !section.is_expanded();
+                section.set_expanded(expanded);
+                preview.set_visible(!expanded);
+                turn(&chevron, &rotation, expanded);
+
+                if expanded {
+                    open.borrow_mut().insert(key.clone());
+                } else {
+                    open.borrow_mut().remove(&key);
+                }
+            }
         });
 
         card
@@ -414,6 +455,7 @@ impl Column {
         let close = Button::from_icon_name("window-close-symbolic");
         close.add_css_class(classes::NOTIFICATION_CLOSE);
         close.set_focus_on_click(false);
+        ripple::install(&close);
         close.set_valign(Align::Start);
         close.connect_clicked({
             let handle = self.services.notifications.handle().clone();

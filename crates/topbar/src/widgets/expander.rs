@@ -102,6 +102,22 @@ impl Section {
         }
     }
 
+    /// Open it with no animation at all.
+    ///
+    /// For a section that is being rebuilt rather than opened: the notification
+    /// history throws its cards away and makes new ones whenever anything
+    /// arrives, and a group the user already had open has to come back open,
+    /// not slide open again under their eyes.
+    pub fn expand_now(&self) {
+        if self.expanded.get() {
+            return;
+        }
+        self.expanded.set(true);
+        self.anim.cancel();
+        self.slot.set_reveal(1.0);
+        self.slot.set_visible(true);
+    }
+
     /// Close it with no animation at all.
     ///
     /// What happens to the section that was open when another is opened: it

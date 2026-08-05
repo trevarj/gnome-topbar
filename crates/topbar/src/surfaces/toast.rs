@@ -52,6 +52,11 @@ const SHADOW_MARGIN: i32 = 8;
 const SLIDE_MS: u64 = 150;
 /// Most action buttons drawn on one banner.
 const MAX_ACTIONS: usize = 3;
+/// Widest an action's label is allowed to be before it ellipsizes.
+///
+/// Three of them have to fit across 380 pixels, and a sender is free to write
+/// a sentence on one.
+const MAX_ACTION_CHARS: i32 = 18;
 /// Where a banner's own failures are reported.
 const SCOPE: ActionScope = ActionScope::Toast { widget: "toast" };
 
@@ -474,7 +479,15 @@ impl Card {
         let buttons: Vec<_> = notification.buttons().take(MAX_ACTIONS).collect();
         self.actions.set_visible(!buttons.is_empty());
         for action in buttons {
-            let button = Button::with_label(&action.label);
+            // The label is built rather than taken from `with_label` so it can
+            // be told to ellipsize: three actions with real names on them —
+            // "Mark as read", "Remind me tomorrow" — are wider than a banner,
+            // and a `GtkButton`'s own label has nowhere to go but off the end.
+            let label = Label::new(Some(&action.label));
+            label.set_ellipsize(pango::EllipsizeMode::End);
+            label.set_max_width_chars(MAX_ACTION_CHARS);
+            let button = Button::new();
+            button.set_child(Some(&label));
             button.add_css_class(classes::TOAST_ACTION);
             ripple::install(&button);
             button.set_focus_on_click(false);
