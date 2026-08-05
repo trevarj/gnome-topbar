@@ -8,5 +8,7 @@ pub mod bluetooth;
 pub mod header;
 pub mod network;
 pub mod power;
+pub mod resources;
 pub mod sliders;
 pub mod toggles;
+pub mod updates;

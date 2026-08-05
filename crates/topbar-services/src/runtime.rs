@@ -26,8 +26,10 @@ use crate::niri::Niri;
 use crate::notifications::Notifications;
 use crate::power::Power;
 use crate::power_profiles::PowerProfiles;
+use crate::resources::Resources;
 use crate::state_store::StateStore;
 use crate::tray::{DEFAULT_ICON_SIZE, Tray};
+use crate::updates::Updates;
 use crate::weather::Weather;
 
 static RUNTIME: OnceLock<runtime::Runtime> = OnceLock::new();
@@ -76,6 +78,8 @@ pub struct Services {
     pub connectivity: Connectivity,
     /// The weather, as one cache for the whole panel.
     pub weather: Weather,
+    /// How many updates are pending, on whatever distribution this is.
+    pub updates: Updates,
     /// Crypto prices, as one cache for the whole panel.
     pub crypto: Crypto,
     /// The system tray.
@@ -88,6 +92,8 @@ pub struct Services {
     pub inhibitor: Inhibitor,
     /// The battery, and its charge limit.
     pub battery: Battery,
+    /// CPU, memory and disks. Shared with M10's system_monitor widget.
+    pub resources: Resources,
     /// The power-profiles daemon, when there is one.
     pub power_profiles: PowerProfiles,
     /// Shutting down, restarting and suspending.
@@ -150,6 +156,7 @@ impl Services {
             .pixmap_icon_size
             .map_or(DEFAULT_ICON_SIZE, |size| size as i32);
         let allow_overdrive = config.audio.allow_overdrive;
+        let updates = config.updates.clone();
         let power_bus = smoke(SMOKE_BUS);
         let power_sysfs = smoke(SMOKE_SYSFS).map(PathBuf::from);
         let nm_bus = smoke(SMOKE_NM_BUS);
@@ -169,6 +176,7 @@ impl Services {
                 notifications: Notifications::start(state.notifications, store.clone(), None),
                 media: Media::start(None),
                 weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
+                updates: Updates::start(&updates, &connectivity),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
                 tray: Tray::start(icon_size, None),
                 audio: Audio::start(allow_overdrive),
@@ -177,6 +185,7 @@ impl Services {
                 battery: Battery::start(power_bus.clone(), power_sysfs),
                 power_profiles: PowerProfiles::start(power_bus),
                 bluetooth: Bluetooth::start(bluez_bus),
+                resources: Resources::start(),
                 power: Power::new(None),
                 ipc: Ipc::start(),
                 network,

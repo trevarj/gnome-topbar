@@ -502,6 +502,18 @@ pub const QS_CARD_LINE: &str = "qs-card-line";
 pub const QS_LIMIT_ROW: &str = "qs-limit-row";
 /// One of them.
 pub const QS_LIMIT_BUTTON: &str = "qs-limit-button";
+/// The pending-updates card.
+pub const QS_UPDATES: &str = "qs-updates";
+/// The resource-overview card.
+pub const QS_RESOURCES: &str = "qs-resources";
+/// One metered row inside it: a caption, a bar and a reading.
+pub const QS_METER_ROW: &str = "qs-meter-row";
+/// The bar itself.
+pub const QS_METER: &str = "qs-meter";
+/// Set on a bar whose reading has crossed its threshold.
+pub const QS_METER_WARNING: &str = "qs-meter-warning";
+/// The number beside it.
+pub const QS_METER_VALUE: &str = "qs-meter-value";
 /// A dimmed explanation under a control that cannot be used.
 pub const QS_HINT: &str = "qs-hint";
 
@@ -756,6 +768,12 @@ pub const ALL: &[&str] = &[
     QS_CARD_LINE,
     QS_LIMIT_ROW,
     QS_LIMIT_BUTTON,
+    QS_UPDATES,
+    QS_RESOURCES,
+    QS_METER_ROW,
+    QS_METER,
+    QS_METER_WARNING,
+    QS_METER_VALUE,
     QS_HINT,
     QS_POWER_ROW,
     QS_POWER_FILL,

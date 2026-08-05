@@ -12,7 +12,10 @@
 //! │ │ ☕ Caffeine   │ ⚡ Balanced    ⌄ │ │
 //! │ └───────────────┴───────────────────┘ │
 //! │ 🖧  Wired · 1 Gb/s                     │  only while a cable is doing
-//! └───────────────────────────────────────┘     something
+//! │ ⭯  7 updates                          │     something / while there are
+//! │ System                                │  cards
+//! │ CPU    ▓▓▓░░░░░░░░░░░░░░░░░░░    34%  │
+//! └───────────────────────────────────────┘
 //! ```
 //!
 //! It is built on the shared popover host rather than on a layer window of its
@@ -38,8 +41,8 @@ use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::popovers::PopoverContent;
 use crate::widgets::quick_settings::cards::{
-    battery::BatteryCard, header::Header, network::WiredRow, power::PowerSection, sliders::Sliders,
-    toggles::Toggles,
+    battery::BatteryCard, header::Header, network::WiredRow, power::PowerSection,
+    resources::ResourceOverview, sliders::Sliders, toggles::Toggles, updates::UpdatesCard,
 };
 use crate::widgets::quick_settings::expander::{Accordion, Section};
 
@@ -87,6 +90,8 @@ pub struct Panel {
     power_section: Rc<Section>,
     sliders: Rc<Sliders>,
     toggles: Rc<Toggles>,
+    updates: Rc<UpdatesCard>,
+    resources: Rc<ResourceOverview>,
     /// Held so the binding that draws it has something to upgrade to.
     _wired: Rc<WiredRow>,
     /// The monitor it is drawn on, for the height bound.
@@ -157,6 +162,19 @@ impl Panel {
             content.append(wired.root());
         }
 
+        // The two cards at the foot of the panel, in the order the plan puts
+        // them: updates first, because it is the one that comes and goes, and
+        // an overview that moved down the panel whenever an update landed
+        // would be a card the user had to look for.
+        let updates = UpdatesCard::new(services);
+        if config.updates {
+            content.append(updates.root());
+        }
+        let resources = ResourceOverview::new(services, Some("System"));
+        if config.resource_overview {
+            content.append(resources.root());
+        }
+
         // Vertical only: the panel is a fixed width and a horizontal scrollbar
         // would mean something in it had overflowed, which is a layout bug
         // rather than something to offer the user a way around.
@@ -182,6 +200,8 @@ impl Panel {
             power_section,
             sliders,
             toggles,
+            updates,
+            resources,
             _wired: Rc::clone(&wired),
             monitor: monitor.clone(),
             bindings: std::cell::RefCell::new(Vec::new()),
@@ -245,6 +265,8 @@ impl PopoverContent for Panel {
         self.battery.refresh();
         self.sliders.refresh();
         self.toggles.refresh();
+        self.updates.refresh();
+        self.resources.refresh();
     }
 
     fn closed(&self) {

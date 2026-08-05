@@ -28,9 +28,11 @@ pub mod power;
 pub mod power_profiles;
 pub mod proc;
 pub mod refresh;
+pub mod resources;
 pub mod runtime;
 pub mod state_store;
 pub mod tray;
+pub mod updates;
 pub mod weather;
 
 #[cfg(test)]
@@ -66,12 +68,14 @@ pub use notifications::{
 };
 pub use power::{Power, PowerAction};
 pub use power_profiles::{PowerProfiles, PowerProfilesHandle, PowerProfilesState, ProfileView};
+pub use resources::{Disk, Memory, ResourceState, Resources, ResourcesHandle};
 pub use runtime::{Runtime, Services};
 pub use state_store::StateStore;
 pub use tray::{
     IconView, ItemView, MenuEvent, MenuKind, MenuNode, Pixmap, ScrollAxis, Status as TrayStatus,
     ToggleKind, ToggleState, Tray, TrayHandle, TrayState,
 };
+pub use updates::{Count, Distro, Updates, UpdatesState};
 pub use weather::{
     CurrentWeather, DailyWeather, GeocodeResult, LocationView, Phase, TemperatureUnit, Weather,
     WeatherData, WeatherHandle, WeatherState,

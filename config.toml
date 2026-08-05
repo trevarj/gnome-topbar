@@ -167,10 +167,29 @@ timeout_ms = 1500
 allow_overdrive = false
 
 [updates]
-# With no command set, the pending-updates card auto-detects the distro's
-# package manager (guix, nix/NixOS, debian, arch, fedora, fedora silverblue).
+# With no command set, the pending-updates card deduces a read-only counting
+# command from /etc/os-release. Nothing it runs syncs a package database,
+# takes a lock or downloads anything:
+#
+#   guix        guix upgrade --dry-run
+#   debian      apt-get -s -o Debug::NoLocking=true upgrade   (Ubuntu, Mint, …)
+#   arch        checkupdates                (needs pacman-contrib; Manjaro, …)
+#   fedora      dnf -q check-update                           (Nobara, RHEL, …)
+#   silverblue  rpm-ostree upgrade --check          (Kinoite, Sericea, uBlue)
+#
+# NixOS has no counter, deliberately: there is no way to answer "how many
+# updates are pending" without writing a lock file or building the system, and
+# a card reporting "0 updates" on a machine three months behind would be worse
+# than no card. Set update_count_command to get one. Two workable shapes:
+#
+#   update_count_command = "nix flake update --flake /etc/nixos --dry-run 2>&1 | grep -c '^• Updated'"
+#   update_count_command = "nix store diff-closures /run/current-system /run/booted-system | grep -c '→'"
+#
+# The card is hidden when the count is zero and when the command fails.
 check_interval = 3600 # Seconds between checks (minimum 60)
-# update_count_command = "guix upgrade --dry-run"
+# The override runs through a shell, so pipelines work. It must print either a
+# number, or one pending update per line.
+# update_count_command = "checkupdates | wc -l"
 
 [advanced]
 compositor = "auto"          # "auto" or "niri"

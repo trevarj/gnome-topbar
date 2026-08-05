@@ -2038,6 +2038,57 @@ osd-bar {
     font-size: 12px;
 }
 
+/* The updates card is one line and a subtitle: a statement, not a control. */
+.qs-updates {
+    min-height: 48px;
+}
+
+/* --- Resource overview --- */
+
+.qs-resources {
+    padding: 12px;
+}
+
+.qs-meter-row {
+    min-height: 22px;
+}
+
+/* GTK's own level bar, restyled: the theme's default is a segmented
+   discrete-mode look that reads as a battery gauge rather than a usage bar. */
+.qs-meter {
+    min-height: 6px;
+}
+
+.qs-meter trough {
+    background-color: var(--color-widget-hover);
+    border: none;
+    border-radius: 9999px;
+    min-height: 6px;
+}
+
+.qs-meter block.filled {
+    background-color: var(--color-accent);
+    border: none;
+    border-radius: 9999px;
+    min-height: 6px;
+}
+
+/* A reading worth looking at looks like one. The card does not *act* on this
+   — that is the system_monitor widget's job, with its own thresholds — but a
+   disk at 97% should not be the same colour as one at 12%. */
+.qs-meter-warning block.filled {
+    background-color: var(--color-state-warning);
+}
+
+/* Tabular figures and a fixed width, so 9% becoming 10% does not shorten the
+   bar beside it by a character. */
+.qs-meter-value {
+    color: var(--color-foreground-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    min-width: 84px;
+}
+
 /* --- Power section --- */
 
 .qs-power-row {
