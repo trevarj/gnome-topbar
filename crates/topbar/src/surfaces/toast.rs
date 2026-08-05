@@ -39,6 +39,7 @@ use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::{self, classes};
 use crate::surfaces::layer_popover;
 use crate::wayland::activation;
+use crate::wayland::blur::{self, BlurAttachment};
 use crate::widgets::notifications::{TOAST_ICON, icon, markup};
 
 /// Width of a banner, in pixels.
@@ -92,6 +93,8 @@ pub struct ToastSurface {
     top_margin: i32,
     /// Subscriptions that keep this surface in step with the services.
     bindings: RefCell<Vec<BindingGuard>>,
+    /// The blur behind the stack of banners.
+    blur: BlurAttachment,
 }
 
 impl ToastSurface {
@@ -116,6 +119,11 @@ impl ToastSurface {
         window.set_child(Some(&stack));
 
         let surface = Rc::new(Self {
+            // One region for the whole stack rather than one per banner: the
+            // banners are a single group, the gaps between them are eight
+            // pixels wide, and a region per card would have to be rebuilt on
+            // every arrival and departure.
+            blur: blur::attach(&window, &stack, || style::POPOVER_RADIUS as i32),
             window,
             stack,
             cards: Rc::new(RefCell::new(Vec::new())),
@@ -242,6 +250,14 @@ impl ToastSurface {
             .cloned()
             .collect();
 
+        // The stack fades out with its last banner while the surface stays
+        // mapped, and compositor blur takes no notice of a widget's opacity —
+        // so the region comes off as the last one starts leaving, and goes back
+        // on when a banner arrives.
+        if !going.is_empty() && going.len() == self.cards.borrow().len() {
+            self.blur.suspend();
+        }
+
         for card in going {
             card.leaving.set(true);
             let stack = self.stack.clone();
@@ -277,6 +293,9 @@ impl ToastSurface {
         // Present before animating: a banner sliding in on an unmapped surface
         // finishes its run before the compositor ever shows it.
         self.show();
+        // A banner arriving while the last one is still sliding away catches a
+        // surface that never unmapped, so the blur is asked back by hand.
+        self.blur.resume();
         card.slide.set_reveal(0.0);
         card.card.set_opacity(0.0);
         card.slide(1.0, || {});

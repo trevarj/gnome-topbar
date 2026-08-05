@@ -13,6 +13,7 @@ use crate::fonts;
 use crate::style::{self, classes};
 use crate::surfaces::osd::OsdSurface;
 use crate::surfaces::toast::ToastSurface;
+use crate::wayland::blur::{self, BlurAttachment};
 use crate::widgets::{self, MountedWidget};
 
 /// The layer-shell namespace the compositor sees. Keep it stable: niri rules
@@ -37,6 +38,8 @@ pub struct BarWindow {
     /// Owned here for the same reason, and `None` rather than hidden when the
     /// feature is switched off: an OSD nobody wants should not have a surface.
     _osd: Option<std::rc::Rc<OsdSurface>>,
+    /// The bar's blur region, removed when the bar goes.
+    _blur: BlurAttachment,
 }
 
 impl BarWindow {
@@ -128,6 +131,7 @@ impl BarWindow {
         );
 
         Self {
+            _blur: bar_blur(config, &window, &bar),
             window,
             _widgets: mounted,
             _toasts: ToastSurface::new(monitor, connector, config, services),
@@ -158,6 +162,31 @@ impl Drop for BarWindow {
     fn drop(&mut self) {
         self.window.close();
     }
+}
+
+/// Ask the compositor to blur what is behind the painted bar.
+///
+/// The region is the bar itself rather than the window, which is wider than the
+/// bar whenever `bar.screen_margin` insets it and taller than nothing at all.
+///
+/// A fully transparent bar gets no region: there is no bar there to see the
+/// blur through, and a blurred strip across the top of an empty desktop is a
+/// defect rather than an effect. (v1 covered that case by blurring each widget
+/// island separately; v2 has no islands mode, so it simply declines.) At any
+/// other opacity the region goes on, exactly as v1 did — including at 1.0,
+/// where the bar is opaque, nothing shows through, and the hint costs the
+/// compositor one rectangle it can decide to ignore.
+fn bar_blur(
+    config: &Config,
+    window: &ApplicationWindow,
+    bar: &impl IsA<gtk4::Widget>,
+) -> BlurAttachment {
+    if config.bar.background_opacity <= 0.0 {
+        debug!("bar blur skipped: the bar background is fully transparent");
+        return BlurAttachment::inert();
+    }
+    let radius = config.bar.border_radius as i32;
+    blur::attach(window, bar, move || radius)
 }
 
 /// Build one section box and mount its widgets into it.

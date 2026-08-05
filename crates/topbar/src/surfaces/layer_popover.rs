@@ -36,6 +36,7 @@ use tracing::debug;
 
 use crate::anim::{Animation, AnimationParams, Easing, ScaleBox, motion_enabled};
 use crate::style::{self, classes};
+use crate::wayland::blur::{self, BlurAttachment};
 
 /// Minimum gap between the popover surface and the monitor edges.
 const EDGE_MARGIN: i32 = 8;
@@ -253,6 +254,8 @@ pub struct LayerPopover {
     top_margin: i32,
     /// Whoever is open. `None` once the close animation has finished.
     open: RefCell<Option<Anchored>>,
+    /// The blur behind the surface. Suspended for the length of every close.
+    blur: BlurAttachment,
 }
 
 impl LayerPopover {
@@ -282,6 +285,9 @@ impl LayerPopover {
 
         let host = Rc::new(Self {
             anim: Animation::new(&shell),
+            // The blurred area is the surface, not the window: the wrapper
+            // around it is transparent room for the drop shadow.
+            blur: blur::attach(&window, &shell, || style::POPOVER_RADIUS as i32),
             window,
             catcher,
             shell,
@@ -362,6 +368,10 @@ impl LayerPopover {
         // No focus ring until the user actually reaches for the keyboard.
         gtk4::prelude::GtkWindowExt::set_focus(&self.window, None::<&gtk4::Widget>);
 
+        // A reopen that catches a close mid-fade never unmapped, so the map
+        // that normally revives the blur is not coming.
+        self.blur.resume();
+
         let mut motion = self.motion.get();
         let run = motion.open();
         self.motion.set(motion);
@@ -377,6 +387,12 @@ impl LayerPopover {
             return;
         };
         self.motion.set(motion);
+
+        // The compositor blurs what is behind a surface whatever the surface's
+        // own opacity is, so the region comes off as the fade *starts*.
+        // Leaving it would put a rectangle of blurred desktop on screen for the
+        // length of the close, with a surface fading to nothing over it.
+        self.blur.suspend();
 
         // The bar becomes live again immediately, so the button that opened
         // this popover can reopen it mid-fade.
@@ -474,10 +490,18 @@ impl LayerPopover {
         let on_frame = {
             let shell = self.shell.clone();
             let motion = Rc::clone(&self.motion);
+            let host = Rc::downgrade(self);
             move |eased: f64| {
                 let progress = run.from + (run.to - run.from) * eased;
                 shell.set_opacity(progress);
                 shell.set_scale(SCALE_FROM + (1.0 - SCALE_FROM) * progress);
+                // The blurred area follows how *visible* the surface is rather
+                // than how big it is drawn: the compositor cannot blur at an
+                // opacity, so the region grows in with the popover instead of
+                // arriving whole behind something still fading up.
+                if let Some(host) = host.upgrade() {
+                    host.blur.set_scale(progress);
+                }
                 let mut current = motion.get();
                 current.advance(progress);
                 motion.set(current);
@@ -515,6 +539,7 @@ impl LayerPopover {
         if opening {
             self.shell.set_opacity(1.0);
             self.shell.set_scale(1.0);
+            self.blur.set_scale(1.0);
             return;
         }
 

@@ -17,6 +17,7 @@ use crate::bridge;
 use crate::control;
 use crate::style;
 use crate::surfaces;
+use crate::wayland;
 
 /// The GApplication id.
 const APP_ID: &str = "io.github.trevarj.topbar";
@@ -78,6 +79,9 @@ fn start(
 
     prefer_dark();
     style::apply(&display, &style::generate(&config.current()));
+    // Before any surface exists: an attachment made against a manager that has
+    // not been initialised is inert for good.
+    wayland::blur::init(&display, config.current().theme.blur);
 
     // The panel's own failures are shown as banners, which means the single
     // failure sink needs the daemon before any widget exists to fail.
@@ -105,11 +109,16 @@ fn start(
     ));
     surfaces::popovers::install_smoke_hook();
     info!(
-        "topbar is running (motion {})",
+        "topbar is running (motion {}, blur {})",
         if anim::motion_enabled() {
             "enabled"
         } else {
             "disabled"
+        },
+        if wayland::blur::is_active() {
+            "enabled"
+        } else {
+            "degraded"
         }
     );
     Some(manager)

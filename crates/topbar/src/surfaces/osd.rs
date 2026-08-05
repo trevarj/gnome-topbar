@@ -40,6 +40,7 @@ use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::osd_bar::{BarColors, OsdBar};
 use crate::surfaces::toast;
+use crate::wayland::blur::{self, BlurAttachment};
 
 /// How long the capsule takes to appear.
 const ENTER_MS: u64 = 150;
@@ -319,6 +320,8 @@ pub struct OsdSurface {
     /// Whether the capsule is up, so a second event retargets rather than
     /// replaying the entrance.
     shown: Cell<bool>,
+    /// The blur behind the capsule, suspended for the length of every fade-out.
+    blur: BlurAttachment,
     bindings: RefCell<Vec<BindingGuard>>,
 }
 
@@ -391,6 +394,9 @@ impl OsdSurface {
 
         let surface = Rc::new(Self {
             animation: Animation::new(&shell),
+            // The capsule is a pill; the region rasteriser clamps an enormous
+            // radius to half the smaller side, which is exactly that shape.
+            blur: blur::attach(&window, &capsule, || i32::MAX),
             window,
             shell,
             capsule,
@@ -545,6 +551,9 @@ impl OsdSurface {
             return;
         }
         self.shown.set(true);
+        // An event arriving mid-dismissal reverses a fade on a surface that
+        // never unmapped, so the blur has to be asked back by hand.
+        self.blur.resume();
 
         // One main-loop turn after the map, not during it. The fade is driven
         // by the shell's frame clock, and a widget that has not been realised
@@ -567,6 +576,9 @@ impl OsdSurface {
             return;
         }
         self.shown.set(false);
+        // Removed as the fade starts, not when it ends: compositor-side blur
+        // does not fade with the surface it sits behind.
+        self.blur.suspend();
         let window = self.window.clone();
         self.fade_with(0.0, LEAVE_MS, Easing::EaseInCubic, move || {
             window.set_visible(false);
@@ -596,12 +608,18 @@ impl OsdSurface {
         let duration = (duration_ms as f64 * distance).round() as u64;
 
         debug!("OSD fade {start} -> {target} over {duration}ms");
+        let surface = Rc::downgrade(self);
         self.animation.start(
             AnimationParams::new(duration).with_easing(easing),
             Box::new(move |progress| {
                 let value = start + (target - start) * progress;
                 shell.set_opacity(value);
                 shell.set_scale(SCALE_FROM + (1.0 - SCALE_FROM) * value);
+                // The blurred area tracks how visible the capsule is; on the
+                // way out it is already suspended and this does nothing.
+                if let Some(surface) = surface.upgrade() {
+                    surface.blur.set_scale(value);
+                }
             }),
             Some(Box::new(done)),
         );

@@ -7,3 +7,4 @@
 //! associate with them.
 
 pub mod activation;
+pub mod blur;
