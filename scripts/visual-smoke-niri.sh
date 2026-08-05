@@ -164,14 +164,35 @@ if [ -n "${TOPBAR_SMOKE_STATE:-}" ]; then
   cp "$TOPBAR_SMOKE_STATE" "$XDG_STATE_HOME/topbar/state.json"
 fi
 
-# The nested compositor gets a config of its own, for one reason: niri's
+# The nested compositor gets a config of its own, for two reasons. niri's
 # "Important Hotkeys" overlay opens on top of everything at startup and sits
 # in the middle of every screenshot, which is precisely where the panel's
-# popovers are.
+# popovers are — and a session with one keyboard layout has no layout to
+# switch to, so the keyboard_layout widget correctly draws nothing and can
+# never be photographed. Two layouts, which is what the developer's own
+# session has.
 cat >"$XDG_CONFIG_HOME/niri/config.kdl" <<'KDL'
 // Written by scripts/visual-smoke-niri.sh for the nested session.
 hotkey-overlay {
     skip-at-startup
+}
+
+input {
+    keyboard {
+        xkb {
+            layout "us,ru"
+        }
+    }
+}
+
+// The nested window is however big the *host* compositor made it, which is
+// narrower than a real screen and narrow enough that the panel clips its
+// right-hand section — which looks exactly like a widget that failed to build
+// and is not. Scaling the output down gives the nested session more logical
+// room inside the same window, without a script reaching out to resize a
+// window in the developer's own session.
+output "winit" {
+    scale 0.75
 }
 KDL
 
