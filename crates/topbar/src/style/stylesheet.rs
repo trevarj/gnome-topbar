@@ -501,13 +501,31 @@ workspace-strip {
 
 /* ===== Popovers ===== */
 
-/* Both layer surfaces are invisible: the popover paints, the catcher does not
-   paint at all — it exists only to turn a click into a dismissal. */
+/* Both layer surfaces look invisible, but only the window frames are actually
+   transparent. */
 window.popover-window,
 window.click-catcher-window,
-.popover-wrapper,
-.click-catcher {
+.popover-wrapper {
     background: transparent;
+}
+
+/* The catcher has to PAINT, and this is the whole reason it works.
+
+   It draws nothing anyone can see, but a widget that draws literally nothing
+   gives GTK an empty scene, and GDK then commits the layer surface with no
+   buffer attached to it. A wl_surface with no buffer is an unmapped surface,
+   and an unmapped surface is not in the compositor's input routing at all — so
+   every click went straight through the catcher to the window underneath while
+   `niri msg layers` still listed the surface, because a layer surface is
+   listed once it is configured, buffer or no buffer. The dismissal gesture was
+   correct the whole time and simply never received an event.
+
+   One 255th of an alpha is the smallest fill that survives to a buffer, and it
+   is imperceptible over any background. v1 landed on the same number for the
+   same reason ("nearly invisible but clickable"); v2 dropped it to
+   `transparent` and lost click-away dismissal with it. */
+.click-catcher {
+    background-color: rgba(128, 128, 128, 0.004);
 }
 
 .popover-surface {
