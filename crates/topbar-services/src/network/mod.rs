@@ -263,11 +263,18 @@ mod tests {
     }
 
     #[test]
-    fn a_development_build_is_never_treated_as_the_session_panel() {
-        // The tests only ever run in a debug build, and the whole safety story
-        // rests on this: without an explicit address, such a build reads.
-        assert!(!packaged());
-        assert_eq!(Access::decide(None, packaged()), Access::ReadOnly);
+    fn only_a_packaged_panel_touches_a_bus_it_was_not_given() {
+        // Both arms are asserted rather than whichever this build happens to
+        // be: `nix flake check` runs the tests in *release*, where `packaged()`
+        // is true, and a test that assumed a debug build would pass on the
+        // developer's machine and fail in the gate. It did, once.
+        assert_eq!(Access::decide(None, false), Access::ReadOnly);
+        assert_eq!(Access::decide(None, true), Access::Full);
+        // An address is a bus the caller brought up, whatever the build.
+        assert_eq!(Access::decide(Some("unix:path=/x"), false), Access::Full);
+        assert_eq!(Access::decide(Some("unix:path=/x"), true), Access::Full);
+        // And the definition itself, so a change to it is a change to a test.
+        assert_eq!(packaged(), !cfg!(debug_assertions));
     }
 
     #[test]

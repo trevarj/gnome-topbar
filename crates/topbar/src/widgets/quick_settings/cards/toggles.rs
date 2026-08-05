@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! ┌──────────────────┬──────────────────┐
+//! │ 📶 Usadba     ⌄ │ 🔒 VPN        ⌄ │
+//! ├──────────────────┼──────────────────┤
 //! │ ☕ Caffeine      │ ⚡ Balanced   ⌄ │
 //! └──────────────────┴──────────────────┘
 //!   ○ Power Saver                          ← the expanded section, full width
@@ -9,10 +11,15 @@
 //!   ○ Performance
 //! ```
 //!
-//! The grid is built from a list, not from a hand-written layout: M9b adds
-//! Wi-Fi and VPN and M9c adds Bluetooth, and each of them is one entry in
-//! [`model::GRID_ORDER`] plus a [`Pill`]. The wrapping, the ordering and the
-//! short last row are [`model::grid_rows`]'s problem and are tested there.
+//! The grid is built from a list, not from a hand-written layout: M9c adds
+//! Bluetooth as one entry in [`model::GRID_ORDER`] plus a [`Pill`]. The
+//! wrapping, the ordering and the short last row are [`model::grid_rows`]'s
+//! problem and are tested there.
+//!
+//! Which pills *exist* is decided by the configuration, at build time; which
+//! of them are *visible* is decided by the machine, from state. Rebuilding the
+//! grid when NetworkManager first answered would move every pill under the
+//! pointer, which is the one thing a row of controls must never do.
 //!
 //! An expandable pill's section is appended after the *row* it is in rather
 //! than inside the grid, so it spans the panel: a list of radio rows squeezed

@@ -8,9 +8,11 @@
 //! │ 🎤 ────●──────────────────────        │  only while something records
 //! │ ☀  ──────────●────────────────        │
 //! │ ┌───────────────┬───────────────────┐ │
-//! │ │ ☕ Caffeine   │ ⚡ Balanced    ⌄ │ │  toggle grid
+//! │ │ 📶 Usadba  ⌄ │ 🔒 VPN         ⌄ │ │  toggle grid
+//! │ │ ☕ Caffeine   │ ⚡ Balanced    ⌄ │ │
 //! │ └───────────────┴───────────────────┘ │
-//! └───────────────────────────────────────┘
+//! │ 🖧  Wired · 1 Gb/s                     │  only while a cable is doing
+//! └───────────────────────────────────────┘     something
 //! ```
 //!
 //! It is built on the shared popover host rather than on a layer window of its
