@@ -61,6 +61,12 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
+# Screen-share detection. The `pipewire` crate binds the C client library,
+# and libspa-sys generates its bindings with bindgen — which is why the flake
+# carries `rustPlatform.bindgenHook`: without it `libclang` is not found, and
+# without the glibc headers it finds it and then cannot parse `inttypes.h`.
+pipewire = "0.9"
+
 # Networking and system
 minreq = { version = "2.14", features = ["https-rustls"] }
 udev = "0.9"

@@ -27,7 +27,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Image, Orientation};
-use topbar_services::{AudioState, BatteryState, BtState, NetworkState, Services};
+use topbar_services::{AudioState, BatteryState, BtState, NetworkState, PrivacyState, Services};
 
 use crate::anim::{Animation, AnimationParams, Easing, motion_enabled};
 use crate::bridge::{self, BindingGuard};
@@ -165,11 +165,20 @@ impl IndicatorRow {
                 }
             }
         });
+        let privacy_binding = bridge::bind_state(&indicators.root, services.privacy.state(), {
+            let indicators = Rc::downgrade(&indicators);
+            move |_: &gtk4::Box, _: &PrivacyState| {
+                if let Some(indicators) = indicators.upgrade() {
+                    indicators.apply_visibility();
+                }
+            }
+        });
         indicators.bindings.borrow_mut().extend([
             audio_binding,
             battery_binding,
             network_binding,
             bluetooth_binding,
+            privacy_binding,
         ]);
 
         indicators
@@ -262,9 +271,7 @@ impl IndicatorRow {
             &self.services.battery.current(),
             &self.services.network.current(),
             &self.services.bluetooth.current(),
-            // Wired to the privacy service when it lands; until then the dot
-            // has nothing to say and stays out of the pill.
-            false,
+            self.services.privacy.current().screen_sharing,
             self.show_battery,
         );
         let visible = indicators.visible();

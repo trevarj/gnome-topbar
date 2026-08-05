@@ -51,6 +51,12 @@
           # the tool has to be on PATH at *test* time, which strictDeps makes
           # a nativeBuildInputs job rather than a buildInputs one.
           dbus
+          # `libspa-sys` generates the PipeWire bindings with bindgen, which
+          # needs libclang *and* a C standard library it can find. The hook
+          # sets both LIBCLANG_PATH and BINDGEN_EXTRA_CLANG_ARGS; with only
+          # the first, clang finds its own `inttypes.h` and then fails to
+          # resolve the `#include_next <inttypes.h>` inside it.
+          rustPlatform.bindgenHook
         ];
         buildInputs = with pkgs; [
           gtk4
@@ -140,6 +146,9 @@
 
       devShells.${system}.default = craneLib.devShell {
         checks = self.checks.${system};
+        # The same bindgen wiring the build needs, so `cargo build` inside the
+        # shell compiles the PipeWire bindings too.
+        inputsFrom = [ topbar ];
         packages = with pkgs; [
           rust-analyzer
           niri

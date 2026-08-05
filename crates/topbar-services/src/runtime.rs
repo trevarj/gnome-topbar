@@ -26,6 +26,7 @@ use crate::niri::Niri;
 use crate::notifications::Notifications;
 use crate::power::Power;
 use crate::power_profiles::PowerProfiles;
+use crate::privacy::Privacy;
 use crate::resources::Resources;
 use crate::state_store::StateStore;
 use crate::tray::{DEFAULT_ICON_SIZE, Tray};
@@ -94,6 +95,8 @@ pub struct Services {
     pub battery: Battery,
     /// CPU, memory and disks. Shared with M10's system_monitor widget.
     pub resources: Resources,
+    /// Whether something is watching the screen.
+    pub privacy: Privacy,
     /// The power-profiles daemon, when there is one.
     pub power_profiles: PowerProfiles,
     /// Shutting down, restarting and suspending.
@@ -128,6 +131,12 @@ const SMOKE_NM_BUS: &str = "TOPBAR_SMOKE_NM_BUS";
 /// the prompts the user's own desktop is waiting for. A debug build with this
 /// unset reads and does nothing else.
 const SMOKE_BLUEZ_BUS: &str = "TOPBAR_SMOKE_BLUEZ_BUS";
+/// Where the updates service looks for `/etc/os-release`.
+///
+/// Debug builds only. The smoke run copies a distribution's own file into its
+/// sandbox so a scenario can be on Arch or Debian without the machine being
+/// either; `/etc` itself is only ever read.
+const SMOKE_ROOT: &str = "TOPBAR_SMOKE_ROOT";
 
 /// A smoke override, in debug builds only.
 fn smoke(variable: &str) -> Option<String> {
@@ -161,6 +170,7 @@ impl Services {
         let power_sysfs = smoke(SMOKE_SYSFS).map(PathBuf::from);
         let nm_bus = smoke(SMOKE_NM_BUS);
         let bluez_bus = smoke(SMOKE_BLUEZ_BUS);
+        let root = smoke(SMOKE_ROOT).map_or_else(|| PathBuf::from("/"), PathBuf::from);
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -176,7 +186,7 @@ impl Services {
                 notifications: Notifications::start(state.notifications, store.clone(), None),
                 media: Media::start(None),
                 weather: Weather::start(&weather, state.weather, store.clone(), &connectivity),
-                updates: Updates::start(&updates, &connectivity),
+                updates: Updates::with_root(&updates, &connectivity, root),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
                 tray: Tray::start(icon_size, None),
                 audio: Audio::start(allow_overdrive),
@@ -186,6 +196,7 @@ impl Services {
                 power_profiles: PowerProfiles::start(power_bus),
                 bluetooth: Bluetooth::start(bluez_bus),
                 resources: Resources::start(),
+                privacy: Privacy::start(),
                 power: Power::new(None),
                 ipc: Ipc::start(),
                 network,

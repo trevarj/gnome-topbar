@@ -77,6 +77,23 @@
 #                         waiting for. The value is passed to the fake as extra
 #                         arguments, so a scenario says what is in range and
 #                         what is saved. The driver is handed $SMOKE_FAKE_NM.
+#   TOPBAR_SMOKE_BLUEZ    the same for `topbar-fake-bluez`, pointed at with
+#                         TOPBAR_SMOKE_BLUEZ_BUS. The real BlueZ is on the
+#                         SYSTEM bus and *is* the developer's headphones: a
+#                         smoke run must never switch that radio off,
+#                         disconnect what is playing, or register a pairing
+#                         agent there. A debug build with no
+#                         TOPBAR_SMOKE_BLUEZ_BUS refuses all three by
+#                         construction — see `network::Access`.
+#   SMOKE_PATH            a directory prepended to $PATH inside the session,
+#                         for the fake package managers the updates scenarios
+#                         run. Nothing else on the machine is on that PATH
+#                         entry, so `checkupdates` there is the run's own
+#                         script and never pacman-contrib's.
+#   TOPBAR_SMOKE_OSRELEASE
+#                         an /etc/os-release to copy into the sandbox, so a run
+#                         can tell the updates service it is on Arch or Debian
+#                         without being on either.
 #   TOPBAR_SMOKE_STATE    a state.json copied into the sandboxed
 #                         $XDG_STATE_HOME/topbar before the panel starts, so a
 #                         run can begin from state a previous session
@@ -132,6 +149,16 @@ if [ -n "$host_runtime" ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
   done
 fi
 
+# The /etc/os-release the updates service reads, so a run can be on Arch or
+# Debian without the machine being either. The panel is pointed at the copy
+# with TOPBAR_SMOKE_ROOT; /etc itself is never touched.
+if [ -n "${TOPBAR_SMOKE_OSRELEASE:-}" ]; then
+  mkdir -p "$xdg_box/root/etc"
+  cp "$TOPBAR_SMOKE_OSRELEASE" "$xdg_box/root/etc/os-release"
+  TOPBAR_SMOKE_ROOT="$xdg_box/root"
+  export TOPBAR_SMOKE_ROOT
+fi
+
 if [ -n "${TOPBAR_SMOKE_STATE:-}" ]; then
   mkdir -p "$XDG_STATE_HOME/topbar"
   cp "$TOPBAR_SMOKE_STATE" "$XDG_STATE_HOME/topbar/state.json"
@@ -181,6 +208,12 @@ if [ -n "${TOPBAR_SMOKE_NM:-}" ]; then
   nm_abs=$(pwd)/target/debug/topbar-fake-nm
 fi
 
+bluez_abs=""
+if [ -n "${TOPBAR_SMOKE_BLUEZ:-}" ]; then
+  cargo build -p topbar-services --features fake-bluez --bin topbar-fake-bluez
+  bluez_abs=$(pwd)/target/debug/topbar-fake-bluez
+fi
+
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
 binary_abs=$(pwd)/target/debug/topbar
@@ -199,6 +232,15 @@ export SMOKE_FAKE_SNI="$6"
 export SMOKE_TOPBAR="$1"
 export SMOKE_CONFIG="$2"
 export SMOKE_FAKE_NM="${10}"
+export SMOKE_FAKE_BLUEZ="${12}"
+
+# The fake package managers the updates scenarios run. Prepended, and the
+# directory holds nothing else — so `checkupdates` inside the session is this
+# run's own script and never the real pacman-contrib one.
+if [ -n "${SMOKE_PATH:-}" ]; then
+  PATH="$SMOKE_PATH:$PATH"
+  export PATH
+fi
 
 pulse_pid=""
 if [ -n "$7" ]; then
@@ -250,6 +292,23 @@ if [ -n "$8" ]; then
   done
 fi
 
+bluez_pid=""
+if [ -n "${12}" ]; then
+  # shellcheck disable=SC2086
+  "${12}" ${13} >"$3/fake-bluez.log" 2>&1 &
+  bluez_pid=$!
+  # The panel talks to this one instead of the system bus. Debug builds only;
+  # a debug build *without* it registers no pairing agent and refuses every
+  # write rather than touching the machine's real adapter.
+  TOPBAR_SMOKE_BLUEZ_BUS="$DBUS_SESSION_BUS_ADDRESS"
+  export TOPBAR_SMOKE_BLUEZ_BUS
+  waited=0
+  while ! grep -q "^ready$" "$3/fake-bluez.log" 2>/dev/null && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+fi
+
 nm_pid=""
 if [ -n "${10}" ]; then
   # shellcheck disable=SC2086
@@ -282,13 +341,14 @@ else
 fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
+[ -n "$bluez_pid" ] && kill "$bluez_pid" 2>/dev/null
 [ -n "$nm_pid" ] && kill "$nm_pid" 2>/dev/null
 [ -n "$power_pid" ] && kill "$power_pid" 2>/dev/null
 [ -n "$pulse_pid" ] && kill "$pulse_pid" 2>/dev/null
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
 ' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs" "$sni_abs" \
   "${TOPBAR_SMOKE_PULSE:-}" "$power_abs" "${TOPBAR_SMOKE_POWER:-}" \
-  "$nm_abs" "${TOPBAR_SMOKE_NM:-}"
+  "$nm_abs" "${TOPBAR_SMOKE_NM:-}" "$bluez_abs" "${TOPBAR_SMOKE_BLUEZ:-}"
 
 echo "--- panel log ---"
 cat "$artifact_dir_abs/panel.log" 2>/dev/null || true

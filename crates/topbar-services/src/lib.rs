@@ -26,6 +26,7 @@ pub mod niri;
 pub mod notifications;
 pub mod power;
 pub mod power_profiles;
+pub mod privacy;
 pub mod proc;
 pub mod refresh;
 pub mod resources;
@@ -68,6 +69,7 @@ pub use notifications::{
 };
 pub use power::{Power, PowerAction};
 pub use power_profiles::{PowerProfiles, PowerProfilesHandle, PowerProfilesState, ProfileView};
+pub use privacy::{Privacy, PrivacyState};
 pub use resources::{Disk, Memory, ResourceState, Resources, ResourcesHandle};
 pub use runtime::{Runtime, Services};
 pub use state_store::StateStore;

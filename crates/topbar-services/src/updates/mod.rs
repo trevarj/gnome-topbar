@@ -97,12 +97,7 @@ pub struct Updates {
 }
 
 impl Updates {
-    /// Start checking for updates.
-    pub(crate) fn start(config: &UpdatesConfig, connectivity: &Connectivity) -> Self {
-        Self::with_root(config, connectivity, PathBuf::from("/"))
-    }
-
-    /// The same, reading `/etc/os-release` under `root`.
+    /// Start checking for updates, reading `/etc/os-release` under `root`.
     ///
     /// `root` is `/` in the panel and a fixture directory in the tests — the
     /// same seam the state store uses, and for the same reason: the alternative
