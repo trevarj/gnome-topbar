@@ -16,6 +16,7 @@
 # of scenario (a) is the *complete* GNOME 45 grid — five toggles at once — and
 # three of them need a daemon to be present at all.
 #
+#   0  bar        the button itself, with every indicator it can carry at once
 #   1  grid       all five toggles: Wi-Fi, Bluetooth, VPN, Caffeine, Power Mode
 #   2  devices    three paired devices; one connected with its battery, one
 #                 mid-connect with a spinner, one idle
@@ -52,10 +53,11 @@ default_bt='--device buds|WH-1000XM4|AA:BB:CC:DD:EE:FF|audio-headset|connected|8
   --device mouse|MX_Master_3S|11:22:33:44:55:66|input-mouse
   --device kb|Magic_Keyboard|99:88:77:66:55:44|input-keyboard'
 
-# Enough of a network for the Wi-Fi and VPN pills to exist.
+# Enough of a network for the Wi-Fi and VPN pills to exist. The bar scenario
+# raises the tunnel as well, so the badge is on the button.
 default_nm='--ap Usadba:82:secured --ap Cafe:58:secured
   --saved Usadba --active Usadba
-  --vpn Work:uuid-work:wireguard'
+  --vpn Work:uuid-work:wireguard --vpn-active uuid-work'
 
 default_power='--active balanced --percent 62 --state 2 --time-to-empty 8100'
 
@@ -104,6 +106,9 @@ run_real() {
   mv "$artifact_root/real/panel.log" "$artifact_root/real-panel.log" 2>/dev/null || true
 }
 
+# The button on the bar, with a sound server of its own so a recording can
+# raise the microphone dot beside everything else.
+TOPBAR_SMOKE_PULSE=1 run bar
 run grid quick_settings
 run devices quick-settings-bluetooth
 # The queued outcome is what makes the third device's row spin long enough to

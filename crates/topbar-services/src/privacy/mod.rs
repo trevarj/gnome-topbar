@@ -90,20 +90,26 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_service_starts_and_reports_this_session() {
-        // Read-only against the developer's real PipeWire, which is the one
-        // thing this service can be pointed at. What it proves is that the
-        // thread starts, the library links, and the connection is made or
-        // cleanly declined — the *heuristic* is tested against fixtures in
-        // `graph`, where a screen can be shared without asking anybody to.
+    async fn the_service_starts_whether_or_not_there_is_a_pipewire_to_follow() {
+        // Two environments, one test. On the developer's desktop the thread
+        // connects to the real PipeWire read-only — the one thing this service
+        // can be pointed at. Inside `nix flake check` there is no PipeWire at
+        // all, the connection is declined, and the thread ends.
+        //
+        // What is asserted is what has to hold in *both*: the snapshot is
+        // readable and says nothing is being watched. Whether this developer is
+        // sharing their screen right now is not something a test may have an
+        // opinion about, and a test that required a live sound server to pass
+        // is a test that fails in the gate.
         let privacy = Privacy::start();
         tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-        // No assertion on the *value*: whether this developer is sharing their
-        // screen right now is not something a test may have an opinion about.
-        // What is asserted is that asking is possible at all — a thread that
-        // panicked would take the channel with it.
+        assert!(
+            !privacy.current().screen_sharing,
+            "nothing in this test shares a screen, either way"
+        );
+        // Still readable after the follower has stopped, which is what a
+        // machine with no PipeWire leaves behind.
         let subscription = privacy.state();
-        assert!(subscription.has_changed().is_ok(), "the follower is alive");
-        let _ = privacy.current().screen_sharing;
+        assert!(!subscription.borrow().screen_sharing);
     }
 }

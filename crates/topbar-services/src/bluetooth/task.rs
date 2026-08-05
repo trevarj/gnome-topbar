@@ -795,14 +795,42 @@ mod tests {
         );
     }
 
+    /// One signal, as it would arrive on the bus.
+    fn signal(interface: &str, member: &str) -> zbus::Message {
+        zbus::Message::signal("/org/bluez/hci0", interface, member)
+            .expect("a well-formed signal header")
+            .build(&())
+            .expect("a signal with an empty body")
+    }
+
     #[test]
     fn the_signal_filter_takes_the_three_that_mean_the_tree_moved() {
-        // The names, spelled out, so a typo in the filter is a failing test
-        // rather than a panel that stops noticing devices.
-        for member in ["InterfacesAdded", "InterfacesRemoved", "PropertiesChanged"] {
+        // Against real messages rather than against the list itself, so a typo
+        // in the filter is a failing test rather than a panel that quietly
+        // stops noticing devices.
+        for (interface, member) in [
+            ("org.freedesktop.DBus.ObjectManager", "InterfacesAdded"),
+            ("org.freedesktop.DBus.ObjectManager", "InterfacesRemoved"),
+            ("org.freedesktop.DBus.Properties", "PropertiesChanged"),
+        ] {
             assert!(
-                ["InterfacesAdded", "InterfacesRemoved", "PropertiesChanged"].contains(&member)
+                interesting(&signal(interface, member)),
+                "{member} says the tree moved"
             );
+        }
+    }
+
+    #[test]
+    fn everything_else_bluez_emits_is_ignored() {
+        // BlueZ is chatty on its own namespace, and re-reading the whole object
+        // tree for a signal that cannot have changed it would be a round trip
+        // for nothing.
+        for (interface, member) in [
+            ("org.bluez.AgentManager1", "Release"),
+            ("org.freedesktop.DBus", "NameOwnerChanged"),
+            ("org.bluez.Device1", "Disconnected"),
+        ] {
+            assert!(!interesting(&signal(interface, member)), "{member}");
         }
     }
 

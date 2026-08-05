@@ -29,6 +29,21 @@ fake() {
 }
 
 case "$scenario" in
+  bar)
+    # (0) the final composition: network, VPN badge, output volume, Bluetooth,
+    # battery, and the microphone dot — every indicator the button can carry
+    # except the screen-share one, which needs a PipeWire this sandbox has
+    # none of. The order is [`model::ORDER`] and nothing in it moves.
+    parecord --device=topbar_smoke_mic --raw /dev/null >"$art/parecord.log" 2>&1 &
+    recorder=$!
+    sleep 3
+    shot bar-all
+    kill "$recorder" 2>/dev/null || true
+    wait "$recorder" 2>/dev/null || true
+    sleep 3
+    shot bar-quiet
+    ;;
+
   grid)
     # (a) the complete GNOME 45 grid: five toggles at once. Wi-Fi and VPN come
     # from the fake NetworkManager, Power Mode from the fake power daemon,
