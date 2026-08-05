@@ -1767,33 +1767,40 @@ osd-bar {
  * down, they take Enter and space so that a keyboard can do it, and there was
  * no way to see which row was about to be held.
  *
- * `:focus-visible` rather than `:focus`: GTK raises it only once the user has
- * navigated with a key, so a panel driven by a pointer never draws a ring.
+ * `.keyboard <control>:focus` rather than `<control>:focus-visible`, which is
+ * the rule this wants and cannot have. GTK stamps the state behind
+ * `:focus-visible` from what it knows about a window the compositor has
+ * activated, and a layer surface is never activated, so the selector matched
+ * nothing here however the panel was driven — and setting the window's
+ * `focus-visible` property by hand does not rescue it. `.keyboard` is put on
+ * the popover window by the first key pressed in it and taken off by the next
+ * click, so a panel driven by a pointer still draws no rings.
+ *
  * The offset is negative so the ring is inside the control's own edge and
  * never overlaps the row above it. */
-.qs-battery-pill:focus-visible,
-.qs-round-button:focus-visible,
-.qs-slider-icon:focus-visible,
-.qs-chooser:focus-visible,
-.qs-device-row:focus-visible,
-.qs-toggle:focus-visible,
-.qs-toggle-expand:focus-visible,
-.qs-radio-row:focus-visible,
-.qs-network-row:focus-visible,
-.qs-password-button:focus-visible,
-.qs-vpn-row:focus-visible,
-.qs-limit-button:focus-visible,
-.qs-power-row:focus-visible {
+.keyboard .qs-battery-pill:focus,
+.keyboard .qs-round-button:focus,
+.keyboard .qs-slider-icon:focus,
+.keyboard .qs-chooser:focus,
+.keyboard .qs-device-row:focus,
+.keyboard .qs-toggle:focus,
+.keyboard .qs-toggle-expand:focus,
+.keyboard .qs-radio-row:focus,
+.keyboard .qs-network-row:focus,
+.keyboard .qs-password-button:focus,
+.keyboard .qs-vpn-row:focus,
+.keyboard .qs-limit-button:focus,
+.keyboard .qs-power-row:focus {
     outline: 2px solid var(--color-accent);
     outline-offset: -2px;
 }
 
 /* On something already filled with the accent, the ring has to be the colour
    drawn *on* the accent or it is invisible. */
-.qs-toggle-pill.checked .qs-toggle:focus-visible,
-.qs-toggle-pill.checked .qs-toggle-expand:focus-visible,
-.qs-limit-button.checked:focus-visible,
-.qs-password-button.checked:focus-visible {
+.keyboard .qs-toggle-pill.checked .qs-toggle:focus,
+.keyboard .qs-toggle-pill.checked .qs-toggle-expand:focus,
+.keyboard .qs-limit-button.checked:focus,
+.keyboard .qs-password-button.checked:focus {
     outline-color: var(--color-on-accent);
 }
 

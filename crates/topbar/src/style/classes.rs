@@ -275,6 +275,12 @@ pub const POPOVER_WRAPPER: &str = "popover-wrapper";
 pub const POPOVER_SURFACE: &str = "popover-surface";
 /// Set on popover content while its border is being drawn by the scale box.
 pub const BORDERLESS: &str = "borderless";
+/// Set on the popover window from the first key pressed in it until the
+/// pointer is used again: what draws the focus ring.
+///
+/// GTK's own answer to this is `:focus-visible`, and it is not available to a
+/// layer surface — see `LayerPopover::install_focus_visibility`.
+pub const KEYBOARD: &str = "keyboard";
 /// The click-catcher's layer-shell window.
 pub const CLICK_CATCHER_WINDOW: &str = "click-catcher-window";
 /// The click-catcher's (transparent) child.
@@ -707,6 +713,7 @@ pub const ALL: &[&str] = &[
     POPOVER_WRAPPER,
     POPOVER_SURFACE,
     BORDERLESS,
+    KEYBOARD,
     CLICK_CATCHER_WINDOW,
     CLICK_CATCHER,
     CONTROL_PANEL,

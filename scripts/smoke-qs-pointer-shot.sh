@@ -238,6 +238,17 @@ case "$scenario" in
     pointer_park
     check shot 01-open topbar-popover
 
+    # One Tab into a panel that has just taken the keyboard. Whatever it lands
+    # on has to say so: the panel clears Adwaita's focus ring along with its
+    # background images, and for a long time it drew nothing in its place. This
+    # is the only step in the matrix that presses a key before it looks, which
+    # is the point — a pointer-driven run never raises `:focus-visible` and
+    # never draws a ring, and that is correct.
+    echo "--- one Tab, and the focus has to be visible"
+    key_press Tab
+    pointer_park
+    check shot 01b-focus-ring
+
     echo "--- the battery pill opens the health card"
     check hover_on qs-battery-pill
     check shot 02-pill-hover

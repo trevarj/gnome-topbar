@@ -298,6 +298,7 @@ impl LayerPopover {
         });
 
         host.install_dismissal();
+        host.install_focus_visibility();
         host
     }
 
@@ -365,8 +366,12 @@ impl LayerPopover {
         // the state the compositor reads at map time.
         self.window.set_keyboard_mode(KeyboardMode::OnDemand);
         self.window.present();
-        // No focus ring until the user actually reaches for the keyboard.
+        // No focus ring until the user actually reaches for the keyboard: no
+        // widget holds the focus, and the class that would draw a ring around
+        // one is off. Both are reset on every open, so a popover dismissed
+        // mid-keyboard does not reopen wearing the last ring it drew.
         gtk4::prelude::GtkWindowExt::set_focus(&self.window, None::<&gtk4::Widget>);
+        self.window.remove_css_class(classes::KEYBOARD);
 
         // A reopen that catches a close mid-fade never unmapped, so the map
         // that normally revives the blur is not coming.
@@ -595,6 +600,54 @@ impl LayerPopover {
             }
         });
         self.window.add_controller(keys);
+    }
+
+    /// Mark the surface as keyboard-driven from the first key pressed in it
+    /// until the pointer is used again. It is what draws the focus ring.
+    ///
+    /// GTK's own answer to this is `:focus-visible`, and on a layer surface it
+    /// does not work. The flag behind that selector is stamped onto a widget
+    /// by the code that gives a window's focus away, and it is stamped from
+    /// state GTK maintains for a window the compositor has *activated* — which
+    /// a layer surface never is, because there is no xdg-toplevel to activate.
+    /// Setting `GtkWindow:focus-visible` by hand does not rescue it either: the
+    /// property reads back true, on the right widget, and the ring still is not
+    /// drawn, because nothing restamps a widget that already has the focus.
+    ///
+    /// So the panel keeps the state itself. `.keyboard` on the window means the
+    /// user has reached for the keyboard, and the stylesheet hangs its rings on
+    /// `.keyboard <control>:focus` — the same rule `:focus-visible` was written
+    /// to express, made out of parts that a layer surface has. Both halves
+    /// matter: without the second, one Tab would leave every control clicked
+    /// afterwards wearing a ring.
+    ///
+    /// A legacy controller rather than a gesture because it observes without
+    /// ever claiming an event sequence, so nothing below it loses a press it
+    /// would otherwise have received; and in the capture phase so the class is
+    /// on before GTK moves the focus the key asked for, and the control the
+    /// focus lands on is drawn ringed on its first frame rather than the next.
+    fn install_focus_visibility(self: &Rc<Self>) {
+        let events = gtk4::EventControllerLegacy::new();
+        events.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        events.connect_event({
+            // Weak: the controller belongs to the window it is watching, and a
+            // strong handle here would be a window keeping itself alive.
+            let window = self.window.downgrade();
+            move |_, event| {
+                let Some(window) = window.upgrade() else {
+                    return glib::Propagation::Proceed;
+                };
+                match event.event_type() {
+                    gdk::EventType::KeyPress => window.add_css_class(classes::KEYBOARD),
+                    gdk::EventType::ButtonPress | gdk::EventType::TouchBegin => {
+                        window.remove_css_class(classes::KEYBOARD);
+                    }
+                    _ => {}
+                }
+                glib::Propagation::Proceed
+            }
+        });
+        self.window.add_controller(events);
     }
 }
 
