@@ -30,8 +30,14 @@ pub(crate) enum Command {
     Refresh,
     /// Draw these entries from now on, and remember them.
     SetEntries(Vec<Entry>),
-    /// The configuration changed under us.
-    Configure(Duration),
+    /// The configuration changed under us: a new interval, and the entries the
+    /// file now seeds. See [`Task::configure`] for why the seed can lose.
+    Configure {
+        /// How long between fetches from now on.
+        interval: Duration,
+        /// What `[widgets.crypto] entries` says.
+        seed: Vec<Entry>,
+    },
 }
 
 /// Run the service until every handle is dropped.
@@ -43,6 +49,7 @@ pub(crate) async fn run(
     store: Option<StateStore>,
     mut connectivity: watch::Receiver<Arc<ConnectivityState>>,
     entries: Vec<Entry>,
+    chosen: bool,
 ) {
     let (answers, mut outcomes) = mpsc::channel(1);
     let online = connectivity.borrow_and_update().online;
@@ -55,6 +62,7 @@ pub(crate) async fn run(
         store,
         answers,
         entries,
+        chosen,
         quotes: BTreeMap::new(),
         fetched_at: None,
         due: None,
@@ -111,6 +119,12 @@ struct Task {
     answers: mpsc::Sender<Result<BTreeMap<Asset, Quote>, SvcError>>,
     /// The effective entry list.
     entries: Vec<Entry>,
+    /// Whether the list was chosen by hand rather than seeded by the config.
+    ///
+    /// True when the state file already had one at start-up, and from the
+    /// moment the settings view saves one. It is what stops a reload from
+    /// overwriting the user's own choice — see [`Task::configure`].
+    chosen: bool,
     /// The last prices that arrived. Empty until the first success.
     quotes: BTreeMap<Asset, Quote>,
     /// When they arrived.
@@ -219,7 +233,7 @@ impl Task {
         match command {
             Command::Refresh => self.fetch(),
             Command::SetEntries(entries) => self.set_entries(entries),
-            Command::Configure(interval) => self.configure(interval),
+            Command::Configure { interval, seed } => self.configure(interval, seed),
         }
     }
 
@@ -230,6 +244,9 @@ impl Task {
     /// instant, and it is why the entries live in the snapshot rather than
     /// being read from the config by the widget.
     fn set_entries(&mut self, entries: Vec<Entry>) {
+        // A choice made by hand, which from now on outranks the config file's
+        // seed — including on a reload.
+        self.chosen = true;
         if self.entries == entries {
             return;
         }
@@ -242,8 +259,20 @@ impl Task {
         self.publish();
     }
 
-    /// The configuration changed. M12's hot reload is what calls this.
-    fn configure(&mut self, interval: Duration) {
+    /// The configuration changed. Hot reload is what calls this.
+    ///
+    /// The entries are a *seed*: the settings view writes its own list to the
+    /// state file and that list wins, at start-up and here. Letting a reload
+    /// overwrite it would mean an edit to any key in the section silently
+    /// undoing what the user picked in the popover — and the panel would then
+    /// be deciding their coins for them, which is the one thing this widget
+    /// promises not to do.
+    fn configure(&mut self, interval: Duration, seed: Vec<Entry>) {
+        if !self.chosen && self.entries != seed && !seed.is_empty() {
+            debug!("the configured crypto entries are now {seed:?}");
+            self.entries = seed;
+            self.publish();
+        }
         if self.interval == interval {
             return;
         }

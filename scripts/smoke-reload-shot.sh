@@ -35,17 +35,34 @@ await_reload() {
   return 1
 }
 
+# One capture of the bar as it is now.
+#
+# A plain `grim` rather than `shot`, deliberately: `shot` returns when two
+# consecutive frames are identical, and a bar with a clock on it is never twice
+# the same for long. The hard evidence in this scenario is the panel's own log,
+# which `await_reload` has already waited for; the frame is what a person looks
+# at afterwards. One second of grace lets the rebuild reach the screen.
+frame() {
+  sleep 1
+  grim "$art/$1.png"
+  echo "smoke-reload: $1 captured"
+}
+
 # Rewrite one key in one section. `sed` ranges, because `interval` and friends
 # appear in several sections of this file and rewriting all of them would be
 # reloading a different configuration from the one under test.
+#
+# The delimiter is `|` and not `#`, because half the values here are hex
+# colours and `s#...#...#` with a `#` inside it is a broken script rather than
+# an edit — which is exactly how the accent step failed the first time.
 edit() {
   section=$1
   key=$2
   value=$3
   if [ -n "$section" ]; then
-    sed -i -e "/^\[$section\]$/,/^$/ s#^$key = .*#$key = $value#" "$config"
+    sed -i -e "/^\[$section\]$/,/^$/ s|^$key = .*|$key = $value|" "$config"
   else
-    sed -i -e "s#^$key = .*#$key = $value#" "$config"
+    sed -i -e "s|^$key = .*|$key = $value|" "$config"
   fi
 }
 
@@ -53,10 +70,13 @@ edit() {
 #
 # v1's oldest reload defect: a changed `format` was ignored until the panel was
 # restarted. The label here has to go from a long date to a bare time.
-still reload-1-clock-before
-edit 'widgets.clock' format '"%H:%M:%S"'
+#
+# Minutes, not seconds: `shot` waits for two identical frames, and a clock with
+# a seconds field never gives it two.
+frame reload-1-clock-before
+edit 'widgets.clock' format '"%H:%M"'
 await_reload || true
-still reload-2-clock-after
+frame reload-2-clock-after
 
 # --- 2. the crypto entries -------------------------------------------------
 #
@@ -64,7 +84,7 @@ still reload-2-clock-after
 # is: two coins become three, one of them a pair.
 edit 'widgets.crypto' entries '["btc", "eth", "eth/btc"]'
 await_reload || true
-still reload-3-crypto-after
+frame reload-3-crypto-after
 
 # --- 3. the workspace labels -----------------------------------------------
 #
@@ -72,7 +92,7 @@ still reload-3-crypto-after
 # `label_type`, so this is a rebuild rather than a redraw.
 edit 'widgets.workspaces' label_type '"index"'
 await_reload || true
-still reload-4-workspaces-after
+frame reload-4-workspaces-after
 
 # --- 4. the accent colour --------------------------------------------------
 #
@@ -81,7 +101,7 @@ still reload-4-workspaces-after
 # colour in the frame.
 edit '' accent '"#e01b24"'
 await_reload || true
-still reload-5-accent-after
+frame reload-5-accent-after
 
 # --- 5. the bar height -----------------------------------------------------
 #
@@ -89,7 +109,7 @@ still reload-5-accent-after
 # zone, so the desktop below moves as well.
 edit 'bar' size '52'
 await_reload || true
-still reload-6-size-after
+frame reload-6-size-after
 
 # --- 6. a file that will not parse -----------------------------------------
 #
@@ -108,7 +128,7 @@ shot reload-7-broken topbar-toast || grim "$art/reload-7-broken.png"
 
 # The bar is still the bar it was: same height, same accent, same widgets.
 sleep 2
-still reload-8-still-running
+frame reload-8-still-running
 
 niri msg layers >"$art/layers.txt" 2>&1 || true
 

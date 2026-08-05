@@ -331,7 +331,7 @@ async fn a_changed_interval_reschedules_without_throwing_the_prices_away() {
 
     crypto
         .handle()
-        .configure(Duration::from_secs(900))
+        .configure(Duration::from_secs(900), default_entries())
         .await
         .expect("the service is alive");
 
@@ -366,7 +366,7 @@ async fn a_changed_interval_retries_at_once_when_there_is_nothing_on_screen() {
     api.answer_with(200, PRICES);
     crypto
         .handle()
-        .configure(Duration::from_secs(900))
+        .configure(Duration::from_secs(900), default_entries())
         .await
         .expect("the service is alive");
 
@@ -443,4 +443,89 @@ async fn changing_the_entries_writes_them_down_without_asking_again() {
 /// A config list that is deliberately different from what the test saves.
 fn owned_default() -> Vec<String> {
     vec!["eth".to_string()]
+}
+
+#[tokio::test]
+async fn a_reloaded_entry_list_reaches_the_bar_without_a_round_trip() {
+    // The entries live in the service's snapshot rather than being read by the
+    // widget, so a reload that only rebuilt the widget would draw the old
+    // list. This is the seam that stops that.
+    let api = StubApi::start(200, PRICES).await;
+    let (_online, connectivity) = manual_connectivity(true);
+
+    let crypto = Crypto::start_with(
+        INTERVAL,
+        api.endpoints.clone(),
+        None,
+        connectivity,
+        vec![Entry::Single(Asset::Btc)],
+    );
+    let mut state = crypto.state();
+    wait_for(&mut state, "prices", |state| state.phase == Phase::Ready).await;
+
+    let wanted = vec![
+        Entry::Single(Asset::Btc),
+        Entry::Single(Asset::Eth),
+        Entry::Pair(Asset::Eth, Asset::Btc),
+    ];
+    crypto
+        .handle()
+        .configure(INTERVAL, wanted.clone())
+        .await
+        .expect("the service is alive");
+
+    let changed = wait_for(&mut state, "the reloaded entries", |state| {
+        state.entries == wanted
+    })
+    .await;
+    assert_eq!(
+        api.requests(),
+        1,
+        "every request prices all three assets, so this one was already answered"
+    );
+    assert!(changed.quote(Entry::Pair(Asset::Eth, Asset::Btc)).is_some());
+}
+
+#[tokio::test]
+async fn a_reload_does_not_undo_what_the_settings_view_chose() {
+    // The rule the widget promises: a list picked in the popover outranks the
+    // file's seed, at start-up and afterwards. A reload that silently put the
+    // config's coins back would be the panel choosing for the user.
+    let api = StubApi::start(200, PRICES).await;
+    let (_online, connectivity) = manual_connectivity(true);
+
+    let crypto = Crypto::start_with(
+        INTERVAL,
+        api.endpoints.clone(),
+        None,
+        connectivity,
+        default_entries(),
+    );
+    let mut state = crypto.state();
+    wait_for(&mut state, "prices", |state| state.phase == Phase::Ready).await;
+
+    let chosen = vec![Entry::Single(Asset::Xmr)];
+    crypto
+        .handle()
+        .set_entries(chosen.clone())
+        .await
+        .expect("the service is alive");
+    wait_for(&mut state, "the chosen entry", |state| {
+        state.entries == chosen
+    })
+    .await;
+
+    // A reload arrives, seeding something else entirely.
+    crypto
+        .handle()
+        .configure(Duration::from_secs(900), default_entries())
+        .await
+        .expect("the service is alive");
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        state.borrow_and_update().entries,
+        chosen,
+        "the seed must not overwrite a choice made by hand"
+    );
 }

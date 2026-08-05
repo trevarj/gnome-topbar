@@ -37,8 +37,11 @@ background_opacity = 0.0 # Panel buttons are transparent until hovered
 # background_color = "#1a1a1a"       # Override the widget surface color
 # popover_background_opacity = 0.76  # Defaults to the bar's opacity
 
-# Every widget also accepts on_click, on_click_right, and on_click_middle:
-# shell commands run instead of (or alongside) the widget's own click action.
+# Every widget accepts on_click, on_click_right and on_click_middle, but only
+# the widgets with nothing of their own to do with that button act on them:
+# left click on headset, os_logo and custom-*; right and middle on those plus
+# quick_settings and system_monitor. A widget whose click already opens
+# something — the clock, the weather, the tray — keeps doing that.
 
 [widgets.workspaces]
 label_type = "none"     # "none" (dots), "index", or "name"

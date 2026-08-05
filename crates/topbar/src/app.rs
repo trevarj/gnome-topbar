@@ -105,8 +105,11 @@ fn start(
     );
 
     let manager = BarManager::new(app, &display, config.clone(), services.clone());
-    manager.sync();
+    // Watching first, so a monitor that arrives while the first bars are being
+    // built is not missed — and so the count in the first log line is the real
+    // one rather than zero.
     manager.watch_monitors();
+    manager.sync();
     // One apply path, two things that ask for it: the socket and the file.
     let reloader = reload::Reloader::new(services, &manager, config.clone(), config_path, source);
     reloader.watch();

@@ -73,14 +73,49 @@ only; the project is not affiliated with the GNOME Project.
 ## Verification
 
 - `nix flake check` — the gate. Run it before every push. It covers build, fmt,
-  clippy with `-D warnings`, tests, and the pre-commit hooks.
+  clippy with `-D warnings`, tests, the pre-commit hooks, and a `--strict` run
+  of the shipped example configuration.
 - `nix build` — run for any change to packaging, dependencies, or the GTK link
   path.
 - `nix develop -c cargo test --workspace --all-targets` — the inner loop.
-- `nix develop -c ./scripts/visual-smoke-niri.sh` — nested niri + `grim`
-  screenshot. Local only: niri has no headless backend, so CI cannot run it.
+- **Run clippy in release as well as debug.** A field or function used only
+  from a `cfg(debug_assertions)` block is dead code in the packaged build and
+  only the release lint says so. `nix flake check` compiles the tests in
+  release, so it catches this; a green `cargo clippy` alone does not.
+- `nix develop -c ./scripts/smoke-*.sh` — nested niri + `grim` screenshots.
+  Local only: niri has no headless backend, so CI cannot run them.
 - UI milestones also need a run on the live niri session against
   `~/.config/topbar/config.toml`.
+
+## The smoke harness
+
+`scripts/visual-smoke-niri.sh` runs the panel inside a nested niri session and
+`scripts/smoke-<area>.sh` drives one area of it. The rules below were each
+learned by getting them wrong.
+
+- **The developer's session is untouchable.** Everything runs under
+  `dbus-run-session` on a private bus, because the panel takes
+  `org.freedesktop.Notifications` with `ReplaceExisting` and would otherwise
+  take the desktop's notifications away from whatever is serving them.
+  `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME` and `XDG_RUNTIME_DIR`
+  are all boxed inside the run.
+- **Never write to the system bus.** NetworkManager, BlueZ, UPower and
+  power-profiles are the machine's live network, headphones and battery. Each
+  has a `topbar-fake-*` sidecar that serves the same interfaces on the private
+  bus, and a debug build with no `TOPBAR_SMOKE_*_BUS` refuses every mutation
+  rather than reaching the real one.
+- **Capture on evidence, never on a clock.** `scripts/smoke-shot.sh`'s `shot`
+  waits for the layer surface to be mapped, for something to be drawn below the
+  bar, and for two consecutive captures to be byte-identical. A fixed `sleep`
+  before `grim` is a coin toss, and it has come up tails twice.
+- **A stub has to be checked, not assumed.** Every scenario verifies its own
+  fixtures — the port answers 200, the fake logged `ready`, the config really
+  contains the line `sed` was supposed to put there — before it starts, and
+  fails loudly rather than photographing a panel with nothing behind it.
+- **Reap everything.** Fakes exit when their bus closes and every script traps
+  `EXIT INT TERM` with a `pkill` as the belt.
+- Inner scripts passed to `sh -c` are single-quoted, so no apostrophes in their
+  comments.
 
 ## Commits
 

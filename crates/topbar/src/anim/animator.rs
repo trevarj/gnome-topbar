@@ -37,18 +37,43 @@ thread_local! {
 /// builds: a log line saying "run 41" is evidence, one saying "a run started"
 /// is an anecdote.
 #[cfg(debug_assertions)]
-fn count_run(duration_us: i64) {
+fn count_run(duration_us: i64) -> u64 {
     let count = TICKING_RUNS.with(|cell| {
         let count = cell.get() + 1;
         cell.set(count);
         count
     });
     tracing::debug!("motion: run {count} started ({}ms)", duration_us / 1_000);
+    count
 }
 
 /// The same, compiled out of release builds.
 #[cfg(not(debug_assertions))]
-fn count_run(_duration_us: i64) {}
+fn count_run(_duration_us: i64) -> u64 {
+    0
+}
+
+/// Announce how long a run waited for its first frame.
+///
+/// A run is *started* on the main thread and *ticked* by the widget's frame
+/// clock, and those are not the same instant: nothing ticks until the surface
+/// has been presented and the compositor has asked for another frame. On a
+/// live session that is one vsync. Inside the nested smoke session it is
+/// whatever the host compositor gives a window nobody is looking at, which is
+/// how a 150ms banner slide came to start three seconds after the banner was
+/// already on screen (M11's anomaly). This is the measurement that tells the
+/// two apart, and it is why it reports the wait rather than the duration.
+#[cfg(debug_assertions)]
+fn first_frame(run: u64, waited: std::time::Duration) {
+    tracing::debug!(
+        "motion: run {run} got its first frame after {}ms",
+        waited.as_millis()
+    );
+}
+
+/// The same, compiled out of release builds.
+#[cfg(not(debug_assertions))]
+fn first_frame(_run: u64, _waited: std::time::Duration) {}
 
 /// Record whether `theme.animations` allows motion.
 ///
@@ -193,7 +218,11 @@ impl Animation {
         }
 
         self.running.set(true);
-        count_run(params.duration_us);
+        let run = count_run(params.duration_us);
+        // Wall-clock, not frame-clock: the question this answers is how long
+        // the *first frame* took to arrive, and the frame clock cannot say —
+        // it has no time until it ticks. See [`first_frame`].
+        let asked_at = std::time::Instant::now();
 
         let gen_cell = Rc::clone(&self.generation);
         let running = Rc::clone(&self.running);
@@ -213,6 +242,7 @@ impl Animation {
                 Some(start) => start,
                 None => {
                     start_time.set(Some(now));
+                    first_frame(run, asked_at.elapsed());
                     now
                 }
             };

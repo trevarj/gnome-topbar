@@ -308,8 +308,14 @@ impl Reloader {
         if changed("crypto") {
             let handle = services.crypto.handle().clone();
             let interval = topbar_services::crypto::interval(&config.widgets.crypto);
+            // The entries too, not just the interval: they live in the
+            // service's snapshot rather than being read by the widget, so a
+            // rebuilt widget on its own would draw the old list. The service
+            // decides whether the file's list or the user's own wins.
+            let seed =
+                topbar_services::crypto::resolve_entries(None, &config.widgets.crypto.entries);
             bridge::act(ActionScope::Toast { widget: "crypto" }, async move {
-                handle.configure(interval).await
+                handle.configure(interval, seed).await
             });
         }
         if changed("system_monitor") {

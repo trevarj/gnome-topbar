@@ -89,12 +89,16 @@ impl Crypto {
         connectivity: &Connectivity,
         wanted: bool,
     ) -> Self {
+        // Whether the list on screen is the user's own choice rather than the
+        // file's seed. It decides who wins on the next reload.
+        let chosen = persisted.entries.is_some();
         Self::spawn(
             interval(config),
             Endpoints::from_env(),
             Some(store),
             connectivity.state(),
             resolve_entries(persisted.entries.as_deref(), &config.entries),
+            chosen,
             wanted,
         )
     }
@@ -114,7 +118,15 @@ impl Crypto {
         connectivity: watch::Receiver<Arc<crate::connectivity::ConnectivityState>>,
         entries: Vec<Entry>,
     ) -> Self {
-        Self::spawn(interval, endpoints, store, connectivity, entries, true)
+        Self::spawn(
+            interval,
+            endpoints,
+            store,
+            connectivity,
+            entries,
+            false,
+            true,
+        )
     }
 
     fn spawn(
@@ -123,6 +135,7 @@ impl Crypto {
         store: Option<StateStore>,
         connectivity: watch::Receiver<Arc<crate::connectivity::ConnectivityState>>,
         entries: Vec<Entry>,
+        chosen: bool,
         wanted: bool,
     ) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
@@ -140,6 +153,7 @@ impl Crypto {
                 store,
                 connectivity,
                 entries,
+                chosen,
             ),
         );
         Self {
@@ -188,9 +202,13 @@ impl CryptoHandle {
         self.send(Command::SetEntries(entries)).await
     }
 
-    /// Apply a changed `[widgets.crypto]` interval. M12's hot reload calls it.
-    pub async fn configure(&self, interval: Duration) -> Result<(), SvcError> {
-        self.send(Command::Configure(interval)).await
+    /// Apply a changed `[widgets.crypto]`. Hot reload calls it.
+    ///
+    /// `seed` is what the file's `entries` now says, and it loses to a list
+    /// the user picked in the settings view — at start-up the state file wins
+    /// over the config, and a reload must not quietly reverse that.
+    pub async fn configure(&self, interval: Duration, seed: Vec<Entry>) -> Result<(), SvcError> {
+        self.send(Command::Configure { interval, seed }).await
     }
 
     /// Post a command, or report that the service has stopped.
