@@ -451,6 +451,15 @@ impl Sliders {
             row.add_css_class(classes::QS_DEVICE_ROW);
 
             let line = gtk4::Box::new(Orientation::Horizontal, ROW_SPACING);
+
+            // Leading icon, like every other list in the panel. Without it
+            // these were the only rows whose text started at the row's own
+            // padding rather than 24px further in, and the chooser read as a
+            // different kind of list from the three under the pills.
+            let icon = Image::from_icon_name(icons::OUTPUT_DEVICE);
+            icon.add_css_class(classes::QS_ICON);
+            line.append(&icon);
+
             let name = Label::new(Some(&device.description));
             name.add_css_class(classes::QS_DEVICE_NAME);
             name.set_xalign(0.0);

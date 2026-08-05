@@ -35,6 +35,17 @@ pub const MIC_HIGH: &str = "microphone-sensitivity-high-symbolic";
 /// The backlight.
 pub const BRIGHTNESS: &str = "display-brightness-symbolic";
 
+/// One row of the output chooser.
+///
+/// The same icon on every sink, on purpose. PulseAudio tells the panel a
+/// device's description and nothing about what sort of thing it is, and
+/// reading "headphones" out of a description is how a pair of desk speakers
+/// comes to be drawn with a headband. What the icon is *for* is the column:
+/// the network, Bluetooth and VPN lists all lead with one, and without it the
+/// output rows were the only list in the panel whose names started somewhere
+/// else.
+pub const OUTPUT_DEVICE: &str = "audio-card-symbolic";
+
 /// Lock the session.
 pub const LOCK: &str = "system-lock-screen-symbolic";
 /// The power section, and shutting down.
@@ -247,6 +258,7 @@ mod tests {
             MIC_MEDIUM,
             MIC_HIGH,
             BRIGHTNESS,
+            OUTPUT_DEVICE,
             LOCK,
             SHUT_DOWN,
             RESTART,
