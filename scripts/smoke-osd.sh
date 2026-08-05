@@ -22,6 +22,17 @@
 # Screenshots and captured output land in target/visual-smoke/osd/<scenario>/.
 set -eu
 
+# The CLI commands this run drives are the one thing here that can outlive it.
+# `topbar volume set 30` connects to the sandbox's PulseAudio, and when that
+# server dies first — an interrupted run, a scenario that kills the panel — the
+# client is left waiting on a socket that will never answer. Two of them were
+# found alive hours after a run.
+#
+# Matched on the subcommand, never on the bare binary: a developer's own panel
+# built in this very tree must not be killed by a smoke run's trap.
+trap 'pkill -f "target/debug/topbar (volume|brightness|inhibit|media)" 2>/dev/null || true
+      pkill -f "target/debug/topbar-fake-" 2>/dev/null || true' EXIT INT TERM
+
 artifact_root="${1:-target/visual-smoke/osd}"
 mkdir -p "$artifact_root"
 artifact_root=$(cd "$artifact_root" && pwd)
