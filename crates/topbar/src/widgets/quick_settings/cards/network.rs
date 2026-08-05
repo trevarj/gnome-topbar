@@ -323,10 +323,15 @@ impl PasswordBox {
         actions.set_halign(Align::End);
         let cancel = Button::with_label("Cancel");
         cancel.add_css_class(classes::QS_PASSWORD_BUTTON);
+        ripple::install(&cancel);
         actions.append(&cancel);
         let connect = Button::with_label("Connect");
         connect.add_css_class(classes::QS_PASSWORD_BUTTON);
         connect.add_css_class(classes::CHECKED);
+        // Ripples like everything else in the panel: Connect is the one button
+        // here whose answer can take ten seconds to arrive, so a press that
+        // showed nothing was the press most likely to be made twice.
+        ripple::install(&connect);
         actions.append(&connect);
         root.append(&actions);
 

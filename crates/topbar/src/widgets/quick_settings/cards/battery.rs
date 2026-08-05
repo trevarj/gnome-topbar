@@ -26,6 +26,7 @@ use gtk4::{Align, Button, Label, Orientation};
 use topbar_services::battery::{FULL_PRESET, LIMIT_PRESET, duration};
 use topbar_services::{BatteryState, Services};
 
+use crate::anim::ripple;
 use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::inline::{self, names};
@@ -227,6 +228,11 @@ impl BatteryCard {
 fn limit_button(label: &str) -> Button {
     let button = Button::with_label(label);
     button.add_css_class(classes::QS_LIMIT_BUTTON);
+    // Every other button in the panel answers a press with a ripple. These two
+    // and the password box's were the only ones that did nothing at all until
+    // the write came back, which on a machine where the write is refused is
+    // nothing at all, ever.
+    ripple::install(&button);
     button.set_valign(Align::Center);
     button
 }

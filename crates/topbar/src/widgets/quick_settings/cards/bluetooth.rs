@@ -31,6 +31,7 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation, Spinner, Switch};
 use topbar_services::{BtDevice, BtState, Services};
 
+use crate::anim::ripple;
 use crate::style::{classes, icons};
 use crate::surfaces::inline::names;
 use crate::widgets::quick_settings::{attempt, set_text};
@@ -340,10 +341,12 @@ impl PairingBox {
         buttons.set_halign(Align::End);
         let cancel = Button::with_label("Cancel");
         cancel.add_css_class(classes::QS_PASSWORD_BUTTON);
+        ripple::install(&cancel);
         buttons.append(&cancel);
         let confirm = Button::with_label("Confirm");
         confirm.add_css_class(classes::QS_PASSWORD_BUTTON);
         confirm.add_css_class(classes::CHECKED);
+        ripple::install(&confirm);
         buttons.append(&confirm);
         root.append(&buttons);
 
