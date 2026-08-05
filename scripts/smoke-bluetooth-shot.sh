@@ -54,12 +54,12 @@ case "$scenario" in
     # BlueZ's reply for thirty seconds, which is what a device in a drawer
     # does — so the row's spinner is on screen to be photographed.
     shot devices-idle topbar-popover
-    "$SMOKE_TOPBAR" popover show quick-settings >/dev/null 2>&1 || true
-    gdbus call --session --dest org.bluez \
-      --object-path /org/bluez/hci0/dev_kb \
-      --method org.bluez.Device1.Connect \
-      >"$art/connect.txt" 2>&1 &
-    sleep 4
+    # `popover show <name>` runs a registered smoke action, which is how a
+    # driver sequences several steps inside one session: TOPBAR_SMOKE_OPEN
+    # fires exactly once, at start-up. The device it acts on came from the
+    # environment the *panel* was started with — see smoke-bluetooth.sh.
+    "$SMOKE_TOPBAR" popover show quick-settings-bluetooth-connect >/dev/null 2>&1 || true
+    sleep 5
     shot devices-connecting topbar-popover
     ;;
 
@@ -80,13 +80,13 @@ case "$scenario" in
     fake TriggerConfirmation "kb" 123456
     sleep 4
     shot pairing-prompt topbar-popover
-    "$SMOKE_TOPBAR" popover show quick-settings >/dev/null 2>&1 || true
-    sleep 1
     # Through the service handle, the way the row's own Confirm button sends
     # it — there is no pointer to press it with.
-    "$SMOKE_TOPBAR" popover show quick-settings >/dev/null 2>&1 || true
-    sleep 6
+    "$SMOKE_TOPBAR" popover show quick-settings-bluetooth-confirm >/dev/null 2>&1 || true
+    sleep 5
     shot pairing-after topbar-popover
+    # The fake recorded what came back out of its own Agent1 call, which is
+    # how this proves the answer travelled on the bus and not merely on screen.
     fake Replies
     fake Agents
     ;;

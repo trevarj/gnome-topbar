@@ -41,6 +41,11 @@ done
 repo=$(pwd)
 live_config="crates/topbar-core/tests/fixtures/live-config.toml"
 
+# Which device the connect scenarios act on. Read by the panel at start-up, so
+# it has to be in the environment before the session is brought up rather than
+# exported inside the driver.
+export TOPBAR_SMOKE_BT_DEVICE=/org/bluez/hci0/dev_kb
+
 # What is paired in most scenarios: a headset that is connected and reports a
 # battery, a mouse, and a keyboard.
 default_bt='--device buds:WH-1000XM4:AA:BB:CC:DD:EE:FF:audio-headset:connected:85
