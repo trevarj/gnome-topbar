@@ -105,6 +105,10 @@ fn main() -> ExitCode {
     // Services start before GTK: their runtime owns its own threads, and no
     // widget should ever be built against a service that does not exist yet.
     let services = Services::start(&load.config);
+    // One subscriber to logind, and everything that goes stale while a machine
+    // sleeps is told by it. Started here rather than inside `start` so the
+    // bundle is complete before anything can be woken.
+    services.wake_on_resume();
     app::run(load.config, cli.config, load.source, services)
 }
 

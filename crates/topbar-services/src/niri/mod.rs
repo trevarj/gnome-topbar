@@ -22,6 +22,9 @@ pub struct Niri {
     handle: NiriHandle,
     workspaces: watch::Receiver<Arc<WorkspacesSnapshot>>,
     keyboard_layout: watch::Receiver<Arc<KeyboardLayoutSnapshot>>,
+    /// Asks the stream task to start a fresh connection. See
+    /// [`Niri::health_check`].
+    kicks: tokio::sync::mpsc::Sender<()>,
 }
 
 impl Niri {
@@ -36,6 +39,7 @@ impl Niri {
         let (keyboard_tx, keyboard_layout) =
             watch::channel(Arc::new(KeyboardLayoutSnapshot::default()));
 
+        let (kicks, kick_queue) = tokio::sync::mpsc::channel(1);
         match socket.clone() {
             Some(path) => {
                 tokio::spawn(stream::run(
@@ -44,6 +48,7 @@ impl Niri {
                         workspaces: workspaces_tx,
                         keyboard_layout: keyboard_tx,
                     },
+                    kick_queue,
                 ));
             }
             None => {
@@ -55,7 +60,21 @@ impl Niri {
             handle: NiriHandle::new(socket),
             workspaces,
             keyboard_layout,
+            kicks,
         }
+    }
+
+    /// Reconnect the event stream, whatever state it thinks it is in.
+    ///
+    /// [`crate::lifecycle`] calls this on resume. A socket that was open when
+    /// the machine went to sleep can come back open and silent, and a workspace
+    /// strip showing the state from before the lid closed is exactly the defect
+    /// v1 shipped. Reconnecting costs one round trip and a full replay.
+    ///
+    /// Dropped rather than queued when a reconnect is already pending: two
+    /// reconnects in a row would be one reconnect and one wasted connection.
+    pub fn health_check(&self) {
+        let _ = self.kicks.try_send(());
     }
 
     /// The handle actions are sent through.

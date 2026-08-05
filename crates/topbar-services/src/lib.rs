@@ -22,6 +22,7 @@ pub mod headset;
 pub mod inhibitor;
 pub mod ipc;
 mod lazy;
+pub mod lifecycle;
 pub mod logind;
 pub mod media;
 pub mod network;

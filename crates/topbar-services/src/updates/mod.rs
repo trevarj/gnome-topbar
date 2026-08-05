@@ -95,7 +95,7 @@ impl UpdatesState {
 #[derive(Clone)]
 pub struct Updates {
     state: watch::Receiver<Arc<UpdatesState>>,
-    commands: tokio::sync::mpsc::Sender<UpdatesConfig>,
+    commands: tokio::sync::mpsc::Sender<task::Command>,
     task: crate::lazy::Deferred,
 }
 
@@ -137,7 +137,15 @@ impl Updates {
     /// The check starts over rather than being edited: which command runs at
     /// all is decided from the whole section at once.
     pub async fn configure(&self, config: &UpdatesConfig) {
-        let _ = self.commands.send(config.clone()).await;
+        let _ = self
+            .commands
+            .send(task::Command::Configure(Box::new(config.clone())))
+            .await;
+    }
+
+    /// Count again now. [`crate::lifecycle`] calls this on resume.
+    pub async fn recheck(&self) {
+        let _ = self.commands.send(task::Command::Recheck).await;
     }
 
     /// Subscribe to update state.

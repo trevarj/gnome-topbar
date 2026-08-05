@@ -39,11 +39,21 @@ pub(crate) struct Poll {
     pub(crate) interval: Duration,
 }
 
+/// What the panel can ask of the poll between its own ticks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Command {
+    /// Poll this way from now on. A reload sends it.
+    Configure(Poll),
+    /// Read the headset now, whatever the schedule said. A resume sends it:
+    /// the dongle may not even have been there when the machine went to sleep.
+    Now,
+}
+
 /// Poll `headsetcontrol` until the last handle is dropped.
 pub(crate) async fn run(
     publisher: watch::Sender<Arc<HeadsetState>>,
     poll: Poll,
-    mut commands: tokio::sync::mpsc::Receiver<Poll>,
+    mut commands: tokio::sync::mpsc::Receiver<Command>,
 ) {
     let mut poll = poll;
     let mut spec = command_line(&poll);
@@ -51,19 +61,28 @@ pub(crate) async fn run(
 
     loop {
         tokio::select! {
-            reconfigured = commands.recv() => {
-                let Some(next) = reconfigured else {
+            asked = commands.recv() => {
+                let Some(asked) = asked else {
                     // The service handle is gone, which only happens when the
                     // panel is on its way out.
                     break;
                 };
-                if next == poll {
-                    continue;
+                match asked {
+                    Command::Configure(next) if next == poll => continue,
+                    Command::Configure(next) => {
+                        debug!(
+                            "the headset is now read with `{}` every {:?}",
+                            next.command, next.interval
+                        );
+                        poll = next;
+                        spec = command_line(&poll);
+                        ticker = timer(poll.interval);
+                    }
+                    // A fresh timer's first tick is immediate, so re-arming it
+                    // *is* "read now" — and it re-aligns the schedule to the
+                    // resume, which is where the user's attention is.
+                    Command::Now => ticker = timer(poll.interval),
                 }
-                debug!("the headset is now read with `{}` every {:?}", next.command, next.interval);
-                poll = next;
-                spec = command_line(&poll);
-                ticker = timer(poll.interval);
             }
             _ = ticker.tick() => {
                 if publisher.is_closed() {

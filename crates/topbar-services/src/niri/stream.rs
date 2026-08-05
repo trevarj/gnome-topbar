@@ -24,7 +24,7 @@ use futures_util::{SinkExt, StreamExt};
 use niri_ipc::state::{EventStreamState, EventStreamStatePart};
 use niri_ipc::{Event, Reply, Request, Response};
 use tokio::net::UnixStream;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio_util::codec::{Framed, LinesCodec};
 use tracing::{debug, info, warn};
 
@@ -45,11 +45,19 @@ pub(crate) struct Publishers {
 }
 
 /// Run the event stream until the process exits.
-pub(crate) async fn run(socket: PathBuf, publishers: Publishers) {
+///
+/// `kicks` asks for a reconnect from outside. The one caller is
+/// [`crate::lifecycle`]: a socket that was open when the machine went to sleep
+/// is often still open when it wakes, and still silent — the compositor's end
+/// went away and the kernel has not noticed yet. The only way to be sure the
+/// workspace strip is showing this session's workspaces is to start again, and
+/// niri replays its whole state on every connection, so starting again is
+/// cheap and self-correcting.
+pub(crate) async fn run(socket: PathBuf, publishers: Publishers, mut kicks: mpsc::Receiver<()>) {
     let mut backoff = BACKOFF_START;
     loop {
         let mut handshaken = false;
-        match session(&socket, &publishers, &mut handshaken).await {
+        match session(&socket, &publishers, &mut handshaken, &mut kicks).await {
             Ok(()) => info!("niri closed the event stream; reconnecting"),
             Err(error) => warn!("niri event stream: {error}"),
         }
@@ -72,7 +80,12 @@ async fn session(
     socket: &Path,
     publishers: &Publishers,
     handshaken: &mut bool,
+    kicks: &mut mpsc::Receiver<()>,
 ) -> Result<(), SvcError> {
+    // Anything asked for while there was no connection is already answered by
+    // the one about to be made.
+    while kicks.try_recv().is_ok() {}
+
     let stream = UnixStream::connect(socket).await.map_err(SvcError::Io)?;
     let mut framed = Framed::new(stream, LinesCodec::new());
 
@@ -106,9 +119,26 @@ async fn session(
     let mut state = EventStreamState::default();
     publishers.publish(&state);
 
-    while let Some(line) = framed.next().await {
-        let line =
-            line.map_err(|e| SvcError::Protocol(format!("could not read an event line: {e}")))?;
+    // Every sender gone means nothing will ever ask again — and a channel in
+    // that state answers `recv` immediately for ever, which in a `select!`
+    // would spin. The branch takes itself out of the race instead.
+    let mut listening = true;
+    loop {
+        let line = tokio::select! {
+            line = framed.next() => match line {
+                Some(line) => line
+                    .map_err(|e| SvcError::Protocol(format!("could not read an event line: {e}")))?,
+                None => break,
+            },
+            asked = kicks.recv(), if listening => {
+                if asked.is_none() {
+                    listening = false;
+                    continue;
+                }
+                info!("reconnecting to niri to make sure the state is this session's");
+                return Ok(());
+            }
+        };
         match apply_line(&mut state, &line) {
             LineOutcome::Applied => publishers.publish(&state),
             LineOutcome::Skipped => {}

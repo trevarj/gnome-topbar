@@ -54,9 +54,24 @@ fn cpu_reading(
     cpu_usage_percent(earlier, current)
 }
 
+/// What the sampler can be asked to do between readings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Command {
+    /// Sample this often from now on.
+    Interval(Duration),
+    /// Throw the previous CPU sample away.
+    ///
+    /// CPU usage is a delta between two readings of `/proc/stat` and a wall
+    /// clock. After a suspend the two disagree by however long the machine was
+    /// asleep, and the percentage that comes out of them is meaningless —
+    /// usually a spike, occasionally a negative that clamps to zero. The next
+    /// reading has to start a fresh pair.
+    Discard,
+}
+
 /// Sample until every subscriber is gone.
 pub(crate) async fn run(
-    mut commands: mpsc::Receiver<Duration>,
+    mut commands: mpsc::Receiver<Command>,
     publisher: watch::Sender<Arc<ResourceState>>,
     mut interval: Duration,
 ) {
@@ -76,9 +91,13 @@ pub(crate) async fn run(
         tokio::select! {
             () = tokio::time::sleep(interval) => {}
             wanted = commands.recv() => match wanted {
-                Some(wanted) => {
+                Some(Command::Interval(wanted)) => {
                     debug!("resources: sampling every {wanted:?}");
                     interval = wanted;
+                }
+                Some(Command::Discard) => {
+                    debug!("resources: dropping the sample the machine slept through");
+                    previous = None;
                 }
                 // Only the handle is gone, not the subscribers: keep sampling.
                 None => tokio::time::sleep(interval).await,

@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 use niri_ipc::socket::SOCKET_PATH_ENV;
 use tokio::runtime;
 use topbar_core::Config;
+use tracing::info;
 
 use crate::audio::Audio;
 use crate::battery::Battery;
@@ -22,6 +23,7 @@ use crate::custom::CustomWidgets;
 use crate::headset::Headset;
 use crate::inhibitor::Inhibitor;
 use crate::ipc::Ipc;
+use crate::lifecycle::Lifecycle;
 use crate::media::Media;
 use crate::network::Network;
 use crate::niri::Niri;
@@ -109,6 +111,8 @@ pub struct Services {
     pub power: Power,
     /// The socket `topbar` commands arrive on.
     pub ipc: Ipc,
+    /// Suspend and resume, as one subscriber with one inhibitor.
+    pub lifecycle: Lifecycle,
 }
 
 /// Points the battery and power-profiles clients at a bus of a test's own.
@@ -271,10 +275,56 @@ impl Services {
                 privacy: Privacy::start(demand.quick_settings),
                 power: Power::new(None),
                 ipc: Ipc::start(),
+                lifecycle: Lifecycle::start(None),
                 network,
                 connectivity,
             }
         })
+    }
+
+    /// Refresh everything a sleep made stale, and keep doing it.
+    ///
+    /// Call once, after `start`. Everything on a panel goes stale in the same
+    /// instant and for the same reason — the machine was not running — so
+    /// exactly one thing notices and everything else is told.
+    ///
+    /// Deliberately not here: the clock, whose one-shot tick is re-armed from
+    /// inside its own callback and therefore fires the moment a deadline that
+    /// passed during the sleep is noticed; the audio and brightness services,
+    /// which are told by their own servers; and the notification daemon, which
+    /// has nothing to re-read.
+    pub fn wake_on_resume(&self) {
+        let services = self.clone();
+        Runtime::handle().spawn(async move {
+            let mut state = services.lifecycle.state();
+            let mut seen = state.borrow_and_update().resumes;
+            while state.changed().await.is_ok() {
+                let resumes = state.borrow_and_update().resumes;
+                if resumes == seen {
+                    continue;
+                }
+                seen = resumes;
+                info!("the machine is back; refreshing what slept through it");
+                services.wake().await;
+            }
+        });
+    }
+
+    /// Ask every service that has something stale to go and look again.
+    async fn wake(&self) {
+        // The niri stream first: everything else is a number on the panel, and
+        // this one is whether the panel is showing this session at all.
+        self.niri.health_check();
+        // The CPU delta spans the sleep and is meaningless; the next reading
+        // has to start a fresh pair rather than report a spike.
+        self.resources.handle().discard_stale_sample().await;
+        self.headset.poll_now().await;
+        self.battery.handle().refresh().await.ok();
+        self.updates.recheck().await;
+        // The two that reach the network. Failures are the services' own
+        // business — both keep what they had and back off.
+        self.weather.handle().refresh_now().await.ok();
+        self.crypto.handle().refresh_now().await.ok();
     }
 
     /// Start whatever a freshly loaded configuration now asks for.

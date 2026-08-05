@@ -43,7 +43,7 @@ pub(crate) async fn run(
     config: UpdatesConfig,
     connectivity: Connectivity,
     root: PathBuf,
-    mut commands: tokio::sync::mpsc::Receiver<UpdatesConfig>,
+    mut commands: tokio::sync::mpsc::Receiver<Command>,
 ) {
     let mut config = config;
     while let Some(next) = serve(&publisher, &config, &connectivity, &root, &mut commands).await {
@@ -51,6 +51,16 @@ pub(crate) async fn run(
         config = next;
     }
     debug!("the updates service has stopped");
+}
+
+/// What the panel can ask of the update check between its own ticks.
+#[derive(Debug, Clone)]
+pub(crate) enum Command {
+    /// Use this `[updates]` section from now on, starting over.
+    Configure(Box<UpdatesConfig>),
+    /// Check now. What a resume asks for: a machine that has been asleep for a
+    /// day is a machine whose update count is a day old.
+    Recheck,
 }
 
 /// Run one configuration's worth of checking.
@@ -62,14 +72,19 @@ async fn serve(
     config: &UpdatesConfig,
     connectivity: &Connectivity,
     root: &std::path::Path,
-    commands: &mut tokio::sync::mpsc::Receiver<UpdatesConfig>,
+    commands: &mut tokio::sync::mpsc::Receiver<Command>,
 ) -> Option<UpdatesConfig> {
     let interval = Duration::from_secs(config.check_interval).max(MIN_INTERVAL);
     let Some(plan) = plan(config, root) else {
         // Nothing to run. The snapshot stays at its default — unavailable,
         // count zero — and the card never appears. A reload may still say
-        // something that changes that.
-        return commands.recv().await;
+        // something that changes that; a resume cannot.
+        loop {
+            match commands.recv().await? {
+                Command::Configure(next) => return Some(*next),
+                Command::Recheck => {}
+            }
+        }
     };
     let publisher = publisher.clone();
     let connectivity = connectivity.clone();
@@ -109,7 +124,13 @@ async fn serve(
             () = &mut timer => {
                 due = task.check().await;
             }
-            reconfigured = commands.recv() => return reconfigured,
+            asked = commands.recv() => match asked? {
+                Command::Configure(next) => return Some(*next),
+                Command::Recheck => {
+                    info!("updates: checking again after a resume");
+                    due = Some(Instant::now());
+                }
+            },
             // Every subscriber has gone: the panel is shutting down.
             () = task.publisher.closed() => return None,
         }

@@ -48,6 +48,15 @@ pub(crate) trait Manager {
     /// Suspend it.
     fn suspend(&self, interactive: bool) -> zbus::Result<()>;
 
+    /// Sent twice around every suspend: `true` on the way down, `false` on the
+    /// way back up.
+    ///
+    /// The `true` arrives while every delay inhibitor is still held, which is
+    /// the whole reason [`crate::lifecycle`] holds one — see it for what the
+    /// panel does in that window.
+    #[zbus(signal)]
+    fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
+
     /// Whether shutting down is allowed: `yes`, `no`, `challenge` or `na`.
     #[zbus(name = "CanPowerOff")]
     fn can_power_off(&self) -> zbus::Result<String>;

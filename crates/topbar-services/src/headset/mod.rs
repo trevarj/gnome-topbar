@@ -42,7 +42,7 @@ pub struct HeadsetState {
 #[derive(Clone)]
 pub struct Headset {
     state: watch::Receiver<Arc<HeadsetState>>,
-    commands: mpsc::Sender<Poll>,
+    commands: mpsc::Sender<task::Command>,
     task: Deferred,
 }
 
@@ -77,7 +77,15 @@ impl Headset {
     /// Not fallible: a service that has stopped is a panel that is shutting
     /// down, and there is nothing a caller could do about either.
     pub async fn configure(&self, config: &HeadsetConfig) {
-        let _ = self.commands.send(poll(config)).await;
+        let _ = self
+            .commands
+            .send(task::Command::Configure(poll(config)))
+            .await;
+    }
+
+    /// Read the headset now. [`crate::lifecycle`] calls this on resume.
+    pub async fn poll_now(&self) {
+        let _ = self.commands.send(task::Command::Now).await;
     }
 }
 

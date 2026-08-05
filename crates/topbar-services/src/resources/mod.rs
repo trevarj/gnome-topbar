@@ -91,7 +91,7 @@ impl Resources {
 /// What the panel may ask of the sampler.
 #[derive(Clone)]
 pub struct ResourcesHandle {
-    commands: mpsc::Sender<Duration>,
+    commands: mpsc::Sender<task::Command>,
 }
 
 impl ResourcesHandle {
@@ -105,7 +105,16 @@ impl ResourcesHandle {
     /// Not `#[must_use]`, and not fallible: there is nothing a caller could do
     /// about a sampler that has stopped, and nothing to report if it has.
     pub async fn configure(&self, interval: Duration) {
-        let _ = self.commands.send(interval.max(MIN_INTERVAL)).await;
+        let _ = self
+            .commands
+            .send(task::Command::Interval(interval.max(MIN_INTERVAL)))
+            .await;
+    }
+
+    /// Forget the last CPU sample, because the machine was asleep between it
+    /// and the next one. [`crate::lifecycle`] calls this on resume.
+    pub async fn discard_stale_sample(&self) {
+        let _ = self.commands.send(task::Command::Discard).await;
     }
 }
 
