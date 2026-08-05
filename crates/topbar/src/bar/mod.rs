@@ -7,4 +7,4 @@ mod window;
 
 pub use context::BarContext;
 pub use manager::{BarManager, SharedConfig};
-pub use section_layout::{Section, SectionedBar};
+pub use section_layout::{Section, SectionClip, SectionedBar};

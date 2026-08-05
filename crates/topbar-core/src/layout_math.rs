@@ -90,14 +90,16 @@ pub fn compute_center_priority_allocation(
     right: Option<SectionSizes>,
     right_expand: bool,
 ) -> CenterPriorityAllocation {
-    // Calculate center width and position (anchored to true center)
-    let center_width = clamp_width(interior, center.min, center.natural);
-    let center_start = ((interior - center_width) / 2).max(0);
-    let center_end = center_start + center_width;
-
     // Calculate budgets for left and right
     let gap_left = if left.is_some() { spacing } else { 0 };
     let gap_right = if right.is_some() { spacing } else { 0 };
+
+    // Calculate center width and position (anchored to true center)
+    let center_width = clamp_width(interior, center.min, center.natural).min(center_ceiling(
+        interior, gap_left, gap_right, left, center, right,
+    ));
+    let center_start = ((interior - center_width) / 2).max(0);
+    let center_end = center_start + center_width;
     let left_budget = (center_start - gap_left).max(0);
     let right_budget = (interior - center_end - gap_right).max(0);
 
@@ -129,6 +131,38 @@ pub fn compute_center_priority_allocation(
         right_x,
         right_width,
     }
+}
+
+/// The widest the center may be if the sides are to reach their minimums.
+///
+/// The overflow policy, and the reason a bar full of tray icons does not ask
+/// GTK to allocate a section below its minimum:
+///
+/// 1. The center keeps its natural width while everything fits. That is the
+///    whole point of this layout — the clock stays where a clock belongs.
+/// 2. When it does not fit, the center gives ground **down to its own
+///    minimum**, so the sides get as close to theirs as the bar allows.
+/// 3. Past that the center stops. Sides then take whatever budget is left,
+///    which may be *less* than their minimum, and the difference is clipped
+///    rather than allocated — see the section clip in the GTK crate. A widget
+///    keeps its natural size and the section shows as much of it as fits.
+///
+/// The center is anchored to the true center, so both budgets are the same
+/// size and it is the wider of the two minimums that has to fit in each.
+fn center_ceiling(
+    interior: i32,
+    gap_left: i32,
+    gap_right: i32,
+    left: Option<SectionSizes>,
+    center: SectionSizes,
+    right: Option<SectionSizes>,
+) -> i32 {
+    let side_min = left.map_or(0, |s| s.min).max(right.map_or(0, |s| s.min));
+    let widest_gap = gap_left.max(gap_right);
+    let room_for_sides = 2 * (side_min + widest_gap);
+    // Never below the center's own minimum: shrinking it further would only
+    // move the clipping from one section to another.
+    (interior - room_for_sides).max(center.min)
 }
 
 /// Results of linear (no-center) allocation.
@@ -400,6 +434,130 @@ mod tests {
         assert_eq!(alloc.center_x, 150);
         assert_eq!(alloc.left_width, 0);
         assert_eq!(alloc.right_width, 0);
+    }
+
+    #[test]
+    fn a_side_that_cannot_fit_pushes_the_center_back_to_its_minimum() {
+        // M7's case: a bar full of tray icons on a narrow output. The right
+        // section wants 300px and cannot go below 200; the center would
+        // happily take 200 and leave it 42.
+        let alloc = compute_center_priority_allocation(
+            300,
+            8,
+            Some(SectionSizes {
+                min: 100,
+                natural: 100,
+            }),
+            false,
+            SectionSizes {
+                min: 60,
+                natural: 200,
+            },
+            Some(SectionSizes {
+                min: 200,
+                natural: 300,
+            }),
+            false,
+        );
+
+        // The center gives ground down to its own minimum, and no further.
+        assert_eq!(alloc.center_width, 60);
+        assert_eq!(alloc.center_x, 120, "still anchored to the true center");
+        // Which is enough for the left section to fit whole...
+        assert_eq!(alloc.left_width, 100);
+        // ...and leaves the right one 112 of the 200 it needs. The remaining
+        // 88px are clipped rather than allocated: asking GTK for a section
+        // below its minimum is what produced M7's allocation criticals.
+        assert_eq!(alloc.right_width, 112);
+        assert_eq!(alloc.right_x, 188);
+    }
+
+    #[test]
+    fn the_center_never_shrinks_for_sides_that_already_fit() {
+        // The common case must not change: nothing here is short of room, so
+        // the center keeps its natural width.
+        let alloc = compute_center_priority_allocation(
+            1920,
+            2,
+            Some(SectionSizes {
+                min: 120,
+                natural: 240,
+            }),
+            false,
+            SectionSizes {
+                min: 100,
+                natural: 300,
+            },
+            Some(SectionSizes {
+                min: 200,
+                natural: 400,
+            }),
+            false,
+        );
+        assert_eq!(alloc.center_width, 300);
+        assert_eq!(alloc.left_width, 240);
+        assert_eq!(alloc.right_width, 400);
+    }
+
+    #[test]
+    fn a_center_wider_than_the_bar_takes_the_bar() {
+        // Nothing else can be done, and the center is the section with
+        // priority. Both sides go to zero width, which the section clip
+        // reports a minimum of zero for — so this is a clip, not a critical.
+        let alloc = compute_center_priority_allocation(
+            100,
+            8,
+            Some(SectionSizes {
+                min: 50,
+                natural: 50,
+            }),
+            false,
+            SectionSizes {
+                min: 200,
+                natural: 200,
+            },
+            Some(SectionSizes {
+                min: 50,
+                natural: 50,
+            }),
+            false,
+        );
+        assert_eq!(alloc.center_width, 100);
+        assert_eq!(alloc.left_width, 0);
+        assert_eq!(alloc.right_width, 0);
+    }
+
+    #[test]
+    fn every_allocation_stays_inside_the_bar() {
+        // A property rather than a case: whatever the inputs, the three
+        // sections must not be placed outside the interior, and no width may
+        // be negative. Widths are allowed to *overlap* the budget of a
+        // neighbour only by being clipped, never by being negative.
+        for interior in [0, 1, 37, 200, 800, 1920] {
+            for spacing in [0, 2, 8] {
+                for (min, natural) in [(0, 0), (40, 40), (200, 400), (600, 600)] {
+                    let side = Some(SectionSizes { min, natural });
+                    let alloc = compute_center_priority_allocation(
+                        interior,
+                        spacing,
+                        side,
+                        false,
+                        SectionSizes {
+                            min: 60,
+                            natural: 300,
+                        },
+                        side,
+                        false,
+                    );
+                    for width in [alloc.left_width, alloc.center_width, alloc.right_width] {
+                        assert!(width >= 0, "negative width at interior {interior}");
+                        assert!(width <= interior, "width past the bar at {interior}");
+                    }
+                    assert!(alloc.center_x >= 0 && alloc.center_x <= interior);
+                    assert!(alloc.right_x >= 0 || interior == 0);
+                }
+            }
+        }
     }
 
     #[test]

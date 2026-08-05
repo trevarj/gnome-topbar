@@ -185,8 +185,26 @@ fn report(scope: ActionScope, error: &SvcError) {
         return;
     };
 
-    let summary = error.user_message().to_string();
-    let detail = error.to_string();
+    banner(handle, error.user_message().to_string(), error.to_string());
+}
+
+/// Tell the user about something that is not a failed service call.
+///
+/// The configuration watcher's one use: a file that will not validate is not an
+/// action anybody took, so there is no `SvcError` to carry it and no control to
+/// revert, but it is exactly the kind of thing a person needs to be told about
+/// while it is still on their screen. Same daemon, same internal marking — out
+/// of the history, past Do Not Disturb.
+pub fn announce(summary: &str, detail: &str) {
+    warn!("{summary}: {detail}");
+    let Some(handle) = notifications() else {
+        return;
+    };
+    banner(handle, summary.to_string(), detail.to_string());
+}
+
+/// Raise one internal banner. Runs on the main thread.
+fn banner(handle: NotificationsHandle, summary: String, detail: String) {
     // Deliberately not through `act`: a failure to report a failure must not
     // try to report itself.
     Runtime::handle().spawn(async move {

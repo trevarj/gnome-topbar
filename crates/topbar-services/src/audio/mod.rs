@@ -171,6 +171,15 @@ impl AudioHandle {
         self.send(Action::Refresh, ChangeSource::External).await
     }
 
+    /// Apply a changed `[audio] allow_overdrive`. Hot reload calls this.
+    ///
+    /// Nothing about the sound server is re-read: the ceiling is policy about
+    /// what a slider may ask for and what the OSD draws as full.
+    pub async fn set_allow_overdrive(&self, allow: bool) -> Result<(), SvcError> {
+        self.send(Action::SetAllowOverdrive(allow), ChangeSource::External)
+            .await
+    }
+
     /// Post a command and wait for the task to accept it.
     async fn send(&self, action: Action, source: ChangeSource) -> Result<(), SvcError> {
         let (reply, answer) = oneshot::channel();

@@ -23,5 +23,6 @@ gtk4-layer-shell = { workspace = true }
 gdk4-wayland = { workspace = true }
 wayland-client = { workspace = true }
 wayland-protocols = { workspace = true }
+notify = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

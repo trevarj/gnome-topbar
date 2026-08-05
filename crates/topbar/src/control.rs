@@ -12,7 +12,6 @@
 //! one-shot to the service runtime and answer from there, which is what keeps
 //! a slow D-Bus call from stalling the panel it is being asked about.
 
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::glib;
@@ -22,7 +21,7 @@ use topbar_services::{Runtime, Services, SvcError};
 use tracing::{info, warn};
 
 use crate::bar::{BarManager, SharedConfig};
-use crate::style;
+use crate::reload::Reloader;
 use crate::surfaces::osd::{self, OsdEvent};
 use crate::surfaces::popovers;
 use crate::surfaces::toast;
@@ -33,9 +32,8 @@ pub struct Panel {
     services: Services,
     manager: Rc<BarManager>,
     config: SharedConfig,
-    /// The `--config` path, so a reload reads the same file the panel started
-    /// from rather than whatever the search chain now prefers.
-    config_path: Option<PathBuf>,
+    /// The one apply path, shared with the configuration watcher.
+    reloader: Reloader,
 }
 
 impl Panel {
@@ -44,13 +42,13 @@ impl Panel {
         services: &Services,
         manager: &Rc<BarManager>,
         config: SharedConfig,
-        config_path: Option<PathBuf>,
+        reloader: Reloader,
     ) -> Self {
         Self {
             services: services.clone(),
             manager: Rc::clone(manager),
             config,
-            config_path,
+            reloader,
         }
     }
 }
@@ -137,8 +135,8 @@ fn handle(panel: &Panel, envelope: topbar_services::ipc::Envelope) {
             }
         }
 
-        IpcRequest::Reload => match reload(panel) {
-            Ok(source) => envelope.answer(IpcResponse::Value { text: source }),
+        IpcRequest::Reload => match panel.reloader.apply() {
+            Ok(summary) => envelope.answer(IpcResponse::Value { text: summary }),
             Err(message) => envelope.answer(IpcResponse::Error { message }),
         },
 
@@ -194,38 +192,6 @@ fn no_popover(action: &PopoverAction) -> String {
         PopoverAction::Hide(Some(widget)) => format!("no `{widget}` popover to close"),
         PopoverAction::Hide(None) => "no popover is open".to_string(),
     }
-}
-
-/// Re-read the configuration and swap the stylesheet.
-///
-/// What this does today is the half that is both safe and cheap: the file is
-/// read and validated, the shared configuration is replaced so anything built
-/// from here on uses it, and the single CSS provider is swapped atomically —
-/// so colours, sizes, radii and fonts all change live. What it does *not* do
-/// is rebuild the widgets, so a changed clock format or a widget added to a
-/// section still waits for a restart. That is M12's delta-rebuild work, and
-/// doing half of it here would mean doing it twice.
-fn reload(panel: &Panel) -> Result<String, String> {
-    let load =
-        Config::find_and_load(panel.config_path.as_deref()).map_err(|error| error.to_string())?;
-    for warning in &load.warnings {
-        warn!("{warning}");
-    }
-
-    let display = gtk4::gdk::Display::default().ok_or("there is no display")?;
-    style::apply(&display, &style::generate(&load.config));
-    crate::anim::set_animations_enabled(load.config.theme.animations);
-    panel.config.replace(load.config);
-
-    let source = match &load.source {
-        Some(path) => path.display().to_string(),
-        None => "built-in defaults".to_string(),
-    };
-    info!("reloaded the stylesheet from {source}");
-    // TODO(M12): rebuild the widgets whose section of the config changed.
-    Ok(format!(
-        "reloaded {source} (styling only; widget rebuilds land in M12)"
-    ))
 }
 
 /// Answer `topbar dump`.

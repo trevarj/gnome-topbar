@@ -43,6 +43,12 @@ pub(crate) enum Action {
     SetDefaultSource(String),
     /// Read everything again.
     Refresh,
+    /// Apply a changed `[audio] allow_overdrive`.
+    ///
+    /// The ceiling is policy, not hardware: it decides what a slider may ask
+    /// for and what the OSD draws as full. A reload changes it under a running
+    /// panel, and nothing about the sound server has to be re-read for it.
+    SetAllowOverdrive(bool),
 }
 
 /// A command, with who sent it and where to answer.
@@ -59,7 +65,7 @@ pub(crate) async fn run(
     publisher: watch::Sender<Arc<AudioState>>,
     allow_overdrive: bool,
 ) {
-    let max_volume_pct = volume::max_percent(allow_overdrive);
+    let mut max_volume_pct = volume::max_percent(allow_overdrive);
     let (requests, request_queue) = std::sync::mpsc::channel();
     let (reports, mut report_queue) = mpsc::unbounded_channel();
 
@@ -85,6 +91,27 @@ pub(crate) async fn run(
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { break };
+                // The one action that is about policy rather than about the
+                // sound server, so it is answered here rather than dispatched.
+                if let Action::SetAllowOverdrive(allow) = command.action {
+                    max_volume_pct = volume::max_percent(allow);
+                    debug!("the volume ceiling is now {max_volume_pct}%");
+                    publisher.send_if_modified(|current| {
+                        if current.max_volume_pct == max_volume_pct {
+                            return false;
+                        }
+                        let mut next = (**current).clone();
+                        next.max_volume_pct = max_volume_pct;
+                        // A ceiling that just dropped must not leave the
+                        // published volume above it.
+                        next.sink_volume_pct = next.sink_volume_pct.min(max_volume_pct);
+                        next.source_volume_pct = next.source_volume_pct.min(max_volume_pct);
+                        *current = Arc::new(next);
+                        true
+                    });
+                    let _ = command.reply.send(Ok(()));
+                    continue;
+                }
                 let answer = dispatch(&publisher, &mut echoes, &requests, command.action, command.source);
                 let _ = command.reply.send(answer);
             }
@@ -191,6 +218,9 @@ fn dispatch(
             worker::Request::SetDefaultSource(id)
         }
         Action::Refresh => worker::Request::Refresh,
+        // Answered by the loop before it ever reaches here: the ceiling is
+        // policy, and there is nothing to ask the sound server for.
+        Action::SetAllowOverdrive(_) => return Ok(()),
     };
 
     requests

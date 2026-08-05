@@ -15,6 +15,7 @@ mod commands;
 mod control;
 mod fonts;
 mod ipc_client;
+mod reload;
 mod style;
 mod surfaces;
 mod wayland;
@@ -104,7 +105,7 @@ fn main() -> ExitCode {
     // Services start before GTK: their runtime owns its own threads, and no
     // widget should ever be built against a service that does not exist yet.
     let services = Services::start(&load.config);
-    app::run(load.config, cli.config, services)
+    app::run(load.config, cli.config, load.source, services)
 }
 
 /// `--check-config` output: one status line, then every warning on stderr.

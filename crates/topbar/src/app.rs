@@ -15,6 +15,7 @@ use crate::anim;
 use crate::bar::{BarManager, SharedConfig};
 use crate::bridge;
 use crate::control;
+use crate::reload;
 use crate::style;
 use crate::surfaces;
 use crate::wayland;
@@ -26,7 +27,12 @@ const APP_ID: &str = "io.github.trevarj.topbar";
 ///
 /// `services` is started before GTK so no widget can ever be built against a
 /// service that does not exist yet.
-pub fn run(config: Config, config_path: Option<PathBuf>, services: Services) -> ExitCode {
+pub fn run(
+    config: Config,
+    config_path: Option<PathBuf>,
+    source: Option<PathBuf>,
+    services: Services,
+) -> ExitCode {
     force_wayland_backend();
     anim::set_animations_enabled(config.theme.animations);
     anim::ripple::set_enabled(config.theme.ripple);
@@ -46,7 +52,7 @@ pub fn run(config: Config, config_path: Option<PathBuf>, services: Services) -> 
         if manager.borrow().is_some() {
             return;
         }
-        if let Some(started) = start(app, &config, &services, config_path.clone()) {
+        if let Some(started) = start(app, &config, &services, config_path.clone(), source.clone()) {
             *manager.borrow_mut() = Some(started);
         } else {
             app.quit();
@@ -68,6 +74,7 @@ fn start(
     config: &SharedConfig,
     services: &Services,
     config_path: Option<PathBuf>,
+    source: Option<PathBuf>,
 ) -> Option<Rc<BarManager>> {
     let Some(display) = gdk::Display::default() else {
         error!("no display; is a Wayland compositor running?");
@@ -100,13 +107,16 @@ fn start(
     let manager = BarManager::new(app, &display, config.clone(), services.clone());
     manager.sync();
     manager.watch_monitors();
+    // One apply path, two things that ask for it: the socket and the file.
+    let reloader = reload::Reloader::new(services, &manager, config.clone(), config_path, source);
+    reloader.watch();
     // After the bars exist: a `topbar popover show` arriving on the first
     // frame should find something to open.
     control::install(control::Panel::new(
         services,
         &manager,
         config.clone(),
-        config_path,
+        reloader,
     ));
     surfaces::popovers::install_smoke_hook();
     info!(

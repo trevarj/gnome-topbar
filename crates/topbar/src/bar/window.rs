@@ -1,14 +1,16 @@
 //! One bar window: a layer-shell surface pinned to a monitor's top edge.
 
+use std::collections::BTreeSet;
+
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, gdk};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use topbar_core::Config;
 use topbar_services::Services;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::anim;
-use crate::bar::{BarContext, Section, SectionedBar};
+use crate::bar::{BarContext, Section, SectionClip, SectionedBar};
 use crate::fonts;
 use crate::style::{self, classes};
 use crate::surfaces::osd::OsdSurface;
@@ -20,14 +22,34 @@ use crate::widgets::{self, MountedWidget};
 /// and other compositor configuration match on it.
 const LAYER_NAMESPACE: &str = "topbar";
 
+/// A widget in its place on the bar, and where that place is.
+///
+/// The section is kept so a hot reload can rebuild one widget without
+/// rebuilding the bar around it: the new widget goes back exactly where the old
+/// one was, between the same two neighbours.
+struct Mounted {
+    /// The configured name, e.g. `clock` or `custom-crypto`.
+    name: String,
+    /// Which section box it lives in.
+    section: Section,
+    /// The widget itself and everything keeping it running.
+    widget: MountedWidget,
+}
+
 /// A bar on one monitor, with everything it needs to keep running.
 pub struct BarWindow {
     window: ApplicationWindow,
+    /// What a widget is allowed to know about this bar, including the popover
+    /// host every widget on it shares. Kept so a rebuilt widget joins the same
+    /// host rather than putting up a second pair of layer surfaces.
+    context: BarContext,
+    /// The section boxes, so one widget can be replaced inside one of them.
+    sections: Vec<(Section, gtk4::Box)>,
     /// Mounted widgets, kept alive for as long as the bar exists.
     ///
     /// Anything a widget put on screen goes with it, including the popover
     /// host: the last handle to it lives in a widget's keep-alive box.
-    _widgets: Vec<MountedWidget>,
+    widgets: Vec<Mounted>,
     /// This monitor's notification banners.
     ///
     /// Owned by the bar rather than by a widget: banners appear whether or not
@@ -37,7 +59,7 @@ pub struct BarWindow {
     ///
     /// Owned here for the same reason, and `None` rather than hidden when the
     /// feature is switched off: an OSD nobody wants should not have a surface.
-    _osd: Option<std::rc::Rc<OsdSurface>>,
+    osd: Option<std::rc::Rc<OsdSurface>>,
     /// The bar's blur region, removed when the bar goes.
     _blur: BlurAttachment,
 }
@@ -99,6 +121,7 @@ impl BarWindow {
         shell.append(&bar);
 
         let mut mounted = Vec::new();
+        let mut sections = Vec::new();
         for section in Section::ALL {
             let names = match section {
                 Section::Left => &config.widgets.left,
@@ -111,7 +134,12 @@ impl BarWindow {
                 continue;
             }
             let box_ = build_section(section, names, config, &context, &mut mounted);
-            bar.set_section(section, Some(&box_));
+            // The clip is what lets a section be allocated less than it needs
+            // — fourteen tray icons on a narrow output — without asking GTK to
+            // under-allocate anything, which it answers with a critical.
+            let clip = SectionClip::new(section.clip_align(), &box_);
+            bar.set_section(section, Some(&clip));
+            sections.push((section, box_));
         }
 
         window.set_child(Some(&shell));
@@ -133,15 +161,79 @@ impl BarWindow {
         Self {
             _blur: bar_blur(config, &window, &bar),
             window,
-            _widgets: mounted,
+            sections,
+            widgets: mounted,
             _toasts: ToastSurface::new(monitor, connector, config, services),
-            _osd: OsdSurface::new(monitor, connector, config, services),
+            osd: OsdSurface::new(monitor, connector, config, services),
+            context,
         }
     }
 
     /// Whether this bar is on screen.
     pub fn is_visible(&self) -> bool {
         self.window.is_visible()
+    }
+
+    /// Build the widgets named in `names` again, in place.
+    ///
+    /// The one thing a hot reload does that a restart would otherwise be needed
+    /// for: `[widgets.clock] format` changed, so the clock — and only the clock
+    /// — is thrown away and built from the new configuration, between the same
+    /// two neighbours it had. Dropping the old one is what releases its state
+    /// subscriptions, its timers and its retained popover content; the popover
+    /// host itself belongs to the bar and outlives them.
+    ///
+    /// Returns how many widgets were replaced.
+    pub fn rebuild_widgets(&mut self, names: &BTreeSet<String>, config: &Config) -> usize {
+        let mut rebuilt = 0;
+        for index in 0..self.widgets.len() {
+            if !names.contains(&self.widgets[index].name) {
+                continue;
+            }
+            let (name, section) = {
+                let mounted = &self.widgets[index];
+                (mounted.name.clone(), mounted.section)
+            };
+            let Some((_, box_)) = self.sections.iter().find(|(kind, _)| *kind == section) else {
+                continue;
+            };
+            let Some(replacement) = widgets::mount(&name, config, &self.context) else {
+                // Nothing to put back. Leaving the old widget in place is the
+                // safer of the two mistakes: a stale label beats a hole in the
+                // bar, and validation has already refused unknown names.
+                warn!("`{name}` could not be rebuilt; keeping the one on screen");
+                continue;
+            };
+
+            let previous = self.widgets[index].widget.root.clone();
+            let sibling = previous.prev_sibling();
+            box_.remove(&previous);
+            box_.insert_child_after(&replacement.root, sibling.as_ref());
+            // Assigning over the old `MountedWidget` is what drops it, and the
+            // order matters: the new one is on screen before the old one's
+            // guards run, so nothing flickers through an empty slot.
+            self.widgets[index].widget = replacement;
+            rebuilt += 1;
+        }
+        if rebuilt > 0 {
+            debug!("rebuilt {rebuilt} widget(s) on {}", self.context.connector);
+        }
+        rebuilt
+    }
+
+    /// Build this bar's OSD again from a changed `[osd]` section.
+    ///
+    /// The capsule's edge, its timeout and whether it exists at all are read
+    /// when it is built, and it is not shown often enough for replacing it to
+    /// be worth an in-place edit. Dropping the old surface unregisters it.
+    pub fn reconfigure_osd(&mut self, config: &Config) {
+        self.osd = None;
+        self.osd = OsdSurface::new(
+            &self.context.monitor,
+            &self.context.connector,
+            config,
+            &self.context.services,
+        );
     }
 
     /// Show or hide this bar.
@@ -195,7 +287,7 @@ fn build_section(
     names: &[String],
     config: &Config,
     context: &BarContext,
-    mounted: &mut Vec<MountedWidget>,
+    mounted: &mut Vec<Mounted>,
 ) -> gtk4::Box {
     let box_ = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     box_.add_css_class(section.css_class());
@@ -209,7 +301,11 @@ fn build_section(
             continue;
         };
         box_.append(&widget.root);
-        mounted.push(widget);
+        mounted.push(Mounted {
+            name: name.clone(),
+            section,
+            widget,
+        });
     }
 
     debug!(

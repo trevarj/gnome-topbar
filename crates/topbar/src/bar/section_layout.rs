@@ -43,12 +43,106 @@ impl Section {
             Section::Right => classes::SECTION_RIGHT,
         }
     }
+
+    /// Which end of this section stays on screen when it does not all fit.
+    ///
+    /// The end nearest the edge it is anchored to: a clipped left section
+    /// loses its rightmost widget, a clipped right section its leftmost. That
+    /// is the direction the eye expects, and it keeps the widgets nearest the
+    /// screen corner — the ones a user aims at without looking — in place.
+    pub fn clip_align(self) -> ClipAlign {
+        match self {
+            Section::Left => ClipAlign::Start,
+            Section::Center => ClipAlign::Center,
+            Section::Right => ClipAlign::End,
+        }
+    }
 }
 
 mod imp {
     use std::cell::{Cell, RefCell};
 
     use super::*;
+
+    /// A one-child wrapper that reports no minimum width and clips the rest.
+    ///
+    /// The whole overflow policy in one widget. GTK's contract is that a
+    /// parent never allocates a child less than the child asked for as its
+    /// minimum, and it says so loudly — `Gtk-CRITICAL … allocate … with width
+    /// N < minimum M` — which is what a bar full of tray icons on a narrow
+    /// output produced. But a panel *has* to be able to run out of room: the
+    /// bar is as wide as the monitor and no wider, and the answer to fourteen
+    /// tray icons that do not fit is to show as many as do.
+    ///
+    /// So each section sits in one of these. It reports a horizontal minimum
+    /// of **zero**, which makes any width a legal allocation, and then gives
+    /// its child the child's own natural width regardless, positioned so that
+    /// the end that matters stays visible — the left section's start, the
+    /// right section's end. `overflow: hidden` cuts off the rest at the
+    /// section boundary. Every widget inside is allocated exactly what it
+    /// asked for, so nothing inside complains either.
+    #[derive(Default)]
+    pub struct SectionClip {
+        pub child: RefCell<Option<Widget>>,
+        pub align: Cell<ClipAlign>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for SectionClip {
+        const NAME: &'static str = "TopbarSectionClip";
+        type Type = super::SectionClip;
+        type ParentType = Widget;
+    }
+
+    impl ObjectImpl for SectionClip {
+        fn dispose(&self) {
+            if let Some(child) = self.child.borrow_mut().take() {
+                child.unparent();
+            }
+        }
+    }
+
+    impl WidgetImpl for SectionClip {
+        fn request_mode(&self) -> gtk4::SizeRequestMode {
+            gtk4::SizeRequestMode::ConstantSize
+        }
+
+        fn measure(&self, orientation: Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            let Some(child) = self.child.borrow().clone() else {
+                return (0, 0, -1, -1);
+            };
+            let (minimum, natural, min_baseline, nat_baseline) =
+                child.measure(orientation, for_size);
+            if orientation == Orientation::Horizontal {
+                // The point of the whole widget: horizontally, nothing is
+                // required. Vertically the bar's height is not negotiable.
+                (0, natural, -1, -1)
+            } else {
+                (minimum, natural, min_baseline, nat_baseline)
+            }
+        }
+
+        fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+            let Some(child) = self.child.borrow().clone() else {
+                return;
+            };
+            let (minimum, natural, _, _) = child.measure(Orientation::Horizontal, height);
+            // Never below what the child asked for, so the child and
+            // everything under it is allocated legally; the clip is this
+            // widget's own `overflow: hidden`, not a smaller allocation.
+            let child_width = width.max(natural).max(minimum);
+            let overflow = child_width - width;
+            let x = match self.align.get() {
+                ClipAlign::Start => 0,
+                ClipAlign::Center => -overflow / 2,
+                ClipAlign::End => -overflow,
+            };
+            let transform = (x != 0).then(|| {
+                gtk4::gsk::Transform::new().translate(&gtk4::graphene::Point::new(x as f32, 0.0))
+            });
+            child.allocate(child_width, height, baseline, transform);
+        }
+    }
 
     #[derive(Default)]
     pub struct CenterPriorityLayout {
@@ -125,9 +219,15 @@ mod imp {
             let interior = (width - 2 * edge).max(0);
             let [left, center, right] = bar.visible_sections();
 
+            // The minimum comes from the section *inside* the clip: the clip
+            // itself reports zero so that any allocation is legal, and the
+            // math still has to know what the section actually wanted.
             fn sizes(widget: Option<&Widget>) -> Option<SectionSizes> {
                 widget.map(|widget| {
                     let (min, natural, _, _) = widget.measure(Orientation::Horizontal, -1);
+                    let min = widget
+                        .downcast_ref::<super::SectionClip>()
+                        .map_or(min, super::SectionClip::content_min_width);
                     SectionSizes { min, natural }
                 })
             }
@@ -208,6 +308,52 @@ fn allocate_at(child: &Widget, x: i32, width: i32, height: i32) {
     let transform = (x != 0)
         .then(|| gtk4::gsk::Transform::new().translate(&gtk4::graphene::Point::new(x as f32, 0.0)));
     child.allocate(width.max(0), height, -1, transform);
+}
+
+/// Which end of a clipped section stays visible when it does not fit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ClipAlign {
+    /// Keep the start; overflow falls off the right. The left section.
+    #[default]
+    Start,
+    /// Keep the middle; overflow falls off both ends. The center section.
+    Center,
+    /// Keep the end; overflow falls off the left. The right section.
+    End,
+}
+
+glib::wrapper! {
+    /// A section's clip: no minimum width, and what does not fit is cut off.
+    pub struct SectionClip(ObjectSubclass<imp::SectionClip>)
+        @extends Widget,
+        @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
+}
+
+impl SectionClip {
+    /// Wrap `child`, keeping the end `align` names visible when space runs out.
+    pub fn new(align: ClipAlign, child: &impl IsA<Widget>) -> Self {
+        let clip: Self = glib::Object::builder().build();
+        clip.set_overflow(gtk4::Overflow::Hidden);
+        clip.imp().align.set(align);
+        let child = child.as_ref();
+        child.set_parent(&clip);
+        *clip.imp().child.borrow_mut() = Some(child.clone());
+        clip
+    }
+
+    /// The width the section inside would refuse to go below.
+    ///
+    /// [`WidgetExt::measure`] reports zero — that is what makes an
+    /// over-allocation legal — so the layout math asks for the real figure
+    /// here. Without it the center would never learn that a side needs room
+    /// and would keep its natural width while the tray was cut in half.
+    pub fn content_min_width(&self) -> i32 {
+        self.imp()
+            .child
+            .borrow()
+            .as_ref()
+            .map_or(0, |child| child.measure(Orientation::Horizontal, -1).0)
+    }
 }
 
 glib::wrapper! {

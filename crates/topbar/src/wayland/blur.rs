@@ -438,6 +438,9 @@ pub fn init(display: &gdk::Display, enabled: bool) {
         debug!("blur: disabled by `theme.blur`");
         return;
     }
+    if is_active() {
+        return;
+    }
     // Empty counts as unset, so a script may pass the variable through
     // unconditionally and decide with its value.
     if std::env::var_os(DISABLE_ENV).is_some_and(|value| !value.is_empty()) {
@@ -451,6 +454,30 @@ pub fn init(display: &gdk::Display, enabled: bool) {
     let manager = Rc::new(manager);
     manager.watch();
     MANAGER.with(|cell| *cell.borrow_mut() = Some(manager));
+}
+
+/// Turn blur on or off under a running panel, returning whether it is on now.
+///
+/// The reload path. Switching **on** binds the protocol exactly as start-up
+/// does — which is why [`BlurManager`] lives in a cell rather than a
+/// `OnceLock` — and switching **off** releases the manager, which also stops
+/// its drain timer. Neither touches the regions already on screen: an
+/// attachment owns one surface's effect object and is never mutated, so the
+/// caller has to rebuild the surfaces for the change to be visible. That is
+/// [`crate::reload`]'s job and it is why a `theme.blur` flip rebuilds the bars.
+pub fn set_enabled(display: &gdk::Display, enabled: bool) -> bool {
+    if enabled == is_active() {
+        return enabled;
+    }
+    if enabled {
+        init(display, true);
+    } else {
+        // Every attachment made from here on is inert. The ones still alive
+        // keep their regions until their surfaces go, which they are about to.
+        MANAGER.with(|cell| *cell.borrow_mut() = None);
+        info!("blur: switched off by a reload");
+    }
+    is_active()
 }
 
 /// Whether blur is running. Consumers do not need to ask; the smoke tests do.

@@ -48,6 +48,13 @@ mod private_bus;
 /// tokio itself — the less of the async stack it can see, the harder it is to
 /// accidentally do async work on the main thread.
 pub use tokio::sync::watch;
+/// The two channels that carry something *to* the main thread.
+///
+/// Re-exported for the same reason, and used for the same kind of thing: the
+/// configuration watcher's file events arrive on a thread of `notify`'s and are
+/// handled on GTK's. Neither of these needs a tokio reactor to be awaited, which
+/// is what makes them safe to await on the GTK main context.
+pub use tokio::sync::{mpsc, oneshot};
 
 pub use audio::{Audio, AudioHandle, AudioState, DeviceView};
 pub use battery::{Battery, BatteryHandle, BatteryState, BatteryStatus, Thresholds};
