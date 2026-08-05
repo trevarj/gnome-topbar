@@ -161,6 +161,12 @@ impl BluetoothList {
                 row.switch.set_active(device.connected);
                 row.updating.set(false);
             }
+            // `state` is the *confirmed* half of a GtkSwitch, and the handler
+            // below deliberately refuses to move it. This is the other end of
+            // that contract: BlueZ said what the device is doing, so the switch
+            // is told. Without it the two halves disagree for ever and the
+            // switch draws in its in-between look.
+            row.switch.set_state(device.connected);
             row.switch.set_sensitive(state.powered);
         }
 
@@ -253,9 +259,11 @@ impl BluetoothList {
                         bluetooth.disconnect(path).await
                     }
                 });
-                // The switch does not move on its own: the render pass puts it
-                // where BlueZ says the device is, which is what makes a failed
-                // connect revert rather than lie.
+                // Refusing the default handler is what makes this switch
+                // *asynchronous*: GTK leaves `state` where it was, and the
+                // render pass sets it once BlueZ has said what the device is
+                // actually doing. That is what makes a failed connect revert
+                // rather than lie for the ten seconds BlueZ takes to give up.
                 gtk4::glib::Propagation::Stop
             }
         });

@@ -80,6 +80,19 @@ impl Meter {
         bar.set_mode(gtk4::LevelBarMode::Continuous);
         bar.set_hexpand(true);
         bar.set_valign(Align::Center);
+        // A fresh `LevelBar` carries three offsets — low, high and full — and
+        // each one puts a style class on the fill when the value crosses it.
+        // They are meant for a battery gauge, where low is bad and full is
+        // good; on a *usage* bar that reading is inverted, and the theme would
+        // tint a nearly-empty disk as the warning. The panel decides its own
+        // threshold, so the built-in ones go.
+        for offset in [
+            gtk4::LEVEL_BAR_OFFSET_LOW,
+            gtk4::LEVEL_BAR_OFFSET_HIGH,
+            gtk4::LEVEL_BAR_OFFSET_FULL,
+        ] {
+            bar.remove_offset_value(Some(offset));
+        }
         row.append(&bar);
 
         // Tabular figures and a fixed alignment, so a reading going from 9% to
