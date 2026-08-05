@@ -158,15 +158,22 @@ impl BatteryState {
 /// has just been removed — draws the missing-battery icon rather than an empty
 /// one, because an empty battery outline means "flat", which is a different
 /// and much more alarming claim.
+///
+/// Shared with the headset widget, which has the same three facts to draw and
+/// no reason to name a second set of icons for them.
 pub fn icon(percent: Option<f64>, status: BatteryStatus) -> String {
     let Some(percent) = percent else {
         return "battery-missing-symbolic".to_string();
     };
-    if status == BatteryStatus::Full {
+    let level = level(percent);
+    // Adwaita has `battery-level-100-charged-symbolic` and no
+    // `battery-level-100-charging-symbolic`: a battery that has reached full
+    // while still on its cable is *charged*, and asking for the name that does
+    // not exist would draw the missing-icon glyph.
+    if status == BatteryStatus::Full || (status.is_charging() && level == 100) {
         return "battery-level-100-charged-symbolic".to_string();
     }
 
-    let level = level(percent);
     if status.is_charging() {
         format!("battery-level-{level}-charging-symbolic")
     } else {
@@ -313,6 +320,22 @@ mod tests {
         assert_eq!(
             icon(Some(97.0), BatteryStatus::Full),
             "battery-level-100-charged-symbolic"
+        );
+    }
+
+    #[test]
+    fn a_hundred_percent_on_a_cable_is_charged_rather_than_a_missing_icon() {
+        // Adwaita ships no `battery-level-100-charging-symbolic`, so asking for
+        // it draws the broken-image glyph. The headset widget reaches this the
+        // moment a headset finishes charging on its dock.
+        assert_eq!(
+            icon(Some(100.0), BatteryStatus::Charging),
+            "battery-level-100-charged-symbolic"
+        );
+        assert_eq!(
+            icon(Some(99.0), BatteryStatus::Charging),
+            "battery-level-90-charging-symbolic",
+            "and everything below it still charges"
         );
     }
 

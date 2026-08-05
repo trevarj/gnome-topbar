@@ -19,6 +19,7 @@ use crate::brightness::Brightness;
 use crate::connectivity::Connectivity;
 use crate::crypto::Crypto;
 use crate::custom::CustomWidgets;
+use crate::headset::Headset;
 use crate::inhibitor::Inhibitor;
 use crate::ipc::Ipc;
 use crate::media::Media;
@@ -86,6 +87,8 @@ pub struct Services {
     pub crypto: Crypto,
     /// Every configured `custom-*` widget's script, one runner each.
     pub custom: CustomWidgets,
+    /// The headset battery, when there is a headset to read.
+    pub headset: Headset,
     /// The system tray.
     pub tray: Tray,
     /// The sound server.
@@ -161,6 +164,7 @@ impl Services {
         let weather = config.widgets.weather.clone();
         let crypto = config.widgets.crypto.clone();
         let custom = config.widgets.custom.clone();
+        let headset = config.widgets.headset.clone();
         // The tray picks its pixmaps for the size the widget will draw them
         // at, so the icon that arrives is the icon that is shown.
         let icon_size = config
@@ -193,6 +197,7 @@ impl Services {
                 updates: Updates::with_root(&updates, &connectivity, root),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity),
                 custom: CustomWidgets::start(&custom, &connectivity),
+                headset: Headset::start(&headset),
                 tray: Tray::start(icon_size, None),
                 audio: Audio::start(allow_overdrive),
                 brightness: Brightness::start(None),

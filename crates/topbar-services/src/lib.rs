@@ -18,6 +18,7 @@ pub mod connectivity;
 pub mod crypto;
 pub mod custom;
 pub mod error;
+pub mod headset;
 pub mod inhibitor;
 pub mod ipc;
 pub mod logind;
@@ -58,6 +59,7 @@ pub use connectivity::{Connectivity, ConnectivityState};
 pub use crypto::{Asset, Crypto, CryptoHandle, CryptoState, Entry, EntryQuote, Quote};
 pub use custom::{CustomClass, CustomDisplay, CustomExec, CustomState, CustomWidgets};
 pub use error::SvcError;
+pub use headset::{Headset, HeadsetReading, HeadsetState};
 pub use inhibitor::{Inhibitor, InhibitorHandle, InhibitorState};
 pub use media::{ArtRef, Media, MediaHandle, MediaState, PlaybackStatus, PlayerView};
 pub use network::{

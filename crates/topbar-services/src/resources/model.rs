@@ -150,7 +150,7 @@ pub fn percent(part: u64, whole: u64) -> u8 {
 }
 
 /// One mounted filesystem worth showing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Disk {
     /// Where it is mounted.
     pub mount: String,
