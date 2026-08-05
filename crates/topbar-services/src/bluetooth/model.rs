@@ -9,11 +9,12 @@
 /// One device's kind, as far as the picture beside it is concerned.
 ///
 /// BlueZ works the kind out from the device's class-of-device bits and
-/// publishes it as `Icon` — a *freedesktop icon name*, not a symbolic one. The
-/// panel maps it to the Adwaita symbolic set rather than using it verbatim the
-/// way v1 did: `audio-headset` has no `-symbolic` variant in Adwaita, so v1's
-/// pass-through drew a full-colour 48px headset in a 16px row on any theme
-/// that happened to carry one, and nothing at all on the ones that did not.
+/// publishes it as `Icon` — a *freedesktop icon name*, not a symbolic one. This
+/// is the classification; the panel turns it into an Adwaita symbolic name in
+/// its own icon module, rather than using BlueZ's string verbatim the way v1
+/// did. `audio-headset` has no `-symbolic` variant in Adwaita, so v1's
+/// pass-through drew a full-colour 48px headset in a 16px row on any theme that
+/// happened to carry one, and nothing at all on the ones that did not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IconKind {
     /// Headphones, with no microphone.
@@ -64,32 +65,7 @@ impl IconKind {
             _ => Self::Generic,
         }
     }
-
-    /// The Adwaita symbolic name for this kind.
-    pub fn icon(self) -> &'static str {
-        match self {
-            Self::Headphones => "audio-headphones-symbolic",
-            Self::Headset => "audio-headset-symbolic",
-            Self::Speaker => "audio-speakers-symbolic",
-            Self::Keyboard => "input-keyboard-symbolic",
-            Self::Mouse => "input-mouse-symbolic",
-            Self::Gamepad => "input-gaming-symbolic",
-            Self::Phone => "phone-symbolic",
-            Self::Computer => "computer-symbolic",
-            Self::Printer => "printer-symbolic",
-            Self::Camera => "camera-photo-symbolic",
-            Self::Display => "video-display-symbolic",
-            Self::Generic => BLUETOOTH,
-        }
-    }
 }
-
-/// The plain Bluetooth logo.
-pub const BLUETOOTH: &str = "bluetooth-symbolic";
-/// The logo with something joined to it.
-pub const BLUETOOTH_ACTIVE: &str = "bluetooth-active-symbolic";
-/// The logo with the radio off.
-pub const BLUETOOTH_DISABLED: &str = "bluetooth-disabled-symbolic";
 
 /// One paired device, as a row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,17 +195,6 @@ impl BtState {
         self.devices.iter().find(|device| device.connected)
     }
 
-    /// The icon for the collapsed pill and the bar indicator.
-    pub fn icon(&self) -> &'static str {
-        if !self.powered {
-            BLUETOOTH_DISABLED
-        } else if self.connected_count() > 0 {
-            BLUETOOTH_ACTIVE
-        } else {
-            BLUETOOTH
-        }
-    }
-
     /// What the collapsed pill is titled.
     ///
     /// The device in use, when there is exactly one: that is the answer to the
@@ -309,34 +274,6 @@ mod tests {
             IconKind::from_bluez(Some("network-wireless")),
             IconKind::Generic
         );
-        assert_eq!(IconKind::Generic.icon(), BLUETOOTH);
-    }
-
-    #[test]
-    fn every_device_icon_is_a_symbolic_name() {
-        for kind in [
-            IconKind::Headphones,
-            IconKind::Headset,
-            IconKind::Speaker,
-            IconKind::Keyboard,
-            IconKind::Mouse,
-            IconKind::Gamepad,
-            IconKind::Phone,
-            IconKind::Computer,
-            IconKind::Printer,
-            IconKind::Camera,
-            IconKind::Display,
-            IconKind::Generic,
-        ] {
-            assert!(
-                kind.icon().ends_with("-symbolic"),
-                "{kind:?} draws {}",
-                kind.icon()
-            );
-        }
-        for name in [BLUETOOTH, BLUETOOTH_ACTIVE, BLUETOOTH_DISABLED] {
-            assert!(name.ends_with("-symbolic"));
-        }
     }
 
     #[test]
@@ -398,7 +335,6 @@ mod tests {
         };
         assert_eq!(state.title(), "WH-1000XM4");
         assert_eq!(state.subtitle(), "Connected");
-        assert_eq!(state.icon(), BLUETOOTH_ACTIVE);
         assert!(state.indicated());
 
         state.devices[1].connected = true;
@@ -408,7 +344,6 @@ mod tests {
         state.devices.iter_mut().for_each(|d| d.connected = false);
         assert_eq!(state.title(), "Bluetooth");
         assert_eq!(state.subtitle(), "Not connected");
-        assert_eq!(state.icon(), BLUETOOTH);
         assert!(!state.indicated(), "a radio with nothing on it is quiet");
     }
 
@@ -421,7 +356,6 @@ mod tests {
             ..BtState::default()
         };
         assert_eq!(state.subtitle(), "Off");
-        assert_eq!(state.icon(), BLUETOOTH_DISABLED);
         assert!(
             !state.indicated(),
             "a stale Connected flag under a dead radio is not an indicator"

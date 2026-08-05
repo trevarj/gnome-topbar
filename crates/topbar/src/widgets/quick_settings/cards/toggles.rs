@@ -2,19 +2,21 @@
 //!
 //! ```text
 //! ┌──────────────────┬──────────────────┐
-//! │ 📶 Usadba     ⌄ │ 🔒 VPN        ⌄ │
+//! │ 📶 Usadba     ⌄ │ ᛒ WH-1000XM4 ⌄ │
 //! ├──────────────────┼──────────────────┤
-//! │ ☕ Caffeine      │ ⚡ Balanced   ⌄ │
+//! │ 🔒 VPN        ⌄ │ ☕ Caffeine      │
+//! ├──────────────────┼──────────────────┤
+//! │ ⚡ Balanced   ⌄ │                  │
 //! └──────────────────┴──────────────────┘
 //!   ○ Power Saver                          ← the expanded section, full width
 //!   ● Balanced
 //!   ○ Performance
 //! ```
 //!
-//! The grid is built from a list, not from a hand-written layout: M9c adds
-//! Bluetooth as one entry in [`model::GRID_ORDER`] plus a [`Pill`]. The
-//! wrapping, the ordering and the short last row are [`model::grid_rows`]'s
-//! problem and are tested there.
+//! The grid is built from a list, not from a hand-written layout: one pill is
+//! one entry in [`model::GRID_ORDER`] plus a [`Pill`]. The wrapping, the
+//! ordering and the short last row are [`model::grid_rows`]'s problem and are
+//! tested there.
 //!
 //! Which pills *exist* is decided by the configuration, at build time; which
 //! of them are *visible* is decided by the machine, from state. Rebuilding the
@@ -30,11 +32,12 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation};
-use topbar_services::{InhibitorState, NetworkState, PowerProfilesState, Services};
+use topbar_services::{BtState, InhibitorState, NetworkState, PowerProfilesState, Services};
 
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
+use crate::widgets::quick_settings::cards::bluetooth::BluetoothList;
 use crate::widgets::quick_settings::cards::network::{self, VpnList, WifiList};
 use crate::widgets::quick_settings::expander::{Accordion, Section};
 use crate::widgets::quick_settings::model::{self, Toggle};
@@ -161,6 +164,9 @@ pub struct Toggles {
     wifi: Option<Rc<Pill>>,
     wifi_section: Option<Rc<Section>>,
     wifi_list: Rc<WifiList>,
+    bluetooth: Option<Rc<Pill>>,
+    bluetooth_section: Option<Rc<Section>>,
+    bluetooth_list: Rc<BluetoothList>,
     vpn: Option<Rc<Pill>>,
     vpn_section: Option<Rc<Section>>,
     vpn_list: Rc<VpnList>,
@@ -189,6 +195,7 @@ impl Toggles {
         accordion: &Rc<Accordion>,
         show_caffeine: bool,
         show_network: bool,
+        show_bluetooth: bool,
         show_vpn: bool,
         vpn_close_on_connect: bool,
     ) -> Rc<Self> {
@@ -203,6 +210,11 @@ impl Toggles {
         let wifi_list = WifiList::new(services);
         let wifi_section = Section::new(wifi_list.root());
         accordion.add(&wifi_section);
+
+        let bluetooth = show_bluetooth.then(|| Pill::new(icons::BLUETOOTH, "Bluetooth", true));
+        let bluetooth_list = BluetoothList::new(services);
+        let bluetooth_section = Section::new(bluetooth_list.root());
+        accordion.add(&bluetooth_section);
 
         let vpn = show_vpn.then(|| Pill::new(icons::VPN_DISCONNECTED, "VPN", true));
         let vpn_list = VpnList::new(services, vpn_close_on_connect);
@@ -221,12 +233,14 @@ impl Toggles {
         accordion.add(&power_mode_section);
 
         let (wifi_error, wifi_slot) = inline::slot(names::WIFI);
+        let (bluetooth_error, bluetooth_slot) = inline::slot(names::BLUETOOTH);
         let (vpn_error, vpn_slot) = inline::slot(names::VPN);
         let (caffeine_error, caffeine_slot) = inline::slot(names::CAFFEINE);
         let (power_error, power_slot) = inline::slot(names::POWER_MODE);
 
         let present: Vec<Toggle> = [
             wifi.as_ref().map(|_| Toggle::WiFi),
+            bluetooth.as_ref().map(|_| Toggle::Bluetooth),
             vpn.as_ref().map(|_| Toggle::Vpn),
             caffeine.as_ref().map(|_| Toggle::Caffeine),
             Some(Toggle::PowerMode),
@@ -272,8 +286,12 @@ impl Toggles {
                             below.push((&power_error, Some(&power_mode_section)));
                         }
                     }
-                    // M9c: the ordering already has a place for it.
-                    Toggle::Bluetooth => {}
+                    Toggle::Bluetooth => {
+                        if let Some(pill) = &bluetooth {
+                            line.append(&pill.root);
+                            below.push((&bluetooth_error, Some(&bluetooth_section)));
+                        }
+                    }
                 }
             }
             // A lone pill on the last row keeps its column width rather than
@@ -298,6 +316,9 @@ impl Toggles {
             wifi,
             wifi_section: Some(wifi_section),
             wifi_list,
+            bluetooth,
+            bluetooth_section: Some(bluetooth_section),
+            bluetooth_list,
             vpn,
             vpn_section: Some(vpn_section),
             vpn_list,
@@ -308,7 +329,13 @@ impl Toggles {
             built_profiles: RefCell::new(Vec::new()),
             profile_marks: RefCell::new(Vec::new()),
             services: services.clone(),
-            _slots: vec![wifi_slot, vpn_slot, caffeine_slot, power_slot],
+            _slots: vec![
+                wifi_slot,
+                bluetooth_slot,
+                vpn_slot,
+                caffeine_slot,
+                power_slot,
+            ],
             bindings: RefCell::new(Vec::new()),
         });
 
@@ -331,6 +358,7 @@ impl Toggles {
         self.render_inhibitor(&self.services.inhibitor.current());
         self.render_profiles(&self.services.power_profiles.current());
         self.render_network(&self.services.network.current());
+        self.render_bluetooth(&self.services.bluetooth.current());
 
         if self.wifi.is_some() {
             let network = self.services.network.handle().clone();
@@ -342,6 +370,15 @@ impl Toggles {
     #[cfg(debug_assertions)]
     pub fn expand_wifi(self: &Rc<Self>) {
         if let Some(section) = &self.wifi_section {
+            section.set_expanded(true);
+            self.sync_chevrons();
+        }
+    }
+
+    /// Open the Bluetooth device list, without a pointer. Debug builds only.
+    #[cfg(debug_assertions)]
+    pub fn expand_bluetooth(self: &Rc<Self>) {
+        if let Some(section) = &self.bluetooth_section {
             section.set_expanded(true);
             self.sync_chevrons();
         }
@@ -372,6 +409,7 @@ impl Toggles {
     pub fn sync_chevrons(&self) {
         for (pill, section) in [
             (&self.wifi, &self.wifi_section),
+            (&self.bluetooth, &self.bluetooth_section),
             (&self.vpn, &self.vpn_section),
             (&self.power_mode, &self.power_mode_section),
         ] {
@@ -416,12 +454,35 @@ impl Toggles {
             });
         }
 
+        // Bluetooth's body is the radio switch, exactly as Wi-Fi's is: "turn
+        // Bluetooth off" must not be a two-step. The chevron opens the devices.
+        if let Some(pill) = &toggles.bluetooth {
+            pill.button.connect_clicked({
+                let toggles = Rc::downgrade(toggles);
+                move |_| {
+                    let Some(toggles) = toggles.upgrade() else {
+                        return;
+                    };
+                    let state = toggles.services.bluetooth.current();
+                    if state.powering {
+                        return;
+                    }
+                    let bluetooth = toggles.services.bluetooth.handle().clone();
+                    let wanted = !state.powered;
+                    attempt(names::BLUETOOTH, async move {
+                        bluetooth.set_powered(wanted).await
+                    });
+                }
+            });
+        }
+
         // Power Mode expands from either half: there is nothing else a click on
         // it could sensibly mean, and a pill whose left half did nothing would
-        // read as broken. Wi-Fi's and VPN's bodies are already spoken for, so
-        // only their chevrons open their lists.
+        // read as broken. Wi-Fi's, Bluetooth's and VPN's bodies are already
+        // spoken for, so only their chevrons open their lists.
         for (pill, section, body_expands, scans) in [
             (&toggles.wifi, &toggles.wifi_section, false, true),
+            (&toggles.bluetooth, &toggles.bluetooth_section, false, false),
             (&toggles.vpn, &toggles.vpn_section, true, false),
             (
                 &toggles.power_mode,
@@ -489,11 +550,41 @@ impl Toggles {
                 }
             });
 
+        let bluetooth_binding =
+            bridge::bind_state(&toggles.root, toggles.services.bluetooth.state(), {
+                let toggles = Rc::downgrade(toggles);
+                move |_: &gtk4::Box, state: &BtState| {
+                    if let Some(toggles) = toggles.upgrade() {
+                        toggles.render_bluetooth(state);
+                    }
+                }
+            });
+
         toggles.bindings.borrow_mut().extend([
             inhibitor_binding,
             profiles_binding,
             network_binding,
+            bluetooth_binding,
         ]);
+    }
+
+    /// Draw the Bluetooth pill, and the device list under it.
+    fn render_bluetooth(self: &Rc<Self>, state: &BtState) {
+        if let Some(pill) = &self.bluetooth {
+            // No adapter means no pill at all. A greyed-out one on a desktop
+            // with no dongle would be dead space explaining an absence nobody
+            // asked about — the same rule the Wi-Fi pill follows.
+            pill.root.set_visible(state.available);
+            pill.set_checked(state.powered);
+            set_icon(
+                &pill.icon,
+                icons::bluetooth(state.powered, state.connected_count() > 0),
+            );
+            pill.set_title(&state.title());
+            pill.set_subtitle(Some(&state.subtitle()));
+            pill.button.set_sensitive(!state.powering);
+        }
+        self.bluetooth_list.render(state);
     }
 
     /// Draw the Wi-Fi and VPN pills, and the lists under them.

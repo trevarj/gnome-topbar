@@ -60,6 +60,46 @@ pub const CAFFEINE: &[&str] = &[
     "preferences-desktop-screensaver-symbolic",
 ];
 
+/// Bluetooth: a radio that is on, with nothing joined to it.
+pub const BLUETOOTH: &str = "bluetooth-symbolic";
+/// One with something joined to it.
+pub const BLUETOOTH_ACTIVE: &str = "bluetooth-active-symbolic";
+/// One that is switched off.
+pub const BLUETOOTH_DISABLED: &str = "bluetooth-disabled-symbolic";
+
+/// The icon for a Bluetooth adapter in a given state.
+///
+/// The *decision* is `BtState`'s, in the services crate where it is tested
+/// without a display; the *names* are here, where every other icon name in the
+/// panel lives, so a name Adwaita drops breaks in one file.
+pub fn bluetooth(powered: bool, connected: bool) -> &'static str {
+    match (powered, connected) {
+        (false, _) => BLUETOOTH_DISABLED,
+        (true, true) => BLUETOOTH_ACTIVE,
+        (true, false) => BLUETOOTH,
+    }
+}
+
+/// The picture beside one paired device.
+pub fn bluetooth_device(kind: topbar_services::IconKind) -> &'static str {
+    use topbar_services::IconKind;
+    match kind {
+        IconKind::Headphones => "audio-headphones-symbolic",
+        IconKind::Headset => "audio-headset-symbolic",
+        IconKind::Speaker => "audio-speakers-symbolic",
+        IconKind::Keyboard => "input-keyboard-symbolic",
+        IconKind::Mouse => "input-mouse-symbolic",
+        IconKind::Gamepad => "input-gaming-symbolic",
+        IconKind::Phone => "phone-symbolic",
+        IconKind::Computer => "computer-symbolic",
+        IconKind::Printer => "printer-symbolic",
+        IconKind::Camera => "camera-photo-symbolic",
+        IconKind::Display => "video-display-symbolic",
+        // A Bluetooth logo beside a device BlueZ could not classify is
+        // honest; a headset icon beside a heart-rate monitor is not.
+        IconKind::Generic => BLUETOOTH,
+    }
+}
 /// An Ethernet cable with something on the other end.
 pub const WIRED: &str = "network-wired-symbolic";
 /// A socket with nothing in it.
@@ -187,6 +227,9 @@ mod tests {
             SHUT_DOWN,
             RESTART,
             LOG_OUT,
+            BLUETOOTH,
+            BLUETOOTH_ACTIVE,
+            BLUETOOTH_DISABLED,
             WIRED,
             WIRED_DISCONNECTED,
             WIFI_OFFLINE,

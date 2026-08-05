@@ -52,10 +52,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::error::SvcError;
 use crate::network::Access;
 
-pub use model::{
-    BLUETOOTH, BLUETOOTH_ACTIVE, BLUETOOTH_DISABLED, BtDevice, BtState, IconKind, PairingPrompt,
-    PromptKind,
-};
+pub use model::{BtDevice, BtState, IconKind, PairingPrompt, PromptKind};
 
 /// How many commands may be in flight before a sender waits.
 const QUEUE: usize = 8;

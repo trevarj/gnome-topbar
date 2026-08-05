@@ -7,7 +7,7 @@
 //! every one of them is a pure function here so it can be checked without a
 //! display.
 
-use topbar_services::{AudioState, BatteryState, NetworkState};
+use topbar_services::{AudioState, BatteryState, BtState, NetworkState};
 
 use crate::style::icons;
 
@@ -23,21 +23,22 @@ pub enum Indicator {
     Vpn,
     /// The output device's volume level. Always drawn.
     Audio,
-    /// Bluetooth, when an adapter is powered. Lands in M9c.
+    /// Bluetooth, when something is connected over it.
     Bluetooth,
     /// The battery, when there is one.
     Battery,
     /// A dot saying something is listening.
     Microphone,
-    /// A dot saying something is watching the screen. Lands in M9c.
+    /// A dot saying something is watching the screen.
     ScreenShare,
 }
 
 /// Left to right, the order the button draws its icons in.
 ///
 /// Fixed rather than derived: the icons that come and go must not make the
-/// others move about. M9b and M9c fill in the gaps without touching this list,
-/// which is the point of writing it out in full now.
+/// others move about. Every slot was written out in full before there was
+/// anything to put in half of them, which is why M9b and M9c each added an icon
+/// rather than a layout.
 pub const ORDER: &[Indicator] = &[
     Indicator::Network,
     Indicator::Vpn,
@@ -86,6 +87,10 @@ pub struct Indicators {
     pub network: Option<&'static str>,
     /// Whether a VPN is up.
     pub vpn: bool,
+    /// Whether anything is connected over Bluetooth.
+    pub bluetooth: bool,
+    /// Whether something is watching the screen.
+    pub screen_share: bool,
 }
 
 impl Indicators {
@@ -94,6 +99,8 @@ impl Indicators {
         audio: &AudioState,
         battery: &BatteryState,
         network: &NetworkState,
+        bluetooth: &BtState,
+        screen_share: bool,
         show_battery: bool,
     ) -> Self {
         Self {
@@ -101,14 +108,18 @@ impl Indicators {
             battery: show_battery && battery.available,
             network: network_icon(network),
             vpn: network.vpn_active(),
+            // Whether something is *connected*, not whether the radio is on:
+            // an adapter that is powered and idle is the state most laptops
+            // sit in all day, and an icon for it would be permanent furniture.
+            bluetooth: bluetooth.indicated(),
+            screen_share,
         }
     }
 
     /// Whether `indicator` is drawn right now.
     ///
-    /// The two M9c indicators answer `false` and will answer for themselves
-    /// when their services arrive; the audio icon is always there, because a
-    /// panel button with nothing on it is a panel button nobody finds.
+    /// The audio icon is always there, because a panel button with nothing on
+    /// it is a panel button nobody finds. Everything else earns its place.
     pub fn shows(self, indicator: Indicator) -> bool {
         match indicator {
             Indicator::Audio => true,
@@ -116,7 +127,8 @@ impl Indicators {
             Indicator::Microphone => self.microphone,
             Indicator::Network => self.network.is_some(),
             Indicator::Vpn => self.vpn,
-            Indicator::Bluetooth | Indicator::ScreenShare => false,
+            Indicator::Bluetooth => self.bluetooth,
+            Indicator::ScreenShare => self.screen_share,
         }
     }
 
@@ -135,7 +147,7 @@ impl Indicators {
 pub enum Toggle {
     /// Wi-Fi.
     WiFi,
-    /// Bluetooth. Lands in M9c.
+    /// Bluetooth.
     Bluetooth,
     /// VPN.
     Vpn,
@@ -147,9 +159,8 @@ pub enum Toggle {
 
 /// The order pills appear in, whichever of them exist.
 ///
-/// The two that exist today land at the end, exactly where they will still be
-/// once the first three arrive — so M9b and M9c add a pill without moving the
-/// ones the user has learned the position of.
+/// Written out in full before three of them existed, so each one arrived in the
+/// place the user had already learned rather than pushing the others along.
 pub const GRID_ORDER: &[Toggle] = &[
     Toggle::WiFi,
     Toggle::Bluetooth,
@@ -231,6 +242,18 @@ mod tests {
     use super::*;
     use topbar_services::{BatteryStatus, DeviceView};
 
+    /// Read every indicator with no Bluetooth and no screen share.
+    fn read_all(audio: &AudioState, battery: &BatteryState, network: &NetworkState) -> Indicators {
+        Indicators::read(
+            audio,
+            battery,
+            network,
+            &topbar_services::BtState::default(),
+            false,
+            true,
+        )
+    }
+
     fn device(id: &str, is_default: bool, port_available: Option<bool>) -> DeviceView {
         DeviceView {
             id: id.to_string(),
@@ -257,15 +280,101 @@ mod tests {
     }
 
     #[test]
-    fn the_audio_icon_is_always_there_and_the_seams_never_are() {
+    fn the_audio_icon_is_always_there_and_nothing_else_is_by_default() {
         let nothing = Indicators::default();
         assert_eq!(nothing.visible(), vec![Indicator::Audio]);
-        for seam in [Indicator::Bluetooth, Indicator::ScreenShare] {
-            assert!(
-                !nothing.shows(seam),
-                "{seam:?} belongs to a later milestone"
-            );
+        for quiet in [
+            Indicator::Bluetooth,
+            Indicator::ScreenShare,
+            Indicator::Battery,
+            Indicator::Microphone,
+            Indicator::Network,
+            Indicator::Vpn,
+        ] {
+            assert!(!nothing.shows(quiet), "{quiet:?} has nothing to report");
         }
+    }
+
+    #[test]
+    fn every_indicator_at_once_is_drawn_in_the_published_order() {
+        let everything = Indicators {
+            microphone: true,
+            battery: true,
+            network: Some(icons::WIRED),
+            vpn: true,
+            bluetooth: true,
+            screen_share: true,
+        };
+        assert_eq!(everything.visible(), ORDER.to_vec());
+    }
+
+    #[test]
+    fn bluetooth_reports_what_is_connected_rather_than_whether_the_radio_is_on() {
+        let read = |bluetooth: &topbar_services::BtState| {
+            Indicators::read(
+                &AudioState::default(),
+                &BatteryState::default(),
+                &NetworkState::default(),
+                bluetooth,
+                false,
+                true,
+            )
+        };
+
+        // An adapter that is powered and idle is where most laptops sit all
+        // day; an icon for it would be permanent furniture.
+        let idle = topbar_services::BtState {
+            available: true,
+            powered: true,
+            ..topbar_services::BtState::default()
+        };
+        assert!(!read(&idle).shows(Indicator::Bluetooth));
+
+        let joined = topbar_services::BtState {
+            devices: vec![topbar_services::BtDevice {
+                path: "/org/bluez/hci0/dev_AA".into(),
+                alias: "WH-1000XM4".into(),
+                icon: topbar_services::IconKind::Headset,
+                connected: true,
+                paired: true,
+                battery_pct: Some(85),
+                pending: false,
+            }],
+            ..idle.clone()
+        };
+        assert!(read(&joined).shows(Indicator::Bluetooth));
+
+        // The radio going off takes the icon with it, whatever stale flags the
+        // device rows are still carrying.
+        let off = topbar_services::BtState {
+            powered: false,
+            ..joined
+        };
+        assert!(!read(&off).shows(Indicator::Bluetooth));
+    }
+
+    #[test]
+    fn a_shared_screen_raises_its_dot_beside_the_microphone_one() {
+        let watched = Indicators::read(
+            &AudioState {
+                source_in_use: true,
+                ..AudioState::default()
+            },
+            &BatteryState::default(),
+            &NetworkState::default(),
+            &topbar_services::BtState::default(),
+            true,
+            true,
+        );
+        assert_eq!(
+            watched.visible(),
+            vec![
+                Indicator::Audio,
+                Indicator::Microphone,
+                Indicator::ScreenShare
+            ],
+            "the microphone dot comes first, and the screen-share dot last"
+        );
     }
 
     /// A network state with one wireless card and nothing else.
@@ -354,7 +463,7 @@ mod tests {
             pending: false,
         }];
 
-        let indicators = Indicators::read(&audio, &battery, &network, true);
+        let indicators = read_all(&audio, &battery, &network);
         assert_eq!(
             indicators.visible(),
             vec![Indicator::Network, Indicator::Vpn, Indicator::Audio],
@@ -362,7 +471,7 @@ mod tests {
         );
 
         network.vpn[0].active = false;
-        let down = Indicators::read(&audio, &battery, &network, true);
+        let down = read_all(&audio, &battery, &network);
         assert!(
             !down.shows(Indicator::Vpn),
             "a tunnel that is down is quiet"
@@ -386,7 +495,7 @@ mod tests {
     fn a_desktop_draws_no_battery() {
         let audio = AudioState::default();
         let battery = BatteryState::default();
-        let indicators = Indicators::read(&audio, &battery, &NetworkState::default(), true);
+        let indicators = read_all(&audio, &battery, &NetworkState::default());
         assert!(!indicators.shows(Indicator::Battery));
     }
 
@@ -400,8 +509,16 @@ mod tests {
             ..BatteryState::default()
         };
         let none = NetworkState::default();
-        assert!(Indicators::read(&audio, &battery, &none, true).shows(Indicator::Battery));
-        assert!(!Indicators::read(&audio, &battery, &none, false).shows(Indicator::Battery));
+        assert!(read_all(&audio, &battery, &none).shows(Indicator::Battery));
+        let hidden = Indicators::read(
+            &audio,
+            &battery,
+            &none,
+            &topbar_services::BtState::default(),
+            false,
+            false,
+        );
+        assert!(!hidden.shows(Indicator::Battery));
     }
 
     #[test]
@@ -410,12 +527,7 @@ mod tests {
             source_in_use: true,
             ..AudioState::default()
         };
-        let indicators = Indicators::read(
-            &audio,
-            &BatteryState::default(),
-            &NetworkState::default(),
-            true,
-        );
+        let indicators = read_all(&audio, &BatteryState::default(), &NetworkState::default());
         assert!(indicators.shows(Indicator::Microphone));
     }
 
@@ -449,7 +561,7 @@ mod tests {
         // Caffeine and Power Mode are adjacent today...
         let today = grid_rows(&[Toggle::Caffeine, Toggle::PowerMode]);
         assert_eq!(today[0], vec![Toggle::Caffeine, Toggle::PowerMode]);
-        // ...and still adjacent, in the same order, once M9b and M9c land.
+        // ...and still adjacent, in the same order, with all five present.
         let later = grid_rows(GRID_ORDER);
         let flat: Vec<Toggle> = later.into_iter().flatten().collect();
         let caffeine = flat

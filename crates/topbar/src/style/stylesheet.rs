@@ -1956,6 +1956,40 @@ osd-bar {
     min-height: 40px;
 }
 
+/* --- Bluetooth --- */
+
+/* A device's battery, in tabular figures so 85% and 100% are the same width
+   and the switch beside them does not shuffle sideways once a minute. */
+.qs-device-battery {
+    color: var(--color-foreground-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.qs-device-switch {
+    margin-left: 2px;
+}
+
+/* The pairing box: a question somebody else asked, so it is tinted rather
+   than silent — it is the one thing in the panel the user did not open. */
+.qs-pairing-row {
+    background-color: var(--color-widget-hover);
+    border-radius: var(--radius-card);
+    padding: 10px 12px;
+    margin: 4px 0;
+}
+
+/* The code has to be readable across a desk at the same time as the phone
+   showing it, which is what the size and the letter-spacing are for. */
+.qs-pairing-code {
+    color: var(--color-foreground);
+    font-size: 24px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 4px;
+    margin: 2px 0;
+}
+
 /* --- Cards --- */
 
 .qs-card {

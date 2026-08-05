@@ -64,6 +64,8 @@ pub enum Block {
     PowerMode,
     /// The Wi-Fi toggle's network list.
     WiFi,
+    /// The Bluetooth toggle's device list.
+    Bluetooth,
     /// The VPN toggle's profile list.
     Vpn,
 }
@@ -140,6 +142,7 @@ impl Panel {
             &accordion,
             config.idle_inhibitor,
             config.network,
+            config.bluetooth,
             config.vpn,
             config.vpn_close_on_connect,
         );
@@ -207,6 +210,7 @@ impl Panel {
             Block::BatteryHealth => self.accordion.toggle(&self.battery_section),
             Block::Power => self.accordion.toggle(&self.power_section),
             Block::PowerMode => self.toggles.expand_power_mode(),
+            Block::Bluetooth => self.toggles.expand_bluetooth(),
             Block::WiFi => self.toggles.expand_wifi(),
             Block::Vpn => self.toggles.expand_vpn(),
         }

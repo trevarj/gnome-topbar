@@ -447,6 +447,10 @@ pub const QS_DEVICE_ROW: &str = "qs-device-row";
 pub const QS_DEVICE_NAME: &str = "qs-device-name";
 /// The checkmark against the device in use.
 pub const QS_DEVICE_MARK: &str = "qs-device-mark";
+/// A paired Bluetooth device's battery level.
+pub const QS_DEVICE_BATTERY: &str = "qs-device-battery";
+/// The switch that connects or disconnects one.
+pub const QS_DEVICE_SWITCH: &str = "qs-device-switch";
 
 /// The grid of toggle pills.
 pub const QS_GRID: &str = "qs-grid";
@@ -479,6 +483,10 @@ pub const QS_PASSWORD_ROW: &str = "qs-password-row";
 pub const QS_PASSWORD_ENTRY: &str = "qs-password-entry";
 /// A button inside it.
 pub const QS_PASSWORD_BUTTON: &str = "qs-password-button";
+/// The pairing box that opens under a Bluetooth device row.
+pub const QS_PAIRING_ROW: &str = "qs-pairing-row";
+/// The six-digit code inside it.
+pub const QS_PAIRING_CODE: &str = "qs-pairing-code";
 /// A full-width row that states something rather than doing anything.
 pub const QS_STATUS_ROW: &str = "qs-status-row";
 /// The switch on one VPN row.
@@ -722,6 +730,8 @@ pub const ALL: &[&str] = &[
     QS_DEVICE_ROW,
     QS_DEVICE_NAME,
     QS_DEVICE_MARK,
+    QS_DEVICE_BATTERY,
+    QS_DEVICE_SWITCH,
     QS_GRID,
     QS_GRID_ROW,
     QS_TOGGLE,
@@ -737,6 +747,8 @@ pub const ALL: &[&str] = &[
     QS_PASSWORD_ROW,
     QS_PASSWORD_ENTRY,
     QS_PASSWORD_BUTTON,
+    QS_PAIRING_ROW,
+    QS_PAIRING_CODE,
     QS_STATUS_ROW,
     QS_VPN_ROW,
     QS_CARD,

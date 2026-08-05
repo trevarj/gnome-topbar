@@ -1,26 +1,33 @@
 //! The Quick Settings button: a pill of status icons.
 //!
 //! ```text
-//!  [ 📶 🔒 🔊 ᛒ 🔋 ● ]
-//!    │  │  │  │  │  └ something is listening / watching
+//!  [ 📶 🔒 🔊 ᛒ 🔋 ● ● ]
+//!    │  │  │  │  │  │ └ something is watching the screen
+//!    │  │  │  │  │  └ something is listening
 //!    │  │  │  │  └ the battery, when there is one
-//!    │  │  │  └ bluetooth        (M9c)
-//!    │  │  └ the output volume   — always
-//!    │  └ a VPN                  (M9b)
-//!    └ the network               (M9b)
+//!    │  │  │  └ bluetooth, when something is connected over it
+//!    │  │  └ the output volume — always
+//!    │  └ a VPN
+//!    └ the network
 //! ```
 //!
 //! The order is fixed and the icons come and go inside it, which is what stops
 //! the pill's contents rearranging themselves under the pointer whenever
-//! something plugs in. Every icon has a slot in [`model::ORDER`] today, even
-//! the four that nothing draws yet — so M9b and M9c add an icon rather than a
-//! layout.
+//! something plugs in. Every slot was written out in [`model::ORDER`] before
+//! there was anything to put in half of them, so each milestone added an icon
+//! rather than a layout.
+//!
+//! The two dots at the end are the privacy indicators, and they are the panel's
+//! one sanctioned unbounded animation: something recording you or watching your
+//! screen is worth a heartbeat rather than a static dot. Both breathe on the
+//! same [`Animation`], because at most one thing is worth looking at and two
+//! dots pulsing out of phase would read as a fault.
 
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Image, Orientation};
-use topbar_services::{AudioState, BatteryState, NetworkState, Services};
+use topbar_services::{AudioState, BatteryState, BtState, NetworkState, Services};
 
 use crate::anim::{Animation, AnimationParams, Easing, motion_enabled};
 use crate::bridge::{self, BindingGuard};
@@ -43,7 +50,9 @@ pub struct IndicatorRow {
     audio: Image,
     battery: Image,
     network: Image,
+    bluetooth: Image,
     microphone: gtk4::Box,
+    screen_share: gtk4::Box,
     /// Each drawn indicator beside the slot it occupies, so visibility is
     /// applied from [`Indicators::visible`] rather than icon by icon.
     slots: Vec<(Indicator, gtk4::Widget)>,
@@ -82,41 +91,41 @@ impl IndicatorRow {
         vpn.add_css_class(classes::QS_ICON_ACCENT);
         vpn.set_visible(false);
 
-        // A dot rather than a microphone icon: GNOME draws a dot, and at 18px
-        // on a black bar an outlined microphone reads as a smudge.
-        let microphone = gtk4::Box::new(Orientation::Horizontal, 0);
-        microphone.add_css_class(classes::QS_PRIVACY_DOT);
-        microphone.set_valign(gtk4::Align::Center);
-        microphone.set_visible(false);
+        let bluetooth = Image::from_icon_name(icons::BLUETOOTH_ACTIVE);
+        bluetooth.add_css_class(classes::QS_ICON);
+        bluetooth.set_visible(false);
 
-        // Appended in the published order, so the widgets M9b and M9c add have
-        // an obvious place to go. Nothing is appended for the four that do not
-        // exist yet, which is what keeps them from moving anything when they
-        // arrive.
+        // Dots rather than icons: GNOME draws dots, and at 18px on a black bar
+        // an outlined microphone reads as a smudge.
+        let microphone = privacy_dot();
+        let screen_share = privacy_dot();
+
+        // Appended in the published order.
         let mut slots: Vec<(Indicator, gtk4::Widget)> = Vec::new();
         for indicator in crate::widgets::quick_settings::model::ORDER {
-            let widget: Option<gtk4::Widget> = match indicator {
-                Indicator::Audio => Some(audio.clone().upcast()),
-                Indicator::Battery => Some(battery.clone().upcast()),
-                Indicator::Microphone => Some(microphone.clone().upcast()),
-                Indicator::Network => Some(network.clone().upcast()),
-                Indicator::Vpn => Some(vpn.clone().upcast()),
-                Indicator::Bluetooth | Indicator::ScreenShare => None,
+            let widget: gtk4::Widget = match indicator {
+                Indicator::Audio => audio.clone().upcast(),
+                Indicator::Battery => battery.clone().upcast(),
+                Indicator::Microphone => microphone.clone().upcast(),
+                Indicator::Network => network.clone().upcast(),
+                Indicator::Vpn => vpn.clone().upcast(),
+                Indicator::Bluetooth => bluetooth.clone().upcast(),
+                Indicator::ScreenShare => screen_share.clone().upcast(),
             };
-            if let Some(widget) = widget {
-                root.append(&widget);
-                slots.push((*indicator, widget));
-            }
+            root.append(&widget);
+            slots.push((*indicator, widget));
         }
         content.append(&root);
 
         let indicators = Rc::new(Self {
-            pulse: Animation::new(&microphone),
+            pulse: Animation::new(&root),
             root,
             audio,
             battery,
             network,
+            bluetooth,
             microphone,
+            screen_share,
             slots,
             pulsing: std::cell::Cell::new(false),
             services: services.clone(),
@@ -148,10 +157,20 @@ impl IndicatorRow {
                 }
             }
         });
-        indicators
-            .bindings
-            .borrow_mut()
-            .extend([audio_binding, battery_binding, network_binding]);
+        let bluetooth_binding = bridge::bind_state(&indicators.root, services.bluetooth.state(), {
+            let indicators = Rc::downgrade(&indicators);
+            move |_: &gtk4::Box, state: &BtState| {
+                if let Some(indicators) = indicators.upgrade() {
+                    indicators.render_bluetooth(state);
+                }
+            }
+        });
+        indicators.bindings.borrow_mut().extend([
+            audio_binding,
+            battery_binding,
+            network_binding,
+            bluetooth_binding,
+        ]);
 
         indicators
     }
@@ -181,6 +200,16 @@ impl IndicatorRow {
         if audio.source_in_use {
             lines.push("Microphone in use".to_string());
         }
+        let bluetooth = self.services.bluetooth.current();
+        if let Some(device) = bluetooth.first_connected() {
+            lines.push(match device.battery_pct {
+                Some(percent) => format!("Bluetooth: {} · {percent}%", device.alias),
+                None => format!("Bluetooth: {}", device.alias),
+            });
+        }
+        if self.screen_share.is_visible() {
+            lines.push("Screen is being shared".to_string());
+        }
         lines.join("\n")
     }
 
@@ -190,12 +219,7 @@ impl IndicatorRow {
             &self.audio,
             icons::volume(state.sink_volume_pct, state.sink_muted),
         );
-        self.apply_visibility(
-            state,
-            &self.services.battery.current(),
-            &self.services.network.current(),
-        );
-        self.set_pulsing(state.source_in_use);
+        self.apply_visibility();
     }
 
     /// Draw the network icon and the VPN badge.
@@ -203,11 +227,7 @@ impl IndicatorRow {
         if let Some(name) = crate::widgets::quick_settings::model::network_icon(state) {
             set_icon(&self.network, name);
         }
-        self.apply_visibility(
-            &self.services.audio.current(),
-            &self.services.battery.current(),
-            state,
-        );
+        self.apply_visibility();
     }
 
     /// Draw the battery icon.
@@ -218,70 +238,110 @@ impl IndicatorRow {
         } else {
             self.battery.remove_css_class(classes::QS_ICON_URGENT);
         }
-        self.apply_visibility(
-            &self.services.audio.current(),
-            state,
-            &self.services.network.current(),
+        self.apply_visibility();
+    }
+
+    /// Draw the Bluetooth icon.
+    fn render_bluetooth(&self, state: &BtState) {
+        set_icon(
+            &self.bluetooth,
+            icons::bluetooth(state.powered, state.connected_count() > 0),
         );
+        self.apply_visibility();
     }
 
     /// Show exactly the indicators the state calls for.
     ///
-    /// One place rather than one per service, so the order and the rules stay
-    /// in [`Indicators`] where they are tested, and two services publishing at
-    /// once cannot leave the pill in a state neither of them intended.
-    fn apply_visibility(&self, audio: &AudioState, battery: &BatteryState, network: &NetworkState) {
-        let indicators = Indicators::read(audio, battery, network, self.show_battery);
+    /// Every service is read here rather than each render pass carrying the
+    /// three it did not change: the order and the rules stay in [`Indicators`]
+    /// where they are tested, and two services publishing in the same frame
+    /// cannot leave the pill in a state neither of them intended.
+    fn apply_visibility(&self) {
+        let indicators = Indicators::read(
+            &self.services.audio.current(),
+            &self.services.battery.current(),
+            &self.services.network.current(),
+            &self.services.bluetooth.current(),
+            // Wired to the privacy service when it lands; until then the dot
+            // has nothing to say and stays out of the pill.
+            false,
+            self.show_battery,
+        );
         let visible = indicators.visible();
         for (indicator, widget) in &self.slots {
             widget.set_visible(visible.contains(indicator));
         }
+        self.set_pulsing(
+            indicators.shows(Indicator::Microphone) || indicators.shows(Indicator::ScreenShare),
+        );
     }
 
-    /// Start or stop the privacy dot's heartbeat.
+    /// Start or stop the privacy dots' heartbeat.
+    ///
+    /// One animation for both, because at most one of them is worth looking at
+    /// and two dots breathing out of phase would read as a fault rather than as
+    /// a warning.
     fn set_pulsing(&self, pulsing: bool) {
         if pulsing == self.pulsing.get() {
             return;
         }
         self.pulsing.set(pulsing);
 
+        let dots = [self.microphone.clone(), self.screen_share.clone()];
         if !pulsing {
             self.pulse.cancel();
-            self.microphone.set_opacity(1.0);
+            for dot in &dots {
+                dot.set_opacity(1.0);
+            }
             return;
         }
         // A dot that pulsed with animations off would be the one thing on the
         // panel still moving, which is exactly what the setting is for.
         if !motion_enabled() {
-            self.microphone.set_opacity(1.0);
+            for dot in &dots {
+                dot.set_opacity(1.0);
+            }
             return;
         }
-        breathe(&self.pulse, &self.microphone);
+        breathe(&self.pulse, &self.root, dots);
     }
 }
 
-/// One breath of the privacy dot, which schedules the next.
+/// One privacy dot.
+fn privacy_dot() -> gtk4::Box {
+    let dot = gtk4::Box::new(Orientation::Horizontal, 0);
+    dot.add_css_class(classes::QS_PRIVACY_DOT);
+    dot.set_valign(gtk4::Align::Center);
+    dot.set_visible(false);
+    dot
+}
+
+/// One breath of the privacy dots, which schedules the next.
 ///
 /// The loop lives in the completion callback rather than inside the animator,
-/// so it ends by construction: a hidden or dropped dot has nothing to upgrade
-/// to and the chain simply stops. That is the whole reason this is the one
-/// sanctioned unbounded animation in the panel.
-fn breathe(pulse: &Animation, dot: &gtk4::Box) {
-    let painting = dot.clone();
+/// so it ends by construction: once neither dot is visible the chain simply
+/// stops, and a dropped row has nothing to upgrade to. That is the whole reason
+/// this is the one sanctioned unbounded animation in the panel.
+fn breathe(pulse: &Animation, anchor: &gtk4::Box, dots: [gtk4::Box; 2]) {
+    let painting = dots.clone();
     let on_frame = move |progress: f64| {
         // A cosine rather than a triangle: the turn at each end is what makes
         // it read as breathing instead of blinking.
         let wave = (1.0 - (progress * std::f64::consts::TAU).cos()) / 2.0;
-        painting.set_opacity(1.0 - (1.0 - PULSE_FLOOR) * wave);
+        let opacity = 1.0 - (1.0 - PULSE_FLOOR) * wave;
+        for dot in &painting {
+            dot.set_opacity(opacity);
+        }
     };
     let on_done = {
-        let dot = dot.downgrade();
+        let anchor = anchor.downgrade();
         let pulse = pulse.clone();
         move || {
-            if let Some(dot) = dot.upgrade()
-                && dot.is_visible()
-            {
-                breathe(&pulse, &dot);
+            let Some(anchor) = anchor.upgrade() else {
+                return;
+            };
+            if dots.iter().any(gtk4::prelude::WidgetExt::is_visible) {
+                breathe(&pulse, &anchor, dots);
             }
         }
     };

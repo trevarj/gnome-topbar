@@ -36,6 +36,8 @@ pub mod names {
     pub const POWER_MODE: &str = "quick_settings.power_mode";
     /// The Wi-Fi toggle, its network list, and its password row.
     pub const WIFI: &str = "quick_settings.wifi";
+    /// The Bluetooth toggle, its device rows, and its pairing row.
+    pub const BLUETOOTH: &str = "quick_settings.bluetooth";
     /// The VPN toggle and its profile rows.
     pub const VPN: &str = "quick_settings.vpn";
     /// The battery-health card's charge-limit buttons.
@@ -54,8 +56,8 @@ pub mod names {
     /// Every name, for the coverage test.
     #[cfg(test)]
     pub const ALL: &[&str] = &[
-        VOLUME, MICROPHONE, BRIGHTNESS, CAFFEINE, POWER_MODE, WIFI, VPN, BATTERY, LOCK, SUSPEND,
-        RESTART, SHUT_DOWN, LOG_OUT,
+        VOLUME, MICROPHONE, BRIGHTNESS, CAFFEINE, POWER_MODE, WIFI, BLUETOOTH, VPN, BATTERY, LOCK,
+        SUSPEND, RESTART, SHUT_DOWN, LOG_OUT,
     ];
 }
 

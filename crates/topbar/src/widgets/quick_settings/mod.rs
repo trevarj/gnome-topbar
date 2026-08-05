@@ -356,11 +356,80 @@ fn install_smoke_actions(
         }
     });
 
+    // Flipping a device's switch needs a pointer on the row, and there is
+    // none. The device path comes from the environment so one action covers
+    // every scenario, and the panel is opened onto the list first so whatever
+    // happens next — a spinner, an inline failure — is on screen for the frame
+    // that follows.
+    popovers::register_smoke_action("quick-settings-bluetooth-connect", {
+        let bluetooth = services.bluetooth.handle().clone();
+        let built = Rc::clone(built);
+        move || {
+            let Some(path) = smoke_env("TOPBAR_SMOKE_BT_DEVICE") else {
+                return;
+            };
+            popovers::dispatch(
+                &topbar_core::ipc::PopoverAction::Show(WIDGET_NAME.to_string()),
+                None,
+            );
+            let bluetooth = bluetooth.clone();
+            let built = Rc::clone(&built);
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                if let Some(panel) = built.borrow().clone() {
+                    panel.expand(Block::Bluetooth);
+                }
+                tracing::info!("smoke: connecting {path}");
+                attempt(inline::names::BLUETOOTH, async move {
+                    bluetooth.connect(path).await
+                });
+            });
+        }
+    });
+
+    // The radio switch, likewise: the pill's body is what a pointer would
+    // press, and the screenshot that matters is the one *after* it.
+    popovers::register_smoke_action("quick-settings-bluetooth-off", {
+        let bluetooth = services.bluetooth.handle().clone();
+        let built = Rc::clone(built);
+        move || {
+            popovers::dispatch(
+                &topbar_core::ipc::PopoverAction::Show(WIDGET_NAME.to_string()),
+                None,
+            );
+            let bluetooth = bluetooth.clone();
+            let built = Rc::clone(&built);
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                if let Some(panel) = built.borrow().clone() {
+                    panel.expand(Block::Bluetooth);
+                }
+                attempt(inline::names::BLUETOOTH, async move {
+                    bluetooth.set_powered(false).await
+                });
+            });
+        }
+    });
+
+    // Confirming a pairing the panel did not start. The row is put up by the
+    // fake calling the panel's own agent, so all this does is open the panel
+    // onto the list and then answer — the screenshot in between is the point.
+    popovers::register_smoke_action("quick-settings-bluetooth-confirm", {
+        let bluetooth = services.bluetooth.handle().clone();
+        move || {
+            let bluetooth = bluetooth.clone();
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                attempt(inline::names::BLUETOOTH, async move {
+                    bluetooth.confirm_pairing().await
+                });
+            });
+        }
+    });
+
     for (suffix, block) in [
         ("battery", Block::BatteryHealth),
         ("power", Block::Power),
         ("mode", Block::PowerMode),
         ("wifi", Block::WiFi),
+        ("bluetooth", Block::Bluetooth),
         ("vpn", Block::Vpn),
     ] {
         popovers::register_smoke_action(&format!("quick-settings-{suffix}"), {
