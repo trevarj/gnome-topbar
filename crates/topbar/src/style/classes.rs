@@ -503,8 +503,12 @@ pub const QS_DEVICE_SWITCH: &str = "qs-device-switch";
 pub const QS_GRID: &str = "qs-grid";
 /// One row of two pills.
 pub const QS_GRID_ROW: &str = "qs-grid-row";
-/// One pill.
+/// The shell holding one pill's halves, and wearing its shape and fill.
+pub const QS_TOGGLE_PILL: &str = "qs-toggle-pill";
+/// A pill's body: the half that switches the thing on and off.
 pub const QS_TOGGLE: &str = "qs-toggle";
+/// A body that has a chevron beside it, and so gives up its right padding.
+pub const QS_TOGGLE_SPLIT: &str = "qs-toggle-split";
 /// Its icon.
 pub const QS_TOGGLE_ICON: &str = "qs-toggle-icon";
 /// Its label.
@@ -809,7 +813,9 @@ pub const ALL: &[&str] = &[
     QS_DEVICE_SWITCH,
     QS_GRID,
     QS_GRID_ROW,
+    QS_TOGGLE_PILL,
     QS_TOGGLE,
+    QS_TOGGLE_SPLIT,
     QS_TOGGLE_ICON,
     QS_TOGGLE_LABEL,
     QS_TOGGLE_SUBTITLE,

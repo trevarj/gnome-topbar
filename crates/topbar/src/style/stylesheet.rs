@@ -1914,24 +1914,43 @@ osd-bar {
     min-height: 48px;
 }
 
-.qs-toggle {
+/* The pill is a box holding two buttons, not one button holding another: a
+   GtkButton inside a GtkButton can never be clicked, because the outer one
+   claims the click in the capture phase and GTK then cancels every gesture
+   below it. So the shape and the fill live on the box, and each half paints
+   only its own hover. */
+.qs-toggle-pill {
     background-color: var(--color-card);
-    border: none;
     border-radius: 24px;
     min-height: 48px;
-    padding: 4px 12px;
     color: var(--color-foreground);
-}
-
-.qs-toggle:hover {
-    background-color: var(--color-widget-hover);
 }
 
 /* Checked is the accent fill, which is how every GNOME quick-settings toggle
    says it is on — the icon does not change. */
-.qs-toggle.checked {
+.qs-toggle-pill.checked {
     background-color: var(--color-accent);
     color: var(--color-on-accent);
+}
+
+.qs-toggle {
+    background-color: transparent;
+    border: none;
+    border-radius: 24px;
+    min-height: 48px;
+    padding: 4px 12px;
+    color: inherit;
+}
+
+/* A body with a chevron beside it gives up its right padding to the chevron's
+   margin, so the label has exactly the room it had when the chevron was inside
+   the body — and the two halves meet, the way a split control should. */
+.qs-toggle-split {
+    padding-right: 0;
+}
+
+.qs-toggle:hover {
+    background-color: var(--color-widget-hover);
 }
 
 .qs-toggle:disabled {
@@ -1955,12 +1974,15 @@ osd-bar {
     opacity: 0.7;
 }
 
+/* The margin is what the body's right padding used to give it, now that the
+   chevron sits beside the body rather than inside it. */
 .qs-toggle-expand {
     background: transparent;
     border: none;
     border-radius: 9999px;
     min-width: 28px;
     min-height: 28px;
+    margin-right: 12px;
     padding: 0;
     color: inherit;
     -gtk-icon-size: var(--icon-size);

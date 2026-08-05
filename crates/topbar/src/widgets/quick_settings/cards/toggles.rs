@@ -52,6 +52,18 @@ const POWER_MODE_ICON: &str = "power-profile-balanced-symbolic";
 const CHEVRON_TURN: f32 = 180.0;
 
 /// One pill: an icon, a label, a subtitle, and optionally a chevron.
+///
+/// The two halves are **siblings** inside `root`, and they have to be. GTK's
+/// own `GtkButton` runs its click gesture in the *capture* phase and claims the
+/// sequence when the button comes back up; claiming cancels every gesture in
+/// every widget below the claimant, so a `GtkButton` nested inside another
+/// `GtkButton` never sees the release and never emits `clicked` — the outer one
+/// swallows the whole click. The chevron was inside the body button until the
+/// first time anyone clicked one on a real desktop: the arrow did nothing and
+/// the *radio* toggled instead, which is exactly the outer button firing.
+///
+/// So `root` is the pill — it wears the shape and the accent fill — and the
+/// body and the chevron sit in it side by side, each with its own hover.
 struct Pill {
     root: gtk4::Box,
     button: Button,
@@ -68,6 +80,7 @@ impl Pill {
     /// Build a pill. `expandable` gives it a chevron.
     fn new(icon_name: &str, title: &str, expandable: bool) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Horizontal, 0);
+        root.add_css_class(classes::QS_TOGGLE_PILL);
         root.set_hexpand(true);
 
         let button = Button::new();
@@ -116,7 +129,9 @@ impl Pill {
             expand.set_child(Some(chevron));
             ripple::install(&expand);
             expand.set_valign(Align::Center);
-            content.append(&expand);
+            // Beside the body, never inside it: see the note on `Pill`.
+            button.add_css_class(classes::QS_TOGGLE_SPLIT);
+            root.append(&expand);
             expand
         });
         let rotation = chevron.as_ref().map(Animation::new);
@@ -134,11 +149,14 @@ impl Pill {
     }
 
     /// Wear the accent fill, or take it off.
+    ///
+    /// On the shell rather than on the body, so the fill runs under the chevron
+    /// too and the pill still reads as one control.
     fn set_checked(&self, checked: bool) {
         if checked {
-            self.button.add_css_class(classes::CHECKED);
+            self.root.add_css_class(classes::CHECKED);
         } else {
-            self.button.remove_css_class(classes::CHECKED);
+            self.root.remove_css_class(classes::CHECKED);
         }
     }
 
@@ -155,6 +173,22 @@ impl Pill {
                 self.subtitle.set_visible(true);
             }
             _ => self.subtitle.set_visible(false),
+        }
+    }
+
+    /// Show or hide the chevron, taking the body's right padding with it.
+    ///
+    /// A pill whose chevron has gone has to look like a pill that never had
+    /// one: the body owns the padding again, or its label runs into the edge.
+    fn set_chevron_visible(&self, visible: bool) {
+        let Some(expand) = &self.expand else {
+            return;
+        };
+        expand.set_visible(visible);
+        if visible {
+            self.button.add_css_class(classes::QS_TOGGLE_SPLIT);
+        } else {
+            self.button.remove_css_class(classes::QS_TOGGLE_SPLIT);
         }
     }
 
@@ -653,9 +687,7 @@ impl Toggles {
             // One tunnel needs no list, so it gets no chevron either: the pill
             // is the switch.
             let lone = network::lone_vpn(state);
-            if let Some(expand) = &pill.expand {
-                expand.set_visible(lone.is_none());
-            }
+            pill.set_chevron_visible(lone.is_none());
             if lone.is_some()
                 && let Some(section) = &self.vpn_section
             {
