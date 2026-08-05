@@ -840,9 +840,10 @@ button.forecast-retry:hover {
     color: var(--color-foreground-muted);
 }
 
-/* The denominator's logo sits on the numerator's shoulder. The disc behind it
-   is what separates the two marks; it is the panel's own background, which is
-   also near enough the popover's for the same badge to work on both. */
+/* A pair's two coins overlap on a diagonal, numerator in front. The ring
+   behind the front coin is what keeps its edge legible over the coin below;
+   it is the panel's own background, which is also near enough the popover's
+   for the same ring to work on both. */
 .crypto-badge {
     padding: 1px;
     border-radius: 9999px;

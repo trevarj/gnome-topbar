@@ -32,10 +32,8 @@ use topbar_services::{Asset, Entry, Services};
 use crate::style::classes;
 use crate::widgets::crypto::{emblem, icons};
 
-/// Logo size on a settings row.
+/// Logo size on a settings row. A pair's two coins each take 5/8 of this.
 const ROW_ICON: i32 = 20;
-/// The denominator's logo on a pair row.
-const ROW_BADGE: i32 = 12;
 /// The button that goes back to the prices.
 const BACK_ICON: &str = "go-previous-symbolic";
 /// Move an entry one place towards the left of the bar.
@@ -394,7 +392,7 @@ impl PairRow {
         let remove = icon_button(REMOVE_ICON, classes::CRYPTO_REMOVE);
         remove.set_tooltip_text(Some("Stop showing this pair"));
 
-        root.append(&emblem(entry, ROW_ICON, ROW_BADGE));
+        root.append(&emblem(entry, ROW_ICON));
         root.append(&name);
         root.append(&up);
         root.append(&down);

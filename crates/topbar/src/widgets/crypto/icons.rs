@@ -25,7 +25,7 @@ use tracing::warn;
 /// The sizes `assets/crypto` has PNGs for.
 ///
 /// Anything else is rounded up to the nearest of these and scaled down by GTK,
-/// which is what the 12px badge on a pair does.
+/// which is what a pair's 5/8-slot coins do.
 const SIZES: [i32; 4] = [16, 24, 32, 48];
 
 /// Every embedded logo: asset, size, bytes.
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn a_size_between_two_logos_takes_the_larger() {
-        assert_eq!(best_fit(12), 16, "the pair badge scales 16 down, not 16 up");
+        assert_eq!(best_fit(12), 16, "a pair coin scales 16 down, not 16 up");
         assert_eq!(best_fit(16), 16);
         assert_eq!(best_fit(20), 24);
         assert_eq!(best_fit(24), 24);

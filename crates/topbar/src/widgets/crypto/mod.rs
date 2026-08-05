@@ -39,10 +39,8 @@ use crate::widgets::weather::forecast::age;
 
 /// Widget name, for CSS classes and the popover registry.
 const WIDGET_NAME: &str = "crypto";
-/// Logo size on the bar, in pixels.
+/// Logo size on the bar, in pixels. A pair's two coins each take 5/8 of this.
 const BAR_ICON: i32 = 16;
-/// The denominator's logo on a pair, small enough to read as a qualifier.
-const BAR_BADGE: i32 = 12;
 /// Shown while the first prices are on their way.
 const LOADING_LABEL: &str = "…";
 /// What stands in for the entries that did not fit in `max_chars`.
@@ -308,7 +306,7 @@ impl Row {
         let root = gtk4::Box::new(Orientation::Horizontal, 0);
         root.add_css_class(classes::CRYPTO_ENTRY);
 
-        root.append(&emblem(entry, BAR_ICON, BAR_BADGE));
+        root.append(&emblem(entry, BAR_ICON));
 
         let value = Label::new(None);
         value.add_css_class(classes::CRYPTO_VALUE);
@@ -320,25 +318,32 @@ impl Row {
 
 /// The logo (or the pair of logos) that leads an entry.
 ///
-/// A pair is the numerator's logo with the denominator's on its lower-right
-/// corner — the badge convention every icon set uses for "this, qualified by
-/// that". Two logos side by side would read as two entries.
-pub fn emblem(entry: Entry, size: i32, badge: i32) -> gtk4::Widget {
-    let leading = icon(entry.leading(), size);
+/// A pair is two coins on a diagonal: the numerator leads from the top-left
+/// and overlaps the denominator sitting behind it on the lower-right — the
+/// two-coin lockup every exchange draws for a trading pair. Each coin is 5/8
+/// of the slot, which leaves them overlapping by about 40%: enough that they
+/// read as one mark, not two entries.
+pub fn emblem(entry: Entry, size: i32) -> gtk4::Widget {
     let Some(denominator) = entry.denominator() else {
-        return leading.upcast();
+        return icon(entry.leading(), size).upcast();
     };
 
+    let coin = size * 5 / 8;
     let overlay = Overlay::new();
-    overlay.set_child(Some(&leading));
+    // The overlay takes the whole slot; the coins place themselves inside it.
+    overlay.set_size_request(size, size);
 
-    let badge = icon(denominator, badge);
-    badge.set_halign(Align::End);
-    badge.set_valign(Align::End);
-    // The badge hangs off the corner rather than sitting inside it, so the
-    // numerator's logo is not eaten by the qualifier.
-    badge.add_css_class(classes::CRYPTO_BADGE);
-    overlay.add_overlay(&badge);
+    let behind = icon(denominator, coin);
+    behind.set_halign(Align::End);
+    behind.set_valign(Align::End);
+    overlay.set_child(Some(&behind));
+
+    let front = icon(entry.leading(), coin);
+    front.set_halign(Align::Start);
+    front.set_valign(Align::Start);
+    // The ring keeps the front coin's edge legible over the one behind it.
+    front.add_css_class(classes::CRYPTO_BADGE);
+    overlay.add_overlay(&front);
     overlay.upcast()
 }
 

@@ -35,10 +35,8 @@ use crate::widgets::crypto::settings::Settings;
 use crate::widgets::crypto::{emblem, is_overdue, refresh_now};
 use crate::widgets::weather::forecast::age;
 
-/// Logo size on a price row.
+/// Logo size on a price row. A pair's two coins each take 5/8 of this.
 const ROW_ICON: i32 = 24;
-/// The denominator's logo on a pair row.
-const ROW_BADGE: i32 = 14;
 /// The gear that switches to the settings view, and the icon the empty state
 /// points at with it.
 const CONFIGURE_ICON: &str = "preferences-system-symbolic";
@@ -359,7 +357,7 @@ impl Row {
         let root = gtk4::Box::new(Orientation::Horizontal, 10);
         root.add_css_class(classes::CRYPTO_ROW);
 
-        root.append(&emblem(entry, ROW_ICON, ROW_BADGE));
+        root.append(&emblem(entry, ROW_ICON));
 
         let name = Label::new(Some(&name_of(entry)));
         name.add_css_class(classes::CRYPTO_NAME);
