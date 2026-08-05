@@ -359,8 +359,34 @@ impl Nm {
 }
 
 /// The object path of one access point.
+///
+/// An SSID is 32 bytes of whatever its owner felt like and a D-Bus object path
+/// element is `[A-Za-z0-9_]` and nothing else, so the name is escaped rather
+/// than interpolated. It has to be: `paths` drops anything malformed, so a
+/// café called `MGTS-GPON-4471` used to be seeded, logged as seeded, and then
+/// silently never reach the panel — which looked like the panel losing a
+/// network and was the fake losing it.
 fn ap_path(name: &str) -> String {
-    format!("/org/freedesktop/NetworkManager/AccessPoint/{name}")
+    format!(
+        "/org/freedesktop/NetworkManager/AccessPoint/{}",
+        escape_path_element(name)
+    )
+}
+
+/// One path element, with everything an object path forbids escaped as `_XX`.
+///
+/// `_` is escaped too, which is what makes it reversible: without that,
+/// `Cafe-2` and `Cafe_2D2` would be the same access point.
+fn escape_path_element(name: &str) -> String {
+    let mut escaped = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            escaped.push(char::from(byte));
+        } else {
+            escaped.push_str(&format!("_{byte:02X}"));
+        }
+    }
+    escaped
 }
 
 /// The object path of one saved profile.
@@ -1555,6 +1581,25 @@ mod tests {
         assert_eq!(
             profile_path("a-b-c"),
             "/org/freedesktop/NetworkManager/Settings/a_b_c"
+        );
+    }
+
+    #[test]
+    fn an_ssid_that_is_not_a_path_element_still_gets_a_path() {
+        // The one that was being dropped: a hyphen is not a path character,
+        // and an access point whose path will not parse never reaches the bus.
+        assert_eq!(
+            ap_path("MGTS-GPON-4471"),
+            "/org/freedesktop/NetworkManager/AccessPoint/MGTS_2DGPON_2D4471"
+        );
+        assert!(
+            zbus::zvariant::ObjectPath::try_from(ap_path("Trev's café 📶")).is_ok(),
+            "an SSID is 32 bytes of anything and every one of them has to land"
+        );
+        assert_ne!(
+            ap_path("Cafe-2"),
+            ap_path("Cafe_2D2"),
+            "escaping has to be reversible or two networks become one"
         );
     }
 
