@@ -78,40 +78,60 @@ edit 'widgets.clock' format '"%H:%M"'
 await_reload || true
 frame reload-2-clock-after
 
-# --- 2. the crypto entries -------------------------------------------------
+# --- 2. a widget that was not there ----------------------------------------
+#
+# `[widgets.crypto]` has been configured all along and nothing placed it, so
+# the crypto service was never started and CoinGecko — here, the stub — has
+# heard nothing. Placing the widget is a change to the placement arrays, so
+# the bars are rebuilt, and the service has to be started before the new
+# widget subscribes to it.
+#
+# The evidence is the panel's own log on one side and the service's first
+# request on the other, so this step records both.
+grep -a "the reload started" "$log" >"$art/requests-before.txt" 2>&1 || true
+echo "services started before the widget was placed: $(wc -l <"$art/requests-before.txt")" \
+  >"$art/requests-before.txt"
+
+edit 'widgets' left '["workspaces", "crypto"]'
+await_reload || true
+frame reload-3-crypto-placed
+grep -a "the reload started" "$log" >"$art/requests-after.txt" 2>&1 ||
+  echo "(the reload started no service)" >"$art/requests-after.txt"
+
+# --- 3. the crypto entries -------------------------------------------------
 #
 # The widget's own section changed, so that widget is rebuilt and nothing else
 # is: two coins become three, one of them a pair.
 edit 'widgets.crypto' entries '["btc", "eth", "eth/btc"]'
 await_reload || true
-frame reload-3-crypto-after
+frame reload-4-crypto-entries
 
-# --- 3. the workspace labels -----------------------------------------------
+# --- 4. the workspace labels -----------------------------------------------
 #
 # Dots become numbers. The workspaces widget draws its own geometry from
 # `label_type`, so this is a rebuild rather than a redraw.
 edit 'widgets.workspaces' label_type '"index"'
 await_reload || true
-frame reload-4-workspaces-after
+frame reload-5-workspaces-after
 
-# --- 4. the accent colour --------------------------------------------------
+# --- 5. the accent colour --------------------------------------------------
 #
 # No widget is touched at all: the sheet is regenerated and the single provider
 # swapped. The active workspace pill and the clock's underline are what change
 # colour in the frame.
 edit '' accent '"#e01b24"'
 await_reload || true
-frame reload-5-accent-after
+frame reload-6-accent-after
 
-# --- 5. the bar height -----------------------------------------------------
+# --- 6. the bar height -----------------------------------------------------
 #
 # The one edit that has to rebuild the windows: the height is the exclusive
 # zone, so the desktop below moves as well.
 edit 'bar' size '52'
 await_reload || true
-frame reload-6-size-after
+frame reload-7-size-after
 
-# --- 6. a file that will not parse -----------------------------------------
+# --- 7. a file that will not parse -----------------------------------------
 #
 # The panel must keep running on the configuration it already has, say so once,
 # and change nothing. The banner is a notification like any other, so it is
@@ -124,11 +144,11 @@ while [ "$waited" -lt 20 ]; do
   sleep 1
   waited=$((waited + 1))
 done
-shot reload-7-broken topbar-toast || grim "$art/reload-7-broken.png"
+shot reload-8-broken topbar-toast || grim "$art/reload-8-broken.png"
 
 # The bar is still the bar it was: same height, same accent, same widgets.
 sleep 2
-frame reload-8-still-running
+frame reload-9-still-running
 
 niri msg layers >"$art/layers.txt" 2>&1 || true
 

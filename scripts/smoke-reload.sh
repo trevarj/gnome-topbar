@@ -9,6 +9,10 @@
 # own watcher notices, exactly as it does when the user saves in an editor.
 #
 #   clock       [widgets.clock] format changes; the label changes with it
+#   placed      the crypto widget is *added* to the bar. The panel starts
+#               without one, so the crypto service is not started either and
+#               the price endpoint sees no requests at all; the reload has to
+#               start it lazily and the prices have to appear
 #   crypto      [widgets.crypto] entries change; the bar draws the new ones
 #   workspaces  label_type none -> index; the widget is rebuilt with numbers
 #   accent      theme.accent changes; the stylesheet is swapped under the bar
@@ -47,8 +51,12 @@ live_config="$repo/crates/topbar-core/tests/fixtures/live-config.toml"
 # widget: this scenario edits `[widgets.crypto] entries`, which the script does
 # not have. The weather comes off the bar because the live file has no
 # coordinates in it, and "Configure…" in every frame is a distraction.
+#
+# The bar starts *without* the crypto widget: its section is configured and
+# nothing places it, which is exactly the case lazy service start exists for.
+# The first thing the driver does is add it.
 config="$artifact_root/reload-config.toml"
-sed -e 's/^left = \["workspaces", "custom-crypto"\]$/left = ["workspaces", "crypto"]/' \
+sed -e 's/^left = \["workspaces", "custom-crypto"\]$/left = ["workspaces"]/' \
   -e 's/^center = \["weather", "clock"\]$/center = ["clock"]/' \
   "$live_config" >"$config"
 cat >>"$config" <<'TOML'
@@ -57,8 +65,8 @@ cat >>"$config" <<'TOML'
 entries = ["btc", "eth"]
 interval = 1800
 TOML
-grep -q '^left = \["workspaces", "crypto"\]$' "$config" || {
-  echo "could not put the built-in crypto widget on the bar" >&2
+grep -q '^left = \["workspaces"\]$' "$config" || {
+  echo "could not take the custom crypto script off the bar" >&2
   exit 1
 }
 
@@ -106,6 +114,12 @@ stop_stub
 
 echo "--- screenshots ---"
 find "$artifact_root" -name '*.png' | sort
+echo "--- what the price endpoint was asked for, and when ---"
+# The lazy-start assertion: the stub's own log. Nothing may reach it before
+# the reload that places the widget, and something must reach it after.
+grep -c "GET" "$artifact_root/stub.log" 2>/dev/null || echo 0
+cat "$artifact_root/session/requests-before.txt" 2>/dev/null || true
+cat "$artifact_root/session/requests-after.txt" 2>/dev/null || true
 echo "--- what the panel reloaded ---"
 grep -aE "reload|config error|watching" "$artifact_root/session/panel.log" 2>/dev/null ||
   echo "(nothing)"

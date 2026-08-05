@@ -73,7 +73,9 @@ default_power='--active balanced --percent 62 --state 2 --time-to-empty 8100'
 # One nested session: run <scenario> <smoke-open> [fake-bluez args]
 run() {
   scenario=$1
-  open=$2
+  # Empty by default: the `bar` scenario opens nothing, and `set -u` turns a
+  # missing argument into a run that dies before it starts.
+  open=${2:-}
   bt_args=${3:-$default_bt}
 
   echo "smoke-bt: $scenario"
