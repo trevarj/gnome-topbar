@@ -60,7 +60,10 @@ case "$scenario" in
     # environment the *panel* was started with — see smoke-bluetooth.sh.
     "$SMOKE_TOPBAR" popover show quick-settings-bluetooth-connect >/dev/null 2>&1 || true
     sleep 5
-    shot devices-connecting topbar-popover
+    # A spinning row cannot ever give `shot` two identical frames, so it is
+    # allowed to give up: what is wanted is a frame from the middle of the
+    # attempt, and "still changing" is the evidence that it *was* the middle.
+    SHOT_TIMEOUT=8 shot devices-connecting topbar-popover || true
     ;;
 
   fail)

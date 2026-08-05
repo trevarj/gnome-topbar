@@ -27,7 +27,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Align, Label, LevelBar, Orientation};
-use topbar_services::resources::model::{kib_bytes, used_of};
+use topbar_services::resources::model::used_of;
 use topbar_services::{ResourceState, Services};
 
 use crate::bridge::{self, BindingGuard};
@@ -216,8 +216,11 @@ impl ResourceOverview {
 
         self.swap.row.set_visible(memory.has_swap());
         if let Some(percent) = memory.swap_used_pct {
-            self.swap
-                .set("Swap", percent, &kib_bytes(memory.swap_used_kib));
+            self.swap.set(
+                "Swap",
+                percent,
+                &used_of(memory.swap_used_kib * 1024, memory.swap_total_kib * 1024),
+            );
         }
 
         let mounts: Vec<String> = state.disks.iter().map(|disk| disk.mount.clone()).collect();

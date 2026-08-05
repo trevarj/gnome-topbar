@@ -1966,8 +1966,32 @@ osd-bar {
     font-variant-numeric: tabular-nums;
 }
 
+/* GTK's own switch, restyled. Adwaita paints "on" in its *own* accent — a
+   blue that has nothing to do with the panel's — and every other control in
+   the panel that means "on" is the configured accent. */
 .qs-device-switch {
+    background-image: none;
+    box-shadow: none;
+    background-color: var(--color-widget-hover);
+    border: none;
+    border-radius: 9999px;
     margin-left: 2px;
+}
+
+.qs-device-switch:checked {
+    background-color: var(--color-accent);
+}
+
+.qs-device-switch > slider {
+    background-image: none;
+    box-shadow: none;
+    background-color: var(--color-foreground);
+    border: none;
+    border-radius: 9999px;
+}
+
+.qs-device-switch:disabled {
+    background-color: var(--color-card);
 }
 
 /* The pairing box: a question somebody else asked, so it is tinted rather

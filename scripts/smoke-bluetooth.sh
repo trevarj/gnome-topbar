@@ -48,9 +48,9 @@ export TOPBAR_SMOKE_BT_DEVICE=/org/bluez/hci0/dev_kb
 
 # What is paired in most scenarios: a headset that is connected and reports a
 # battery, a mouse, and a keyboard.
-default_bt='--device buds:WH-1000XM4:AA:BB:CC:DD:EE:FF:audio-headset:connected:85
-  --device mouse:MX Master 3S:11:22:33:44:55:66:input-mouse
-  --device kb:Magic Keyboard:99:88:77:66:55:44:input-keyboard'
+default_bt='--device buds|WH-1000XM4|AA:BB:CC:DD:EE:FF|audio-headset|connected|85
+  --device mouse|MX_Master_3S|11:22:33:44:55:66|input-mouse
+  --device kb|Magic_Keyboard|99:88:77:66:55:44|input-keyboard'
 
 # Enough of a network for the Wi-Fi and VPN pills to exist.
 default_nm='--ap Usadba:82:secured --ap Cafe:58:secured

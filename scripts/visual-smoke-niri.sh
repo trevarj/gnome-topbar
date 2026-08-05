@@ -235,8 +235,8 @@ export SMOKE_FAKE_NM="${10}"
 export SMOKE_FAKE_BLUEZ="${12}"
 
 # The fake package managers the updates scenarios run. Prepended, and the
-# directory holds nothing else — so `checkupdates` inside the session is this
-# run's own script and never the real pacman-contrib one.
+# directory holds nothing else, so a `checkupdates` inside the session is the
+# script this run wrote and never the real pacman-contrib one.
 if [ -n "${SMOKE_PATH:-}" ]; then
   PATH="$SMOKE_PATH:$PATH"
   export PATH
@@ -298,8 +298,8 @@ if [ -n "${12}" ]; then
   "${12}" ${13} >"$3/fake-bluez.log" 2>&1 &
   bluez_pid=$!
   # The panel talks to this one instead of the system bus. Debug builds only;
-  # a debug build *without* it registers no pairing agent and refuses every
-  # write rather than touching the machine's real adapter.
+  # a debug build WITHOUT it registers no pairing agent and refuses every
+  # write rather than touching the real adapter.
   TOPBAR_SMOKE_BLUEZ_BUS="$DBUS_SESSION_BUS_ADDRESS"
   export TOPBAR_SMOKE_BLUEZ_BUS
   waited=0

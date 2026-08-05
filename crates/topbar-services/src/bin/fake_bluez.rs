@@ -9,8 +9,8 @@
 //!
 //! ```text
 //! topbar-fake-bluez \
-//!     --device buds:WH-1000XM4:AA:audio-headset:connected:85 \
-//!     --device mouse:MX Master:BB:input-mouse \
+//!     --device "buds|WH-1000XM4|AA:BB:CC:DD:EE:FF|audio-headset|connected|85" \
+//!     --device "mouse|MX Master|11:22:33:44:55:66|input-mouse" \
 //!     --outcome slow
 //! ```
 //!
@@ -43,18 +43,27 @@ impl Default for Options {
     }
 }
 
-/// Parse `NAME:ALIAS:ADDRESS:ICON[:connected][:BATTERY]`.
+/// Parse `NAME|ALIAS|ADDRESS|ICON[|connected][|BATTERY]`.
+///
+/// A vertical bar rather than a colon, because a Bluetooth address is six
+/// colon-separated bytes and splitting on colons turned `AA:BB:CC:DD:EE:FF`
+/// into six fields.
 ///
 /// The trailing two are order-free so the common cases stay short: a device
-/// that is connected and reports a battery is `…:connected:85`, and one that is
-/// neither is just the first four fields.
+/// that is connected and reports a battery ends `|connected|85`, and one that
+/// is neither is just the first four fields.
+///
+/// An underscore in the alias becomes a space. The smoke harness word-splits
+/// the arguments it forwards, so `MX_Master_3S` is how a two-word name gets
+/// here at all — and a Bluetooth alias with a real underscore in it is not
+/// something a screenshot needs.
 fn device(value: &str) -> Option<(String, FakeDevice)> {
-    let mut parts = value.split(':');
+    let mut parts = value.split('|');
     let name = parts.next()?.to_string();
     let alias = parts.next()?;
     let address = parts.next()?;
     let icon = parts.next()?;
-    let mut device = FakeDevice::paired(alias, address, icon);
+    let mut device = FakeDevice::paired(&alias.replace('_', " "), address, icon);
     for extra in parts {
         match extra {
             "connected" => device = device.connected(),
@@ -85,7 +94,7 @@ async fn main() -> ExitCode {
                     }
                     None => {
                         eprintln!(
-                            "--device wants NAME:ALIAS:ADDRESS:ICON[:connected][:BATTERY], not `{raw}`"
+                            "--device wants NAME|ALIAS|ADDRESS|ICON[|connected][|BATTERY], not `{raw}`"
                         );
                         return ExitCode::FAILURE;
                     }

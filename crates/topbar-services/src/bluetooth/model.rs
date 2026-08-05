@@ -201,7 +201,15 @@ impl BtState {
     /// question the user opened the panel to ask, the same way the Wi-Fi pill
     /// names the network. Two is a count, because two names do not fit in half
     /// a panel.
+    ///
+    /// A radio that is off is named for the control rather than for a device.
+    /// BlueZ usually clears `Connected` when the adapter goes down, but not
+    /// always in the same breath — and a pill reading "WH-1000XM4" over the
+    /// word "Off" is a pill contradicting itself.
     pub fn title(&self) -> String {
+        if !self.powered {
+            return "Bluetooth".to_string();
+        }
         match self.connected_count() {
             1 => self
                 .first_connected()
@@ -356,6 +364,11 @@ mod tests {
             ..BtState::default()
         };
         assert_eq!(state.subtitle(), "Off");
+        assert_eq!(
+            state.title(),
+            "Bluetooth",
+            "a pill naming a device over the word Off contradicts itself"
+        );
         assert!(
             !state.indicated(),
             "a stale Connected flag under a dead radio is not an indicator"
