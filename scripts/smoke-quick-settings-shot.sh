@@ -102,7 +102,18 @@ case "$scenario" in
     parecord --device=topbar_smoke_mic --raw /dev/null >"$art/parecord.log" 2>&1 &
     recorder=$!
     sleep 3
-    shot mic-recording topbar-popover
+    # `snap`, because the one frame in this scenario worth photographing is the
+    # one that will not hold still: the privacy dot beside the bar's indicators
+    # breathes for as long as a source is in use, so two consecutive captures
+    # are never identical and `shot` spent thirty seconds waiting for a frame
+    # that was never coming. The power scenario already avoids this by painting
+    # its fill at a fixed fraction; a pulse cannot be stopped that way, and
+    # stopping it would take away the thing being photographed.
+    #
+    # The longer settle is what `shot` was giving for free: this scenario is
+    # waiting on a slider that appears when PulseAudio reports the source in
+    # use, and a nested session tears one frame a second.
+    snap mic-recording 6
     kill "$recorder" 2>/dev/null || true
     wait "$recorder" 2>/dev/null || true
     sleep 3
