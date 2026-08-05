@@ -1303,6 +1303,19 @@ button.media-switcher-active {
     margin-bottom: 8px;
 }
 
+/* Drawn from scratch, like every button in Quick Settings and for the same
+   reason: Adwaita's `background-image` paints on top of a background *colour*,
+   so a rule that sets only the colour changes nothing on screen. */
+button.notification-clear-all,
+button.notification-group-clear,
+button.notification-close,
+button.notification-group-header {
+    background-image: none;
+    box-shadow: none;
+    text-shadow: none;
+    outline: none;
+}
+
 button.notification-clear-all,
 button.notification-group-clear,
 button.notification-close {
@@ -1360,13 +1373,25 @@ button.notification-group-header.notification-group-single:hover {
     font-weight: 700;
 }
 
+/* The line under a closed group's name: what arrived, in the same weight and
+   colour the body of a row uses, because that is what it is. */
+.notification-preview {
+    font-size: 0.92em;
+    color: var(--color-foreground-muted);
+}
+
+/* The same chip the crypto popover puts a 24h change in: a tinted pill at
+   0.85em with tabular figures, so 1 and 11 are the same shape and a group
+   whose count ticks over does not shuffle the chevron beside it. */
 .notification-count {
     font-size: 0.85em;
     font-weight: 700;
+    font-variant-numeric: tabular-nums;
     color: var(--color-foreground-muted);
     background-color: var(--color-card);
     border-radius: 9999px;
-    padding: 1px 7px;
+    min-width: 12px;
+    padding: 1px 8px;
 }
 
 .notification-chevron {
@@ -1374,12 +1399,18 @@ button.notification-group-header.notification-group-single:hover {
     color: var(--color-foreground-muted);
 }
 
+/* No side margins: the rows line up with the header above them on both edges.
+   The stack used to be inset four pixels on each side, which put its summaries
+   to the left of the application name and its close buttons eight pixels
+   inside the clear button they sit under — two rails where a card has one. */
 .notification-group-list {
-    margin: 2px 4px 4px 4px;
+    margin-top: 2px;
 }
 
+/* Right padding is the close button's own: with none of its own here the ✕
+   lands exactly under the group's clear button. */
 .notification-row {
-    padding: 6px 4px 6px 8px;
+    padding: 6px 0 6px 8px;
 }
 
 .notification-summary {
@@ -1391,9 +1422,15 @@ button.notification-group-header.notification-group-single:hover {
     color: var(--color-foreground-muted);
 }
 
+/* Muted rather than disabled. It is the only thing on the row saying *when*,
+   and at 40% over a translucent popover it was the faintest thing in the
+   panel; a size below the summary is enough to keep it secondary. Tabular
+   because it changes under itself every minute — "1m ago" to "11m ago" must
+   not shift the ellipsis in the summary beside it. */
 .notification-time {
     font-size: 0.85em;
-    color: var(--color-foreground-disabled);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-foreground-muted);
 }
 
 /* ===== Notification banners ===== */
@@ -1436,13 +1473,18 @@ window.toast-window {
     color: var(--color-foreground-muted);
 }
 
+/* 24, which is what the ✕ on a history row measures. The two are the same
+   affordance on the same notification and stood two pixels apart. */
 button.toast-close {
-    min-width: 22px;
-    min-height: 22px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 0;
     background: none;
+    background-image: none;
     border: none;
     box-shadow: none;
+    text-shadow: none;
+    outline: none;
     border-radius: 9999px;
     color: var(--color-foreground-muted);
 }
@@ -1458,12 +1500,19 @@ button.toast-close:hover {
     margin-top: 2px;
 }
 
+/* 24 of content and 4px above and below is 32 on screen — a pill a pointer
+   can hit without aiming, and the same height as the panel's own small
+   controls. GTK adds padding to `min-height` rather than taking it out of it,
+   so the 26 this asked for really was 26. */
 button.toast-action {
-    min-height: 26px;
-    padding: 0 12px;
+    min-height: 24px;
+    padding: 4px 14px;
     background-color: var(--color-card);
+    background-image: none;
     border: none;
     box-shadow: none;
+    text-shadow: none;
+    outline: none;
     border-radius: 9999px;
     color: var(--color-foreground);
     font-size: 0.92em;
@@ -1792,7 +1841,17 @@ osd-bar {
 .keyboard .qs-password-button:focus,
 .keyboard .qs-vpn-row:focus,
 .keyboard .qs-limit-button:focus,
-.keyboard .qs-power-row:focus {
+.keyboard .qs-power-row:focus,
+/* The control panel is the same kind of surface with the same problem: its
+   notification controls cleared Adwaita's ring along with its backgrounds and
+   drew nothing in its place, so tabbing through the history moved a focus
+   nobody could see. The row's close button is faded until it is hovered — the
+   ring is how a keyboard says where it is. */
+.keyboard .notification-clear-all:focus,
+.keyboard .notification-group-header:focus,
+.keyboard .notification-group-clear:focus,
+.keyboard .notification-close:focus,
+.keyboard .dnd-row switch:focus {
     outline: 2px solid var(--color-accent);
     outline-offset: -2px;
 }

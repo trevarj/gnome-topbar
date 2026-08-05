@@ -6,8 +6,10 @@
 //! gave, the icon its desktop entry declares, and finally a generic glyph so
 //! that a badly behaved sender still gets a row that looks like the others.
 //!
-//! [`choose`] is the decision and is pure; [`image`] carries it out, which is
-//! the only part that needs an icon theme and a GDK texture.
+//! [`candidates`] is the decision and is pure; [`image`] carries it out, and is
+//! the only part that needs an icon theme and a GDK texture. It is also the
+//! only part that can tell whether a name resolves to anything, which is why it
+//! is given the whole list rather than one answer.
 
 use gtk4::prelude::*;
 use gtk4::{Image, gdk, glib};
@@ -27,32 +29,35 @@ pub enum Choice {
     Name(String),
     /// The application's desktop entry, which declares its own icon.
     Entry(String),
-    /// Nothing identifiable: [`FALLBACK`].
-    None,
 }
 
-/// Decide where a notification's icon comes from.
-pub fn choose(source: &IconSource) -> Choice {
+/// Everywhere the icon could come from, most specific first.
+///
+/// A list rather than one answer, because "most specific" and "actually
+/// resolvable" are different questions and only the second one can be asked of
+/// a widget. Telegram sends `app_icon = "telegram"`; Adwaita 50 dropped the
+/// whole family of legacy application names, so that is a name nothing on the
+/// machine has — and a `GtkImage` given a name the theme does not know draws
+/// GTK's broken-image glyph and keeps it. Every notification from every
+/// application whose icon is not installed looked like a failed download.
+pub fn candidates(source: &IconSource) -> Vec<Choice> {
+    let mut found = Vec::new();
     if source.image_data.is_some() {
-        return Choice::Pixels;
+        found.push(Choice::Pixels);
     }
     // `image-path` and `app_icon` are both allowed to be a path *or* a theme
     // name, and senders use both spellings freely.
-    if let Some(choice) = source.image_path.as_deref().and_then(reference) {
-        return choice;
-    }
-    if let Some(choice) = reference(&source.app_icon) {
-        return choice;
-    }
-    if let Some(entry) = source
-        .desktop_entry
-        .as_deref()
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-    {
-        return Choice::Entry(entry.to_string());
-    }
-    Choice::None
+    found.extend(source.image_path.as_deref().and_then(reference));
+    found.extend(reference(&source.app_icon));
+    found.extend(
+        source
+            .desktop_entry
+            .as_deref()
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| Choice::Entry(entry.to_string())),
+    );
+    found
 }
 
 /// Read one of the string icon fields, which may be a URI, a path, or a name.
@@ -71,23 +76,44 @@ fn reference(value: &str) -> Option<Choice> {
 }
 
 /// Build the icon widget for `source` at `size` pixels.
+///
+/// The first candidate that actually resolves wins. A sender naming five
+/// things, four of which are not installed, still gets an icon that means
+/// something rather than the first one that happened to be listed.
 pub fn image(source: &IconSource, size: i32) -> Image {
-    let image = match choose(source) {
+    let image = candidates(source)
+        .iter()
+        .find_map(|choice| resolve(choice, source))
+        .unwrap_or_else(|| Image::from_icon_name(FALLBACK));
+    image.set_pixel_size(size);
+    image
+}
+
+/// Build the widget for one candidate, or `None` if it is not there.
+fn resolve(choice: &Choice, source: &IconSource) -> Option<Image> {
+    match choice {
         Choice::Pixels => source
             .image_data
             .as_deref()
             .and_then(texture)
-            .map(|texture| Image::from_paintable(Some(&texture)))
-            .unwrap_or_else(|| Image::from_icon_name(FALLBACK)),
-        Choice::File(path) => Image::from_file(path),
-        Choice::Name(name) => Image::from_icon_name(&name),
-        Choice::Entry(entry) => crate::widgets::app_icon::lookup(&entry)
-            .map(|icon| Image::from_gicon(&icon))
-            .unwrap_or_else(|| Image::from_icon_name(FALLBACK)),
-        Choice::None => Image::from_icon_name(FALLBACK),
-    };
-    image.set_pixel_size(size);
-    image
+            .map(|texture| Image::from_paintable(Some(&texture))),
+        // A path is checked rather than trusted: `image-path` routinely points
+        // at an avatar in a cache the sending application has since cleared.
+        Choice::File(path) => std::path::Path::new(path)
+            .is_file()
+            .then(|| Image::from_file(path)),
+        Choice::Name(name) => has_icon(name).then(|| Image::from_icon_name(name)),
+        Choice::Entry(entry) => {
+            crate::widgets::app_icon::lookup(entry).map(|icon| Image::from_gicon(&icon))
+        }
+    }
+}
+
+/// Whether the icon theme in use has an icon by that name.
+pub fn has_icon(name: &str) -> bool {
+    gdk::Display::default()
+        .map(|display| gtk4::IconTheme::for_display(&display))
+        .is_some_and(|theme| theme.has_icon(name))
 }
 
 /// Turn raw notification pixels into a texture.
@@ -131,6 +157,11 @@ mod tests {
         })
     }
 
+    /// What the sender most wants used, which is where resolution starts.
+    fn first(source: &IconSource) -> Option<Choice> {
+        candidates(source).into_iter().next()
+    }
+
     #[test]
     fn attached_pixels_beat_everything_else() {
         let source = IconSource {
@@ -139,7 +170,7 @@ mod tests {
             app_icon: "org.gnome.Fractal".into(),
             desktop_entry: Some("org.gnome.Fractal".into()),
         };
-        assert_eq!(choose(&source), Choice::Pixels);
+        assert_eq!(first(&source), Some(Choice::Pixels));
     }
 
     #[test]
@@ -149,7 +180,7 @@ mod tests {
             app_icon: "org.gnome.Fractal".into(),
             ..IconSource::default()
         };
-        assert_eq!(choose(&source), Choice::File("/tmp/avatar.png".into()));
+        assert_eq!(first(&source), Some(Choice::File("/tmp/avatar.png".into())));
     }
 
     #[test]
@@ -159,8 +190,8 @@ mod tests {
             ..IconSource::default()
         };
         assert_eq!(
-            choose(&source),
-            Choice::File("/home/ada/avatar.png".into()),
+            first(&source),
+            Some(Choice::File("/home/ada/avatar.png".into())),
             "the URI scheme is stripped, not passed to the icon theme"
         );
     }
@@ -171,7 +202,10 @@ mod tests {
             image_path: Some("mail-unread-symbolic".into()),
             ..IconSource::default()
         };
-        assert_eq!(choose(&source), Choice::Name("mail-unread-symbolic".into()));
+        assert_eq!(
+            first(&source),
+            Some(Choice::Name("mail-unread-symbolic".into()))
+        );
     }
 
     #[test]
@@ -181,7 +215,10 @@ mod tests {
             desktop_entry: Some("org.gnome.Fractal".into()),
             ..IconSource::default()
         };
-        assert_eq!(choose(&source), Choice::Name("mail-unread-symbolic".into()));
+        assert_eq!(
+            first(&source),
+            Some(Choice::Name("mail-unread-symbolic".into()))
+        );
     }
 
     #[test]
@@ -191,8 +228,8 @@ mod tests {
             ..IconSource::default()
         };
         assert_eq!(
-            choose(&source),
-            Choice::File("/usr/share/pixmaps/thing.png".into())
+            first(&source),
+            Some(Choice::File("/usr/share/pixmaps/thing.png".into()))
         );
     }
 
@@ -203,21 +240,45 @@ mod tests {
             ..IconSource::default()
         };
         assert_eq!(
-            choose(&source),
-            Choice::Entry("org.telegram.desktop".into())
+            first(&source),
+            Some(Choice::Entry("org.telegram.desktop".into()))
         );
     }
 
     #[test]
-    fn a_notification_describing_nothing_gets_the_generic_icon() {
-        assert_eq!(choose(&IconSource::default()), Choice::None);
+    fn every_source_the_sender_named_is_kept_as_a_candidate() {
+        // The order is the specification's, and all of it survives: a name the
+        // icon theme has never heard of has to be able to fall through to the
+        // desktop entry behind it rather than ending the search.
+        let source = IconSource {
+            image_data: Some(pixels()),
+            image_path: Some("/tmp/avatar.png".into()),
+            app_icon: "telegram".into(),
+            desktop_entry: Some("org.telegram.desktop".into()),
+        };
+        assert_eq!(
+            candidates(&source),
+            vec![
+                Choice::Pixels,
+                Choice::File("/tmp/avatar.png".into()),
+                Choice::Name("telegram".into()),
+                Choice::Entry("org.telegram.desktop".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_notification_describing_nothing_names_no_candidate_at_all() {
+        // Which is what puts [`FALLBACK`] on screen: `image` runs out of
+        // candidates rather than being handed a special one.
+        assert!(candidates(&IconSource::default()).is_empty());
 
         let blank = IconSource {
             image_path: Some("  ".into()),
-            app_icon: "".into(),
+            app_icon: String::new(),
             desktop_entry: Some(String::new()),
             ..IconSource::default()
         };
-        assert_eq!(choose(&blank), Choice::None, "blank fields are no fields");
+        assert!(candidates(&blank).is_empty(), "blank fields are no fields");
     }
 }

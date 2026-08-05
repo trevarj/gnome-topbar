@@ -402,6 +402,8 @@ pub const NOTIFICATION_GROUP_CLEAR: &str = "notification-group-clear";
 pub const NOTIFICATION_ICON: &str = "notification-icon";
 /// The application name on a group header.
 pub const NOTIFICATION_APP: &str = "notification-app";
+/// The newest notification's summary, on a group that is closed.
+pub const NOTIFICATION_PREVIEW: &str = "notification-preview";
 /// The badge counting a group's notifications.
 pub const NOTIFICATION_COUNT: &str = "notification-count";
 /// The expand/collapse chevron.
@@ -773,6 +775,7 @@ pub const ALL: &[&str] = &[
     NOTIFICATION_GROUP_CLEAR,
     NOTIFICATION_ICON,
     NOTIFICATION_APP,
+    NOTIFICATION_PREVIEW,
     NOTIFICATION_COUNT,
     NOTIFICATION_CHEVRON,
     NOTIFICATION_ROW,

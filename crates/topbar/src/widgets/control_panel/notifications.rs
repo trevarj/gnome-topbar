@@ -20,11 +20,16 @@ use std::rc::Rc;
 
 use chrono::{DateTime, Local};
 use gtk4::prelude::*;
-use gtk4::{Align, Button, Image, Label, Orientation, PolicyType, ScrolledWindow, Switch, pango};
+use gtk4::{
+    Align, Button, EventControllerMotion, Image, Label, Orientation, PolicyType, ScrolledWindow,
+    Switch, pango,
+};
 use topbar_services::{CloseReason, GroupView, NotifState, NotificationView, Services};
 
+use crate::anim::{Animation, AnimationParams, Easing, RotateBox};
 use crate::bridge::{self, ActionScope, BindingGuard};
-use crate::style::classes;
+use crate::style::{classes, icons};
+use crate::widgets::expander::{REVEAL_MS, Section};
 use crate::widgets::notifications::{ROW_ICON, absolute_time, icon, markup, relative_time};
 
 /// Adwaita's bell. There is no plain `notifications-symbolic` in Adwaita 50,
@@ -33,6 +38,11 @@ use crate::widgets::notifications::{ROW_ICON, absolute_time, icon, markup, relat
 const EMPTY_ICON: &str = "preferences-system-notifications-symbolic";
 /// Tallest the list grows before it starts scrolling.
 const MAX_LIST_HEIGHT: i32 = 460;
+/// Half a turn, which takes the chevron from pointing down to pointing up.
+///
+/// The same turn Quick Settings' expanders make, over the same duration: one
+/// arrow that turns rather than two that swap places.
+const CHEVRON_TURN: f32 = 180.0;
 /// Where this column's failures are reported.
 const SCOPE: ActionScope = ActionScope::Toast {
     widget: "notifications",
@@ -46,6 +56,13 @@ pub struct Column {
     clear_all: Button,
     /// The history, one child per application group.
     list: gtk4::Box,
+    /// The scroller around it, hidden along with the list.
+    ///
+    /// Hiding the list alone is not enough: the scroller is what claims the
+    /// column's spare height, and an empty one still claimed half of it —
+    /// which pushed the "No Notifications" state, itself asking for the other
+    /// half, into the bottom of the column instead of its middle.
+    scroll: ScrolledWindow,
     /// Shown while [`Column::list`] is empty.
     empty: gtk4::Box,
     /// Do Not Disturb.
@@ -131,6 +148,7 @@ impl Column {
             header,
             clear_all,
             list,
+            scroll,
             empty,
             dnd,
             syncing: Rc::new(Cell::new(false)),
@@ -222,6 +240,9 @@ impl Column {
 
         let empty = state.history.is_empty();
         self.list.set_visible(!empty);
+        // The scroller with it: see the field's own note. An empty column is a
+        // designed state and it has to be centred in the whole column.
+        self.scroll.set_visible(!empty);
         // A Clear button over an empty list is a button that does nothing.
         self.header.set_visible(!empty);
         self.empty.set_visible(empty);
@@ -239,8 +260,12 @@ impl Column {
             rows.append(&self.build_row(notification, now));
         }
 
-        let chevron = Image::from_icon_name("pan-end-symbolic");
-        chevron.add_css_class(classes::NOTIFICATION_CHEVRON);
+        // One arrow that turns, rather than two that swap: the chevron is the
+        // handle on the stack below it, so it moves with it.
+        let arrow = Image::from_icon_name(icons::EXPAND);
+        arrow.add_css_class(classes::NOTIFICATION_CHEVRON);
+        let chevron = RotateBox::new();
+        chevron.set_child(&arrow);
         chevron.set_valign(Align::Center);
 
         // The whole header is the expander, so hitting the app name works.
@@ -255,12 +280,30 @@ impl Column {
         app_icon.set_valign(Align::Center);
         content.append(&app_icon);
 
+        let text = gtk4::Box::new(Orientation::Vertical, 0);
+        text.set_hexpand(true);
+        text.set_valign(Align::Center);
+
         let name = Label::new(Some(&group.app_name));
         name.add_css_class(classes::NOTIFICATION_APP);
         name.set_xalign(0.0);
-        name.set_hexpand(true);
         name.set_ellipsize(pango::EllipsizeMode::End);
-        content.append(&name);
+        text.append(&name);
+
+        // What is inside a closed group, on one line. A collapsed stack that
+        // showed nothing but a name and a number is a list that has to be
+        // opened five times before it can be read, and "3" is not the thing
+        // the user came to catch up on. It goes when the group opens, in the
+        // same frame the rows arrive, so the surface is resized once — and the
+        // first row it uncovers says the same thing in full.
+        let preview = Label::new(Some(group.newest().summary.as_str()));
+        preview.add_css_class(classes::NOTIFICATION_PREVIEW);
+        preview.set_xalign(0.0);
+        preview.set_ellipsize(pango::EllipsizeMode::End);
+        preview.set_single_line_mode(true);
+        preview.set_visible(group.count() > 1);
+        text.append(&preview);
+        content.append(&text);
 
         if group.count() > 1 {
             let count = Label::new(Some(&group.count().to_string()));
@@ -294,31 +337,33 @@ impl Column {
         });
         header.append(&clear);
 
+        card.append(&header);
+
         // A group of one is its own summary, so it is simply open: expanding
-        // it would show the same line again.
+        // it would show the same line again, and there is nothing to animate.
         if group.count() == 1 {
             chevron.set_visible(false);
             expander.set_sensitive(false);
             expander.add_css_class(classes::NOTIFICATION_GROUP_SINGLE);
-        } else {
-            rows.set_visible(false);
-            expander.connect_clicked({
-                let rows = rows.clone();
-                let chevron = chevron.clone();
-                move |_| {
-                    let expanded = !rows.is_visible();
-                    rows.set_visible(expanded);
-                    chevron.set_icon_name(Some(if expanded {
-                        "pan-down-symbolic"
-                    } else {
-                        "pan-end-symbolic"
-                    }));
-                }
-            });
+            card.append(&rows);
+            return card;
         }
 
-        card.append(&header);
-        card.append(&rows);
+        // The same slot Quick Settings' cards open in, for the same reason: the
+        // panel is on a layer surface, so the height it asks the compositor for
+        // changes once per toggle and what animates is where the rows are
+        // painted inside the space that is already there.
+        let section = Section::new(&rows);
+        card.append(section.root());
+
+        let rotation = Animation::new(&chevron);
+        expander.connect_clicked(move |_| {
+            let expanded = !section.is_expanded();
+            section.set_expanded(expanded);
+            preview.set_visible(!expanded);
+            turn(&chevron, &rotation, expanded);
+        });
+
         card
     }
 
@@ -337,11 +382,15 @@ impl Column {
         summary.set_hexpand(true);
         summary.set_ellipsize(pango::EllipsizeMode::End);
         summary.set_single_line_mode(true);
+        // Baselines, not boxes: the age is drawn a size smaller than the
+        // summary beside it, and aligning the two boxes at the top left it
+        // sitting visibly high on the line.
+        summary.set_valign(Align::Baseline);
         top.append(&summary);
 
         let age = Label::new(Some(&relative_time(notification.timestamp, now)));
         age.add_css_class(classes::NOTIFICATION_TIME);
-        age.set_valign(Align::Start);
+        age.set_valign(Align::Baseline);
         age.set_tooltip_text(Some(&absolute_time(notification.timestamp)));
         self.ages
             .borrow_mut()
@@ -378,7 +427,74 @@ impl Column {
             }
         });
         row.append(&close);
+        reveal_on_hover(&row, &close);
 
         row
     }
+}
+
+/// Show a row's close button under the pointer, and nowhere else.
+///
+/// What GNOME's message list does, and a history of sixty rows is why: sixty
+/// permanent ✕s read as sixty things to do rather than as a list to catch up
+/// on. The button keeps its slot at every moment — it is faded, not hidden, so
+/// revealing it cannot reflow the summary beside it — and it stays sensitive,
+/// so the keyboard can still reach it. Focus reveals it too: a Tab that landed
+/// on something invisible would be worse than a ✕ that was always there.
+fn reveal_on_hover(row: &gtk4::Box, close: &Button) {
+    fn set_revealed(button: &Button, revealed: bool) {
+        button.set_opacity(f64::from(u8::from(revealed)));
+    }
+
+    set_revealed(close, false);
+    let hovered = Rc::new(Cell::new(false));
+
+    let motion = EventControllerMotion::new();
+    motion.connect_enter({
+        let close = close.clone();
+        let hovered = Rc::clone(&hovered);
+        move |_, _, _| {
+            hovered.set(true);
+            set_revealed(&close, true);
+        }
+    });
+    motion.connect_leave({
+        let close = close.clone();
+        let hovered = Rc::clone(&hovered);
+        move |_| {
+            hovered.set(false);
+            set_revealed(&close, close.has_focus());
+        }
+    });
+    row.add_controller(motion);
+
+    // On the button rather than through a captured clone of it: a handler that
+    // held a reference to the widget it is connected to is a reference cycle,
+    // and the row it is in would outlive the panel.
+    close.connect_notify_local(Some("has-focus"), move |button, _| {
+        set_revealed(button, hovered.get() || button.has_focus());
+    });
+}
+
+/// Turn a group's chevron the way its stack is going.
+///
+/// Half a turn over exactly as long as the rows take, from wherever the arrow
+/// currently is: a group closed halfway through opening turns its arrow back
+/// from there rather than snapping upright first.
+fn turn(chevron: &RotateBox, rotation: &Animation, expanded: bool) {
+    let start = chevron.angle();
+    let target = if expanded { CHEVRON_TURN } else { 0.0 };
+    let distance = f64::from((target - start).abs()) / f64::from(CHEVRON_TURN);
+    let duration = (REVEAL_MS as f64 * distance).round() as u64;
+
+    let chevron = chevron.clone();
+    rotation.start(
+        AnimationParams::new(duration).with_easing(if expanded {
+            Easing::EaseOutCubic
+        } else {
+            Easing::EaseInCubic
+        }),
+        Box::new(move |progress| chevron.set_angle(start + (target - start) * progress as f32)),
+        None,
+    );
 }
