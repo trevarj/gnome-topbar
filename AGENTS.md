@@ -117,6 +117,24 @@ learned by getting them wrong.
 - Inner scripts passed to `sh -c` are single-quoted, so no apostrophes in their
   comments.
 
+### Two things the nested session does that a real one does not
+
+- **Its frame clock runs at about 1Hz.** The host compositor is not presenting
+  a window nobody is looking at, so GTK falls back to a throttled tick, and an
+  animation started just after one tick waits most of a second for the next.
+  The panel logs the wait — `motion: run N got its first frame after 951ms` in
+  a debug build — and the pattern is unmistakable: a run on an
+  already-presented surface reads 0-4ms, a run on a surface that has just been
+  mapped reads hundreds of milliseconds. This is what made a 150ms banner
+  slide look as though it started seconds late. Nothing about it is the
+  panel's; on a live session the same line reads one frame. **Do not tune an
+  animation against a nested timing.**
+- **It has exactly one output and will not give it up.** `niri msg output
+  winit off` is refused, so monitor teardown and hotplug cannot be driven here
+  — `scripts/smoke-hotplug.sh` says so and churns the output's scale instead,
+  which exercises the same debounce and the same handler bookkeeping. Taking a
+  monitor away belongs on the live-session checklist.
+
 ## Commits
 
 - **Conventional Commits**, enforced by the `convco` pre-commit hook.
