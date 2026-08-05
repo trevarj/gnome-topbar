@@ -1941,7 +1941,7 @@ pub struct AudioConfig {
     pub allow_overdrive: bool,
 }
 
-const UPDATES_KEYS: &[&str] = &["check_interval", "update_count_command"];
+const UPDATES_KEYS: &[&str] = &["check_interval", "update_count_command", "flake"];
 
 /// `[updates]` — the Quick Settings pending-updates card.
 ///
@@ -1954,6 +1954,11 @@ pub struct UpdatesConfig {
     pub check_interval: u64,
     /// Command printing either a count or one update per line.
     pub update_count_command: Option<String>,
+    /// NixOS only: where the system flake lives, when not at `/etc/nixos`.
+    ///
+    /// The updates card counts pending updates there by re-locking a scratch
+    /// copy of the flake; the real lock file is never written.
+    pub flake: Option<String>,
 }
 
 impl Default for UpdatesConfig {
@@ -1961,6 +1966,7 @@ impl Default for UpdatesConfig {
         Self {
             check_interval: 3600,
             update_count_command: None,
+            flake: None,
         }
     }
 }

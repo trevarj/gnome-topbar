@@ -17,6 +17,7 @@ use tracing::{debug, info, warn};
 
 use super::UpdatesState;
 use super::distro::{Counter, Distro, detect_at};
+use super::flake_count;
 use super::parse::{Count, override_output, read};
 use crate::connectivity::Connectivity;
 use crate::proc::{self, CmdSpec};
@@ -97,6 +98,11 @@ enum Plan {
         /// Which contract its output follows.
         counter: Counter,
     },
+    /// NixOS: re-lock a scratch copy of the flake and count what moved.
+    NixosFlake {
+        /// Where `flake.nix` and `flake.lock` live.
+        dir: PathBuf,
+    },
 }
 
 /// Decide what to run, saying in the log why when the answer is "nothing".
@@ -121,6 +127,25 @@ fn plan(config: &UpdatesConfig, root: &std::path::Path) -> Option<Plan> {
             info!("updates: counting with {}'s own tools", distro.label());
             Some(Plan::Native { distro, counter })
         }
+        // Not a single command but still counted: re-lock a copy of the
+        // system flake and diff the pins. `[updates] flake` says where the
+        // flake lives when it is not at the canonical path.
+        None if distro == Distro::NixOS => {
+            let dir = config
+                .flake
+                .as_deref()
+                .map(str::trim)
+                .filter(|dir| !dir.is_empty())
+                .map_or_else(
+                    || PathBuf::from(flake_count::DEFAULT_FLAKE_DIR),
+                    expand_home,
+                );
+            info!(
+                "updates: counting flake inputs that would move, against {}",
+                dir.display()
+            );
+            Some(Plan::NixosFlake { dir })
+        }
         None => {
             // Said plainly, once, because the alternative the user has is a
             // configuration key and they have to be told it exists.
@@ -131,6 +156,18 @@ fn plan(config: &UpdatesConfig, root: &std::path::Path) -> Option<Plan> {
             );
             None
         }
+    }
+}
+
+/// `~/x` as an absolute path, because `[updates] flake` is written by a
+/// person and people write `~`.
+fn expand_home(path: &str) -> PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => {
+            let home = std::env::var_os("HOME").map_or_else(std::env::temp_dir, PathBuf::from);
+            home.join(rest)
+        }
+        None => PathBuf::from(path),
     }
 }
 
@@ -156,25 +193,25 @@ impl Task {
         }
 
         self.publish(|state| state.checking = true);
-        let (spec, counter) = match &self.plan {
-            Plan::Override(spec) => (spec.clone(), None),
-            Plan::Native { counter, .. } => (counter.spec(), Some(*counter)),
-        };
-
-        let count = match proc::capture(&spec).await {
-            Ok(captured) => match counter {
-                Some(counter) => read(counter, &captured),
-                None => override_output(&captured),
+        let count = match &self.plan {
+            Plan::NixosFlake { dir } => flake_count::count(dir).await,
+            Plan::Override(spec) => match proc::capture(spec).await {
+                Ok(captured) => override_output(&captured),
+                Err(error) => Count::Unusable(error.to_string()),
             },
-            // The command could not be started at all: `checkupdates` on a
-            // machine without pacman-contrib, or a configured command naming a
-            // package manager that is no longer installed.
-            Err(error) => Count::Unusable(error.to_string()),
+            Plan::Native { counter, .. } => match proc::capture(&counter.spec()).await {
+                Ok(captured) => read(*counter, &captured),
+                // The command could not be started at all: `checkupdates` on a
+                // machine without pacman-contrib, or a package manager that is
+                // no longer installed.
+                Err(error) => Count::Unusable(error.to_string()),
+            },
         };
 
         let source = match &self.plan {
             Plan::Native { distro, .. } => Some(distro.label()),
             Plan::Override(_) => Some("the configured command"),
+            Plan::NixosFlake { .. } => Some("NixOS"),
         };
 
         let wait = match &count {
@@ -254,6 +291,7 @@ mod tests {
         UpdatesConfig {
             check_interval: 3600,
             update_count_command: command.map(str::to_string),
+            flake: None,
         }
     }
 
@@ -297,15 +335,42 @@ mod tests {
     }
 
     #[test]
-    fn a_distribution_with_no_counter_and_no_override_has_no_plan() {
+    fn nixos_relocks_the_canonical_flake_unless_told_otherwise() {
         let root = root_saying("nixos");
-        assert!(
-            plan(&config(None), &root).is_none(),
-            "and the card therefore never appears"
-        );
-        // With an override it works perfectly well, which is the whole point
-        // of telling the user about the key.
-        assert!(plan(&config(Some("true")), &root).is_some());
+        let plan = plan(&config(None), &root).expect("NixOS counts by re-locking a copy");
+        let Plan::NixosFlake { dir } = plan else {
+            panic!("expected the flake plan");
+        };
+        assert_eq!(dir, PathBuf::from(flake_count::DEFAULT_FLAKE_DIR));
+        // The override still wins outright, like everywhere else.
+        assert!(matches!(
+            super::plan(&config(Some("true")), &root),
+            Some(Plan::Override(_))
+        ));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_flake_key_moves_the_relock_and_expands_a_tilde() {
+        let root = root_saying("nixos");
+        let with_flake = UpdatesConfig {
+            flake: Some("~/dotfiles/nixos".into()),
+            ..config(None)
+        };
+        let Some(Plan::NixosFlake { dir }) = plan(&with_flake, &root) else {
+            panic!("expected the flake plan");
+        };
+        assert!(!dir.to_string_lossy().contains('~'), "{}", dir.display());
+        assert!(dir.ends_with("dotfiles/nixos"), "{}", dir.display());
+        // Blank means unset, matching update_count_command's own rule.
+        let blank = UpdatesConfig {
+            flake: Some("  ".into()),
+            ..config(None)
+        };
+        let Some(Plan::NixosFlake { dir }) = plan(&blank, &root) else {
+            panic!("expected the flake plan");
+        };
+        assert_eq!(dir, PathBuf::from(flake_count::DEFAULT_FLAKE_DIR));
         std::fs::remove_dir_all(root).ok();
     }
 

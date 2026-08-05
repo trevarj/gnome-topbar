@@ -354,11 +354,12 @@ PRETTY_NAME="Alpine Linux v3.21"
     }
 
     #[test]
-    fn nixos_has_no_counter_and_that_is_a_decision_rather_than_a_gap() {
-        // Every candidate either writes something (`nix flake update`) or takes
-        // minutes (`nixos-rebuild build`). A card reporting "0 updates" on a
-        // machine three months behind would be worse than no card, so the
-        // service logs what to configure instead.
+    fn nixos_has_no_single_command_counter_because_it_relocks_a_copy_instead() {
+        // `Counter` models "run one program, read its output". NixOS cannot be
+        // counted that way — every candidate command either writes the lock
+        // file or builds the system — so its counting lives in
+        // `flake_count` (a scratch-copy re-lock), routed by the task's plan,
+        // and there is deliberately no `Counter` arm for it here.
         assert_eq!(detect(NIXOS).counter(), None);
         assert_eq!(detect(NIXOS).label(), "NixOS");
     }

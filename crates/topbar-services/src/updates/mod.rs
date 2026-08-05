@@ -14,15 +14,15 @@
 //! editions. Nothing it runs syncs a package database, takes a lock or
 //! downloads anything.
 //!
-//! Two distributions have no counter, and that is a decision rather than a gap:
-//!
-//! - **NixOS** has no notion of "pending updates" that can be answered without
-//!   doing work. `nix flake update` writes a lock file; `nixos-rebuild build`
-//!   builds the system; `nix store diff-closures` compares two closures that
-//!   both have to exist first. A card reporting "0 updates" on a machine three
-//!   months behind would be worse than no card, so the service logs what to put
-//!   in `update_count_command` and the card stays hidden.
-//! - **Anything unrecognised**, for the same reason.
+//! **NixOS** is counted differently: no single command answers "how many
+//! updates are pending" without writing the lock file, so the service does
+//! what `nix flake update --dry-run` used to do before the flag was removed —
+//! it re-locks a scratch *copy* of the system flake and diffs the pins (see
+//! [`flake_count`]). `[updates] flake` says where the flake lives when it is
+//! not at `/etc/nixos`. **Anything unrecognised** has no counter at all: a
+//! card reporting "0 updates" on a machine the panel cannot read would be
+//! worse than no card, so the service logs what to put in
+//! `update_count_command` and the card stays hidden.
 //!
 //! ## The override
 //!
@@ -40,6 +40,7 @@
 //! identical on a panel, and only one of them is safe to guess.
 
 pub mod distro;
+pub mod flake_count;
 pub mod parse;
 mod task;
 

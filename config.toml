@@ -177,18 +177,18 @@ allow_overdrive = false
 #   fedora      dnf -q check-update                           (Nobara, RHEL, …)
 #   silverblue  rpm-ostree upgrade --check          (Kinoite, Sericea, uBlue)
 #
-# NixOS has no counter, deliberately: there is no way to answer "how many
-# updates are pending" without writing a lock file or building the system, and
-# a card reporting "0 updates" on a machine three months behind would be worse
-# than no card. Set update_count_command to get one. Two workable shapes:
+#   nixos       copies flake.nix and flake.lock into a scratch directory,
+#               runs `nix flake update` against the copy, and counts the
+#               inputs whose pin moved. The system's own lock file is never
+#               written. The flake is assumed at /etc/nixos; if yours lives
+#               in a dotfiles checkout, point `flake` at it:
 #
-#   update_count_command = "nix flake update --flake /etc/nixos --dry-run 2>&1 | grep -c '^• Updated'"
-#   update_count_command = "nix store diff-closures /run/current-system /run/booted-system | grep -c '→'"
+# flake = "~/dotfiles/nixos"   # NixOS only: where the system flake lives
 #
-# The card is hidden when the count is zero and when the command fails.
+# The card is hidden when the count is zero and when counting fails.
 check_interval = 3600 # Seconds between checks (minimum 60)
-# The override runs through a shell, so pipelines work. It must print either a
-# number, or one pending update per line.
+# The override wins over all of the above, runs through a shell so pipelines
+# work, and must print either a number, or one pending update per line.
 # update_count_command = "checkupdates | wc -l"
 
 [advanced]
