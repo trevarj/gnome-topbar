@@ -395,5 +395,11 @@ impl PopoverContent for Panel {
         self.sliders.collapse();
         self.accordion.collapse_all();
         self.toggles.sync_chevrons();
+        // And so does everything that went wrong. A caption is cleared when the
+        // action it explains is tried again, which for an action nobody tries
+        // again is never: the panel is retained, so a failed lock command was
+        // still sitting under the header the next time the panel was opened,
+        // in red, about something that had happened days earlier.
+        crate::surfaces::inline::clear_all();
     }
 }

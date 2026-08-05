@@ -171,6 +171,23 @@ pub fn clear(name: &str) {
     });
 }
 
+/// Clear every live slot there is.
+///
+/// The panel calls this when it closes. A caption otherwise stays on the row
+/// until the *same* action is tried again, so a lock command that failed on
+/// Tuesday was still explaining itself on Thursday — retained content means
+/// the label is the same label, and nothing else was ever going to wipe it.
+pub fn clear_all() {
+    SLOTS.with_borrow(|slots| {
+        for slot in slots {
+            if let Some(label) = slot.label.upgrade() {
+                label.set_visible(false);
+                label.set_text("");
+            }
+        }
+    });
+}
+
 /// Show a message in one caption.
 fn show(label: &gtk4::Label, message: &str) {
     label.set_text(message);
