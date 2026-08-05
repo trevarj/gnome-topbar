@@ -20,6 +20,11 @@ fake-sni = []
 # daemon, because the real ones live on the *system* bus and a smoke run must
 # never so much as look at that.
 fake-power = []
+# And for BlueZ: `topbar-fake-bluez` serves an adapter, its paired devices
+# and an agent manager, so the Bluetooth scenarios (including a pairing the
+# panel did not start) can be driven without going anywhere near the machine's
+# real one — which is the developer's headphones.
+fake-bluez = []
 # And for the network: `topbar-fake-nm` serves a NetworkManager — devices,
 # access points, a settings store, an agent manager — so the Wi-Fi and VPN
 # scenarios can be driven without going anywhere near the machine's real one.
@@ -39,6 +44,11 @@ required-features = ["fake-sni"]
 name = "topbar-fake-power"
 path = "src/bin/fake_power.rs"
 required-features = ["fake-power"]
+
+[[bin]]
+name = "topbar-fake-bluez"
+path = "src/bin/fake_bluez.rs"
+required-features = ["fake-bluez"]
 
 [[bin]]
 name = "topbar-fake-nm"

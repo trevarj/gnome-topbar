@@ -14,6 +14,7 @@ use topbar_core::Config;
 
 use crate::audio::Audio;
 use crate::battery::Battery;
+use crate::bluetooth::Bluetooth;
 use crate::brightness::Brightness;
 use crate::connectivity::Connectivity;
 use crate::crypto::Crypto;
@@ -69,6 +70,8 @@ pub struct Services {
     pub media: Media,
     /// The network: Wi-Fi, Ethernet, VPN and the secret agent.
     pub network: Network,
+    /// Bluetooth: the adapter, its paired devices, and the pairing agent.
+    pub bluetooth: Bluetooth,
     /// Whether the machine is online. A projection of [`Services::network`].
     pub connectivity: Connectivity,
     /// The weather, as one cache for the whole panel.
@@ -111,6 +114,14 @@ const SMOKE_SYSFS: &str = "TOPBAR_SMOKE_POWER_SYSFS";
 /// [`crate::network::Access`]. A debug build with this unset reads and does
 /// nothing else.
 const SMOKE_NM_BUS: &str = "TOPBAR_SMOKE_NM_BUS";
+/// And again, for BlueZ.
+///
+/// The real one is the machine's live adapter, and this is the switch that
+/// makes the Bluetooth service willing to change anything at all — including
+/// whether it registers a pairing agent, which on a real session would take
+/// the prompts the user's own desktop is waiting for. A debug build with this
+/// unset reads and does nothing else.
+const SMOKE_BLUEZ_BUS: &str = "TOPBAR_SMOKE_BLUEZ_BUS";
 
 /// A smoke override, in debug builds only.
 fn smoke(variable: &str) -> Option<String> {
@@ -142,6 +153,7 @@ impl Services {
         let power_bus = smoke(SMOKE_BUS);
         let power_sysfs = smoke(SMOKE_SYSFS).map(PathBuf::from);
         let nm_bus = smoke(SMOKE_NM_BUS);
+        let bluez_bus = smoke(SMOKE_BLUEZ_BUS);
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
@@ -164,6 +176,7 @@ impl Services {
                 inhibitor: Inhibitor::start(None),
                 battery: Battery::start(power_bus.clone(), power_sysfs),
                 power_profiles: PowerProfiles::start(power_bus),
+                bluetooth: Bluetooth::start(bluez_bus),
                 power: Power::new(None),
                 ipc: Ipc::start(),
                 network,

@@ -408,18 +408,28 @@ impl PendingPrompt {
     }
 }
 
-/// Whether the panel is allowed to change anything on this NetworkManager.
+/// Whether the panel is allowed to change anything on the daemon it is talking
+/// to.
 ///
-/// The real one on the system bus is the machine's live network. A development
-/// build has no business joining a network, switching the radio off, making the
-/// card transmit, or registering a secret agent that would intercept the
-/// prompts the session's actual panel is waiting for — so a debug build talking
-/// to the real bus reads and nothing else. Tests and the smoke run point the
-/// service at a NetworkManager of their own with an address, which is the
-/// signal that changing things is safe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Shared by every service whose real daemon lives on the **system** bus and
+/// *is* something of the user's — NetworkManager is their live connection,
+/// BlueZ is the headphones they are listening to. A development build has no
+/// business joining a network, switching a radio off, disconnecting whatever is
+/// playing, or registering an agent that would intercept the prompts the
+/// session's actual panel is waiting for; so a debug build talking to the real
+/// bus reads and nothing else. Tests and the smoke run point the service at a
+/// daemon of their own with an address, which is the signal that changing
+/// things is safe.
+///
+/// It lives here, beside the service that needed it first, rather than in a
+/// module of its own — one policy with one test, named once.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Access {
     /// List, follow, report. Refuse anything that would change the machine.
+    ///
+    /// The default, so a snapshot built before any policy has been decided
+    /// cannot be one that permits a write.
+    #[default]
     ReadOnly,
     /// The packaged panel, or a bus the test brought up itself.
     Full,

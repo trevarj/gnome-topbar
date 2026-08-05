@@ -11,6 +11,7 @@
 
 pub mod audio;
 pub mod battery;
+pub mod bluetooth;
 pub mod brightness;
 pub mod change;
 pub mod connectivity;
@@ -44,6 +45,9 @@ pub use tokio::sync::watch;
 
 pub use audio::{Audio, AudioHandle, AudioState, DeviceView};
 pub use battery::{Battery, BatteryHandle, BatteryState, BatteryStatus, Thresholds};
+pub use bluetooth::{
+    Bluetooth, BluetoothHandle, BtDevice, BtState, IconKind, PairingPrompt, PromptKind,
+};
 pub use brightness::{Brightness, BrightnessHandle, BrightnessState};
 pub use change::{Change, ChangeSource};
 pub use connectivity::{Connectivity, ConnectivityState};

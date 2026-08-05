@@ -117,6 +117,15 @@ pub enum SvcError {
     #[error("the network could not be changed: {0}")]
     Network(String),
 
+    /// BlueZ refused a change, or there was nothing to change.
+    ///
+    /// Covers the radio switch, connecting a device and answering a pairing.
+    /// One variant for all three for the same reason the network has one: a
+    /// person who pressed a device row and got nothing does not need the word
+    /// "adapter", and the detail is in the log line beside it.
+    #[error("Bluetooth could not be changed: {0}")]
+    Bluetooth(String),
+
     /// A command the user configured could not be started.
     #[error("could not run `{command}`: {reason}")]
     Command {
@@ -158,6 +167,7 @@ impl SvcError {
             Self::Battery(_) => "Could not change the charge limit",
             Self::PowerAction(_) => "The system refused that power action",
             Self::Network(_) => "Could not change the network",
+            Self::Bluetooth(_) => "Could not change Bluetooth",
             Self::Command { .. } => "That command could not be run",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
@@ -193,6 +203,7 @@ mod tests {
             SvcError::Battery("start 90% must be below stop 80%".into()),
             SvcError::PowerAction("Interactive authentication required".into()),
             SvcError::Network("802-11-wireless-security.psk was refused".into()),
+            SvcError::Bluetooth("br-connection-canceled".into()),
             SvcError::Command {
                 command: "loginctl lock-session".into(),
                 reason: "No such file or directory".into(),
