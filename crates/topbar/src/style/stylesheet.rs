@@ -1215,10 +1215,15 @@ scale.media-seek slider {
     min-width: 12px;
     min-height: 12px;
     margin: -5px;
+    /* Adwaita paints the knob with a light-theme gradient image plus a
+       shadow; on a dark surface whatever is not zeroed bleeds through as a
+       white fringe around the thumb. Flat colour, nothing else. */
+    background-image: none;
     background-color: var(--color-foreground);
     border: none;
     border-radius: 9999px;
     box-shadow: none;
+    outline-color: transparent;
 }
 
 .media-time {
@@ -1822,8 +1827,15 @@ osd-bar {
 }
 
 .qs-slider slider {
+    /* Same as the seek bar's knob: Adwaita's gradient image and shadow are
+       drawn for a light surface and read as a ragged white halo on this one.
+       See scale.media-seek slider. */
+    background-image: none;
     background-color: var(--color-foreground);
+    border: none;
     border-radius: 9999px;
+    box-shadow: none;
+    outline-color: transparent;
     min-width: 16px;
     min-height: 16px;
     margin: -6px;
