@@ -76,7 +76,7 @@ pub enum Command {
         #[command(subcommand)]
         action: PopoverAction,
     },
-    /// Reload configuration and stylesheet in the running panel
+    /// Re-read the configuration and apply what changed
     Reload,
     /// Dump panel state or built-in defaults
     Dump {
