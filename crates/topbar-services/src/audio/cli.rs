@@ -227,28 +227,38 @@ impl AudioCli {
     }
 
     /// Iterate the mainloop until `done`, or until the deadline.
+    ///
+    /// Never a blocking iterate: `iterate(true)` polls with no timeout, so a
+    /// sound server that dies without waking the socket — a sandbox teardown
+    /// SIGKILLing the whole run, say — left the deadline check unreachable and
+    /// the process asleep forever. Two hung `topbar volume` CLIs from exactly
+    /// that were found parked days into the v2 work. The non-blocking spin at
+    /// [`CONNECT_POLL`] costs nothing measurable for a bounded five seconds.
     fn pump(&mut self, done: &Arc<Mutex<bool>>) -> Result<(), CliError> {
         let deadline = Instant::now() + TIMEOUT;
         while !*guard(done) {
-            match self.mainloop.iterate(true) {
+            match self.mainloop.iterate(false) {
                 IterateResult::Success(_) => {}
                 IterateResult::Quit(_) | IterateResult::Err(_) => return Err(CliError::Stopped),
             }
             if Instant::now() >= deadline {
                 return Err(CliError::Stopped);
             }
+            std::thread::sleep(CONNECT_POLL);
         }
         Ok(())
     }
 
     /// Iterate the mainloop until an operation leaves the running state.
+    ///
+    /// Non-blocking for the same reason as [`Self::pump`].
     fn wait(
         &mut self,
         operation: &pulse::operation::Operation<dyn FnMut(bool)>,
     ) -> Result<(), CliError> {
         let deadline = Instant::now() + TIMEOUT;
         loop {
-            match self.mainloop.iterate(true) {
+            match self.mainloop.iterate(false) {
                 IterateResult::Success(_) => {}
                 IterateResult::Quit(_) | IterateResult::Err(_) => return Err(CliError::Stopped),
             }
@@ -258,6 +268,7 @@ impl AudioCli {
             if Instant::now() >= deadline {
                 return Err(CliError::Stopped);
             }
+            std::thread::sleep(CONNECT_POLL);
         }
     }
 }
