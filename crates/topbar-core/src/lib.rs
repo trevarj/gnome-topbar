@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod delta;
 pub mod error;
 pub mod ipc;
 pub mod layout_math;
@@ -16,6 +17,7 @@ pub mod theme;
 pub mod xkb_names;
 
 pub use config::{Config, ConfigLoad, EXAMPLE_CONFIG_TOML, Warning};
+pub use delta::ConfigDelta;
 pub use error::{Error, Result};
 pub use ipc::{IpcRequest, IpcResponse, PROTOCOL_VERSION};
 pub use theme::{Rgb, parse_hex_color};
