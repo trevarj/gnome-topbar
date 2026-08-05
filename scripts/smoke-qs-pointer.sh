@@ -76,8 +76,17 @@ smoke_nm='--ap Usadba:82:secured --ap Cafe:58:secured --ap Airport:33:open
   --ap Kvartira_44:45:secured
   --saved Usadba --active Usadba --carrier 1000
   --vpn Work:uuid-work:wireguard
-  --vpn Home:uuid-home:vpn:org.freedesktop.NetworkManager.openvpn'
+  --vpn Home:uuid-home:vpn:org.freedesktop.NetworkManager.openvpn
+  --outcome success --outcome auth_fail'
 
+# The two outcomes are consumed in order by the two activations the Wi-Fi
+# scenario makes: joining the open network works, and the key typed into the
+# password box afterwards is refused. Refused rather than accepted because the
+# retry is the state worth having a picture of — NetworkManager asks for the
+# key a second time, which *is* "that password was wrong", and the box says so
+# in red. A fake that accepted everything left that path unphotographed and
+# closed the box the driver was about to press Cancel in.
+#
 # Likewise for BlueZ: three paired devices, one connected and reporting a
 # battery, so the switch, the spinner and the percentage all have a row.
 smoke_bluez='--device buds|WH-1000XM4|AA:BB:CC:DD:EE:FF|audio-headset|connected|85
@@ -150,10 +159,14 @@ done
 echo "--- warnings and errors ---"
 sed 's/\x1b\[[0-9;]*m//g' "$artifact_root"/*-panel.log 2>/dev/null |
   grep -E "( WARN | ERROR |Gtk-WARNING|Gtk-CRITICAL)" || echo "none"
-# A hold that reached logind would be a hold that acted on the machine this run
-# is inside. The build refuses before it connects; this is the proof.
-echo "--- any power action that reached the bus (there must be none) ---"
+# A hold that reached logind would be a hold that suspended the machine this
+# run is inside. The build refuses before it connects, and the refusal is what
+# the header scenario's hold must have produced — so it is printed here, in the
+# wording `power.rs` actually uses. Nothing at all means the hold never fired,
+# which the nested session's throttled frame clock does sometimes manage.
+echo "--- what the hold on Shut Down produced (it must be a refusal) ---"
 sed 's/\x1b\[[0-9;]*m//g' "$artifact_root"/header-panel.log 2>/dev/null |
-  grep -E "no system bus|no logind" || echo "none"
+  grep -E "does not act on the machine" ||
+  echo "nothing — the hold never fired"
 
 exit "$status"

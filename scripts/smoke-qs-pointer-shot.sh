@@ -111,6 +111,25 @@ print(*found[index - 1])
 PY
 }
 
+# Dump until `$1` is somewhere in the panel, or give up loudly.
+#
+# The panel answers a click by asking a service, and the answer arrives when it
+# arrives: a fixed wait is a guess, and a dump taken while the answer is still
+# in flight is a dump of the panel as it was before the click. Everything here
+# that waits for a *control* rather than for a still frame waits through this.
+dump_until() {
+  tries=0
+  while [ "$tries" -lt 10 ]; do
+    dump
+    if rect_of "$1" "${2:-1}" >/dev/null 2>&1; then
+      return 0
+    fi
+    tries=$((tries + 1))
+  done
+  echo "smoke-qs-pointer: $1 #${2:-1} never appeared" >&2
+  return 1
+}
+
 # The centre of a control, as `<x> <y>`.
 centre_of() {
   rect=$(rect_of "$@") || return 1
@@ -204,13 +223,7 @@ fi
 # been through a size negotiation. A widget that has not been laid out has no
 # rectangle, and `rect_of` refuses to hand back a centre of nothing.
 open_panel() {
-  tries=0
-  while [ "$tries" -lt 10 ]; do
-    dump
-    rect_of bar-button 1 >/dev/null 2>&1 && break
-    echo "smoke-qs-pointer: the bar has no button yet; asking again"
-    tries=$((tries + 1))
-  done
+  check dump_until bar-button
   check click_on bar-button
   check assert_mapped topbar-popover "opened by a click on the bar"
   dump
@@ -391,8 +404,11 @@ case "$scenario" in
     # it and then reported every following step as a control that had vanished.
     # The password box has exactly two buttons, in this order.
     check click_on qs-password-button 2
-    sleep 3
-    dump
+    # NetworkManager answers a refused key by asking for it *again*, and
+    # between the two there is a moment with no password box at all — so the
+    # box is waited for rather than assumed, and what lands on screen is the
+    # retry: the same prompt in red, saying the key was wrong.
+    check dump_until qs-password-button 1
     pointer_park
     check snap 07-password-refused
     check click_on qs-password-button 1

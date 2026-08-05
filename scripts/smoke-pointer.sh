@@ -193,12 +193,28 @@ assert_mapped() {
   return 1
 }
 
-# Fail loudly if the named surface *is* mapped.
+# Wait for the named surface to go, up to POINTER_WAIT seconds.
+#
+# The mirror of `wait_mapped`, and there for the same reason: a popover is not
+# off the screen the instant the click that dismissed it lands. It runs a close
+# animation, hands the keyboard back and then unmaps, and an assertion made in
+# between says it is still there.
+wait_unmapped() {
+  waited=0
+  while [ "$waited" -lt "${POINTER_WAIT:-20}" ]; do
+    pointer_mapped "$1" || return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+# Fail loudly if the named surface does not go away.
 assert_unmapped() {
-  if pointer_mapped "$1"; then
-    echo "smoke-pointer: $1 is still mapped${2:+ ($2)}" >&2
-    return 1
+  if wait_unmapped "$1"; then
+    echo "smoke-pointer: $1 is gone${2:+ ($2)}"
+    return 0
   fi
-  echo "smoke-pointer: $1 is gone${2:+ ($2)}"
-  return 0
+  echo "smoke-pointer: $1 is still mapped${2:+ ($2)}" >&2
+  return 1
 }
