@@ -440,9 +440,11 @@ ignores it and the panel looks identical minus the blur. Nothing fails.
 | `theme` | string | `"Adwaita"` | GTK icon theme name. Must not be empty. |
 | `weight` | integer | `400` | Symbolic icon stroke weight hint. |
 
-Both keys are accepted and validated, and nothing in v2 reads either of them:
-the panel names Adwaita symbolic icons and resolves them through the session's
-own icon theme.
+`theme` pins the panel's GTK icon theme at startup, so rendering does not
+depend on the session's own settings — and the packaged binary ships Adwaita,
+so the default is always satisfiable even on a machine with no icon theme
+installed. `weight` is accepted and validated, and nothing reads it: it was
+the Material icon font's stroke weight, and v2 has no Material backend.
 
 ### `[theme.states]`
 

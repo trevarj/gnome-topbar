@@ -86,6 +86,7 @@ fn start(
     }
 
     prefer_dark();
+    pin_icon_theme(&config.current().theme.icons.theme);
     style::apply(&display, &style::generate(&config.current()));
     // Before any surface exists: an attachment made against a manager that has
     // not been initialised is inert for good.
@@ -151,6 +152,20 @@ fn prefer_dark() {
         return;
     };
     settings.set_gtk_application_prefer_dark_theme(true);
+}
+
+/// Pin the icon theme to what `[theme.icons] theme` names.
+///
+/// Without this the panel renders with whatever the session's GTK settings
+/// say — and on a session with no theme installed at all, with GTK's small
+/// embedded subset, where common names resolve and `network-vpn-symbolic`
+/// or `power-profile-*-symbolic` quietly do not. The wrapper ships Adwaita
+/// (see flake.nix), so the config's default is always satisfiable.
+fn pin_icon_theme(name: &str) {
+    let Some(settings) = gtk4::Settings::default() else {
+        return;
+    };
+    settings.set_gtk_icon_theme_name(Some(name));
 }
 
 /// Pin GDK to Wayland unless the user asked for something else.

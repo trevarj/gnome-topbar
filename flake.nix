@@ -85,6 +85,16 @@
         // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p topbar";
+          # wrapGAppsHook4 does not carry buildInputs' icon themes into the
+          # wrapper, so a host with no themes of its own was left with GTK's
+          # embedded subset — most names resolved, network-vpn and
+          # power-profile-* did not. Ship them explicitly: the panel renders
+          # identically on a bare machine and under a fully themed session.
+          preFixup = ''
+            gappsWrapperArgs+=(
+              --prefix XDG_DATA_DIRS : "${pkgs.adwaita-icon-theme}/share:${pkgs.hicolor-icon-theme}/share"
+            )
+          '';
           meta = {
             description = "GNOME Shell-inspired GTK4 top bar for niri";
             license = lib.licenses.mit;
