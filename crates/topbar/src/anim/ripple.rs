@@ -255,6 +255,12 @@ pub fn install(button: &gtk4::Button) {
         return;
     };
 
+    // Taken off the button before it is given to the wrapper. A widget that
+    // still has a parent cannot be given another one: GTK refuses, warns, and
+    // leaves the button with nothing in it — which is a pill with no label on
+    // it and no clue as to why.
+    button.set_child(gtk4::Widget::NONE);
+
     let overlay = gtk4::Overlay::new();
     overlay.set_child(Some(&child));
     // The wrapper inherits the button's border radius, and clipping to it is
