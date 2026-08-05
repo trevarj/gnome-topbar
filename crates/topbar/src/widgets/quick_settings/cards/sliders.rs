@@ -119,6 +119,13 @@ pub struct Sliders {
     chooser_slot: Rc<Section>,
     chooser_list: gtk4::Box,
     chooser_button: Button,
+    /// The chooser's chevron, held rather than looked up.
+    ///
+    /// `ripple::install` puts the button's child inside an overlay of its own,
+    /// so asking the button for its child hands back that overlay and a
+    /// downcast to `Image` quietly fails — which is how this arrow spent its
+    /// whole life pointing down, whether the list was open or not.
+    chooser_icon: Image,
     /// Whether the chooser is open, so a rebuild does not close it.
     chooser_open: Cell<bool>,
     services: Services,
@@ -146,7 +153,8 @@ impl Sliders {
 
         let chooser_button = Button::new();
         chooser_button.add_css_class(classes::QS_CHOOSER);
-        chooser_button.set_child(Some(&Image::from_icon_name(icons::EXPAND)));
+        let chooser_icon = Image::from_icon_name(icons::EXPAND);
+        chooser_button.set_child(Some(&chooser_icon));
         ripple::install(&chooser_button);
         chooser_button.set_valign(Align::Center);
         chooser_button.set_visible(false);
@@ -191,6 +199,7 @@ impl Sliders {
             chooser_slot,
             chooser_list,
             chooser_button,
+            chooser_icon,
             chooser_open: Cell::new(false),
             services: services.clone(),
             _slots: vec![volume_slot, mic_error_slot, brightness_slot],
@@ -216,7 +225,7 @@ impl Sliders {
     pub fn collapse(&self) {
         self.chooser_open.set(false);
         self.chooser_slot.collapse_now();
-        set_icon_of(&self.chooser_button, icons::EXPAND);
+        set_icon(&self.chooser_icon, icons::EXPAND);
     }
 
     /// Connect every handler and subscription.
@@ -346,8 +355,8 @@ impl Sliders {
         let open = !self.chooser_open.get();
         self.chooser_open.set(open);
         self.chooser_slot.set_expanded(open);
-        set_icon_of(
-            &self.chooser_button,
+        set_icon(
+            &self.chooser_icon,
             if open {
                 "pan-up-symbolic"
             } else {
@@ -466,12 +475,5 @@ impl Sliders {
             });
             self.chooser_list.append(&row);
         }
-    }
-}
-
-/// Replace a button's icon child.
-fn set_icon_of(button: &Button, name: &str) {
-    if let Some(image) = button.child().and_downcast::<Image>() {
-        set_icon(&image, name);
     }
 }
