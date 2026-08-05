@@ -224,7 +224,7 @@ Every key is a row in the menu; set one to `false` to hide it.
 | `idle_inhibitor` | `true` | The Caffeine toggle. |
 | `updates` | `true` | The pending-updates card. |
 | `audio` | `true` | The output volume slider. |
-| `mic` | `true` | The microphone slider, shown while a source is in use. |
+| `mic` | `"auto"` | `"auto"` (while a source is in use), `"always"`, or `"never"`. |
 | `brightness` | `true` | The backlight slider. |
 | `power` | `true` | The suspend/restart/shut down section. |
 | `battery` | `true` | The battery pill in the panel indicator. |

@@ -24,6 +24,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation, Scale};
+use topbar_core::config::MicSlider;
 use topbar_services::{AudioState, BrightnessState, ChangeSource, Services};
 
 use crate::anim::ripple;
@@ -131,6 +132,8 @@ pub struct Sliders {
     brightness: Rc<Slider>,
     /// The microphone row's slot, revealed while something is recording.
     mic_slot: Rc<Section>,
+    /// When the microphone row is shown at all.
+    mic: MicSlider,
     /// The output chooser's slot.
     chooser_slot: Rc<Section>,
     chooser_list: gtk4::Box,
@@ -156,7 +159,7 @@ impl Sliders {
     pub fn new(
         services: &Services,
         show_audio: bool,
-        show_mic: bool,
+        mic: MicSlider,
         show_brightness: bool,
     ) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Vertical, ROW_SPACING);
@@ -197,7 +200,7 @@ impl Sliders {
         mic_column.append(&microphone.row);
         mic_column.append(&mic_error);
         let mic_slot = Section::with_duration(&mic_column, ROW_REVEAL_MS);
-        if show_mic {
+        if mic != MicSlider::Never {
             root.append(mic_slot.root());
         }
 
@@ -212,6 +215,7 @@ impl Sliders {
             microphone,
             brightness,
             mic_slot,
+            mic,
             chooser_slot,
             chooser_list,
             chooser_button,
@@ -222,7 +226,12 @@ impl Sliders {
             bindings: std::cell::RefCell::new(Vec::new()),
         });
 
-        Self::wire(&sliders, show_audio, show_mic, show_brightness);
+        Self::wire(
+            &sliders,
+            show_audio,
+            mic != MicSlider::Never,
+            show_brightness,
+        );
         sliders
     }
 
@@ -417,7 +426,13 @@ impl Sliders {
         );
         // GNOME shows the microphone slider only while something is listening,
         // which is both less clutter and a privacy signal in its own right.
-        self.mic_slot.set_expanded(state.source_in_use);
+        // `always` overrides that for anyone who wants the input volume at
+        // hand whether or not something is recording.
+        self.mic_slot.set_expanded(match self.mic {
+            MicSlider::Always => true,
+            MicSlider::Auto => state.source_in_use,
+            MicSlider::Never => false,
+        });
 
         self.chooser_button.set_visible(model::wants_chooser(state));
         if !model::wants_chooser(state) && self.chooser_open.get() {

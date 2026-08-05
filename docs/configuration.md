@@ -305,7 +305,7 @@ Every key is a row in the menu, and every one defaults to on. Set one to
 | `idle_inhibitor` | bool | `true` | The Caffeine toggle. |
 | `updates` | bool | `true` | The pending-updates card. |
 | `audio` | bool | `true` | The output volume slider. |
-| `mic` | bool | `true` | The microphone slider, while a source is in use. |
+| `mic` | string | `"auto"` | `"auto"` (while a source is in use), `"always"`, or `"never"`. Booleans still parse: `true` is `"auto"`, `false` is `"never"`. |
 | `brightness` | bool | `true` | The backlight slider. |
 | `power` | bool | `true` | The suspend/restart/shut down section. |
 | `battery` | bool | `true` | The battery pill in the panel indicator. |

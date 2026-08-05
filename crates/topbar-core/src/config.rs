@@ -1424,8 +1424,8 @@ pub struct QuickSettingsConfig {
     pub updates: bool,
     /// Show the output volume slider.
     pub audio: bool,
-    /// Show the microphone slider while a source is in use.
-    pub mic: bool,
+    /// When the microphone slider is shown.
+    pub mic: MicSlider,
     /// Show the backlight brightness slider.
     pub brightness: bool,
     /// Show the power/suspend/restart section.
@@ -1457,7 +1457,7 @@ impl Default for QuickSettingsConfig {
             idle_inhibitor: true,
             updates: true,
             audio: true,
-            mic: true,
+            mic: MicSlider::Auto,
             brightness: true,
             power: true,
             battery: true,
@@ -1469,6 +1469,62 @@ impl Default for QuickSettingsConfig {
             on_click_right: None,
             on_click_middle: None,
         }
+    }
+}
+
+/// When the Quick Settings microphone slider is shown.
+///
+/// Accepts `"auto"`, `"always"` and `"never"`, and — because the key was a
+/// plain toggle before the tri-state existed — the booleans too: `true` is
+/// `"auto"`, `false` is `"never"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MicSlider {
+    /// While a source is in use — less clutter, and a privacy signal.
+    Auto,
+    /// Whenever the menu is open.
+    Always,
+    /// Not at all.
+    Never,
+}
+
+impl<'de> Deserialize<'de> for MicSlider {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = MicSlider;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str(r#""auto", "always", "never", or a boolean"#)
+            }
+
+            fn visit_bool<E: serde::de::Error>(
+                self,
+                on: bool,
+            ) -> std::result::Result<Self::Value, E> {
+                Ok(if on {
+                    MicSlider::Auto
+                } else {
+                    MicSlider::Never
+                })
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                word: &str,
+            ) -> std::result::Result<Self::Value, E> {
+                match word {
+                    "auto" => Ok(MicSlider::Auto),
+                    "always" => Ok(MicSlider::Always),
+                    "never" => Ok(MicSlider::Never),
+                    other => Err(E::invalid_value(serde::de::Unexpected::Str(other), &self)),
+                }
+            }
+        }
+        deserializer.deserialize_any(Visitor)
     }
 }
 
@@ -2580,5 +2636,44 @@ check_interval = 30
         let json = config.to_json().expect("a config renders as JSON");
         assert_eq!(json["bar"]["size"], serde_json::json!(36));
         assert_eq!(json["osd"]["position"], serde_json::json!("bottom"));
+    }
+
+    #[test]
+    fn the_mic_slider_takes_three_words_and_two_leftovers() {
+        // The key was a boolean before it grew "always", so both spellings of
+        // the old file still mean what they meant.
+        for (written, wanted) in [
+            ("\"auto\"", MicSlider::Auto),
+            ("\"always\"", MicSlider::Always),
+            ("\"never\"", MicSlider::Never),
+            ("true", MicSlider::Auto),
+            ("false", MicSlider::Never),
+        ] {
+            let file = format!("[widgets.quick_settings]\nmic = {written}\n");
+            let (config, warnings) = Config::parse(&file).expect(written);
+            assert_eq!(config.widgets.quick_settings.mic, wanted, "{written}");
+            assert!(warnings.is_empty(), "{written} must not warn");
+        }
+    }
+
+    #[test]
+    fn a_misspelt_mic_value_names_the_accepted_ones() {
+        let error = Config::parse("[widgets.quick_settings]\nmic = \"on\"\n")
+            .expect_err("not a value")
+            .to_string();
+        assert!(error.contains("always"), "{error}");
+    }
+
+    #[test]
+    fn the_mic_slider_serialises_as_a_word_that_parses_back() {
+        // Per-widget sections are hand-parsed and skipped by the config
+        // serialiser, so the round trip that matters is the enum's own: what
+        // it writes must be a value the file syntax accepts.
+        for mode in [MicSlider::Auto, MicSlider::Always, MicSlider::Never] {
+            let word = toml::Value::try_from(mode).expect("a mode serialises");
+            let file = format!("[widgets.quick_settings]\nmic = {word}\n");
+            let (config, _) = Config::parse(&file).expect("and parses back");
+            assert_eq!(config.widgets.quick_settings.mic, mode);
+        }
     }
 }
