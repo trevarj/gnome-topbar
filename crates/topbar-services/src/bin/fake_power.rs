@@ -191,6 +191,19 @@ async fn main() -> ExitCode {
     }
 
     println!("ready");
-    std::future::pending::<()>().await;
+    // Any one of them will do: they are all on the same private bus, and it is
+    // the bus going away that this is watching for.
+    let connection = held
+        .first()
+        .cloned()
+        .or_else(|| upower.as_ref().map(|fake| fake.connection().clone()));
+    match connection {
+        Some(connection) => {
+            topbar_services::sidecar::park(&connection, "power", std::future::pending::<()>())
+                .await;
+        }
+        // Unreachable: the check above returned when there was nothing served.
+        None => std::future::pending::<()>().await,
+    }
     ExitCode::SUCCESS
 }

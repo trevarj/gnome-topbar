@@ -146,6 +146,7 @@ async fn main() -> ExitCode {
         println!("{line}");
     }
     println!("ready");
-    served.until_quit().await;
+    let connection = served.connection.clone();
+    topbar_services::sidecar::park(&connection, "bluez", served.until_quit()).await;
     ExitCode::SUCCESS
 }

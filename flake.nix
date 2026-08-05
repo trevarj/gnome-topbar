@@ -142,6 +142,18 @@
           }
         );
         pre-commit = pre-commit;
+
+        # The shipped example configuration, run through the binary that has to
+        # accept it. `--strict` turns every warning into a failure, so a key
+        # renamed in the schema without being renamed in `config.toml` — or one
+        # that quietly landed in the dropped-features table — fails CI instead
+        # of printing a warning on the user's first start. A unit test already
+        # checks that the example parses *equal to the defaults*; this checks
+        # the same file through the real command-line path, which is the one
+        # people copy in the README.
+        example-config = pkgs.runCommand "topbar-example-config" { } ''
+          ${lib.getExe topbar} --check-config --strict --config ${./config.toml} | tee $out
+        '';
       };
 
       devShells.${system}.default = craneLib.devShell {

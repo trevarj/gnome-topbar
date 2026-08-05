@@ -129,6 +129,6 @@ async fn main() -> ExitCode {
     println!("{}", item.bus_name());
     println!("{}", item.item_id().await);
 
-    item.stopped().await;
+    topbar_services::sidecar::park(item.connection(), "sni", item.stopped()).await;
     ExitCode::SUCCESS
 }

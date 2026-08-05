@@ -35,6 +35,15 @@ pub mod proc;
 pub mod refresh;
 pub mod resources;
 pub mod runtime;
+#[cfg(any(
+    test,
+    feature = "fake-player",
+    feature = "fake-sni",
+    feature = "fake-power",
+    feature = "fake-bluez",
+    feature = "fake-nm"
+))]
+pub mod sidecar;
 pub mod state_store;
 pub mod tray;
 pub mod updates;

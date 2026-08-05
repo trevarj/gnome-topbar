@@ -55,6 +55,6 @@ async fn main() -> ExitCode {
     };
     println!("{}", player.bus_name());
 
-    player.stopped().await;
+    topbar_services::sidecar::park(player.connection(), "player", player.stopped()).await;
     ExitCode::SUCCESS
 }
