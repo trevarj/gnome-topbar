@@ -484,12 +484,6 @@ pub const QS_SLIDER_ROW: &str = "qs-slider-row";
 pub const QS_SLIDER: &str = "qs-slider";
 /// The icon beside it, which is also the mute button where there is one.
 pub const QS_SLIDER_ICON: &str = "qs-slider-icon";
-/// The same icon where there is nothing to press: brightness has no mute.
-///
-/// It is an insensitive button so it takes no hover and no pointer, and the
-/// class is what stops it being *drawn* as a disabled control — a dimmed icon
-/// beside a slider that works says the slider does not.
-pub const QS_SLIDER_STATIC: &str = "qs-slider-static";
 /// The chevron that opens a device list.
 pub const QS_CHOOSER: &str = "qs-chooser";
 /// A list of output devices.
@@ -810,7 +804,6 @@ pub const ALL: &[&str] = &[
     QS_SLIDER_ROW,
     QS_SLIDER,
     QS_SLIDER_ICON,
-    QS_SLIDER_STATIC,
     QS_CHOOSER,
     QS_DEVICE_LIST,
     QS_DEVICE_ROW,

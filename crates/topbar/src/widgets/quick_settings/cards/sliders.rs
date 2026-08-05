@@ -41,7 +41,11 @@ const ROW_SPACING: i32 = 6;
 struct Slider {
     row: gtk4::Box,
     icon: Image,
-    button: Button,
+    /// The mute button, on the two rows that have something to mute.
+    ///
+    /// `None` on the brightness row, where the icon is an image and not a
+    /// control at all — see [`Slider::new`].
+    button: Option<Button>,
     scale: Scale,
     /// Raised while the render path is writing into the scale, so the
     /// `value-changed` it causes is not mistaken for the user moving it.
@@ -58,21 +62,27 @@ impl Slider {
         let icon = Image::new();
         icon.add_css_class(classes::QS_ICON);
 
-        let button = Button::new();
-        button.add_css_class(classes::QS_SLIDER_ICON);
-        button.set_child(Some(&icon));
-        ripple::install(&button);
-        button.set_valign(Align::Center);
-        // A static icon must not look like a button: no hover, no pointer.
-        // It must not look *disabled* either — the brightness slider beside it
-        // works, and an icon at 40% next to a working control says it does not.
-        // So the button is insensitive and the class puts the colour back.
-        button.set_sensitive(interactive_icon);
-        button.set_can_focus(interactive_icon);
-        if !interactive_icon {
-            button.add_css_class(classes::QS_SLIDER_STATIC);
+        // Brightness has nothing to mute, so its icon is an image and not a
+        // button at all. It used to be an insensitive button, which was the
+        // obvious way to say "nothing to press here" and the wrong one: GTK's
+        // own theme draws an insensitive image at half strength however the
+        // panel colours it, so the icon beside the one slider that always
+        // works was the faintest thing in the block. An image in the same box
+        // keeps the column and says nothing it should not.
+        let button = interactive_icon.then(|| {
+            let button = Button::new();
+            button.add_css_class(classes::QS_SLIDER_ICON);
+            button.set_child(Some(&icon));
+            ripple::install(&button);
+            button.set_valign(Align::Center);
+            row.append(&button);
+            button
+        });
+        if button.is_none() {
+            icon.add_css_class(classes::QS_SLIDER_ICON);
+            icon.set_valign(Align::Center);
+            row.append(&icon);
         }
-        row.append(&button);
 
         let scale = Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
         scale.add_css_class(classes::QS_SLIDER);
@@ -260,15 +270,17 @@ impl Sliders {
                 }
             });
 
-            sliders.output.button.connect_clicked({
-                let audio = audio.clone();
-                move |_| {
+            if let Some(button) = &sliders.output.button {
+                button.connect_clicked({
                     let audio = audio.clone();
-                    attempt(names::VOLUME, async move {
-                        audio.toggle_sink_muted(ChangeSource::Ui).await
-                    });
-                }
-            });
+                    move |_| {
+                        let audio = audio.clone();
+                        attempt(names::VOLUME, async move {
+                            audio.toggle_sink_muted(ChangeSource::Ui).await
+                        });
+                    }
+                });
+            }
 
             sliders.chooser_button.connect_clicked({
                 let sliders = Rc::downgrade(sliders);
@@ -299,15 +311,17 @@ impl Sliders {
                 }
             });
 
-            sliders.microphone.button.connect_clicked({
-                let audio = audio.clone();
-                move |_| {
+            if let Some(button) = &sliders.microphone.button {
+                button.connect_clicked({
                     let audio = audio.clone();
-                    attempt(names::MICROPHONE, async move {
-                        audio.toggle_source_muted(ChangeSource::Ui).await
-                    });
-                }
-            });
+                    move |_| {
+                        let audio = audio.clone();
+                        attempt(names::MICROPHONE, async move {
+                            audio.toggle_source_muted(ChangeSource::Ui).await
+                        });
+                    }
+                });
+            }
         }
 
         if show_brightness {
@@ -381,7 +395,9 @@ impl Sliders {
             self.output.set_value(volume);
         });
         self.output.scale.set_sensitive(state.can_set_sink_volume());
-        self.output.button.set_sensitive(state.available);
+        if let Some(button) = &self.output.button {
+            button.set_sensitive(state.available);
+        }
         set_icon(
             &self.output.icon,
             icons::volume(state.sink_volume_pct, state.sink_muted),

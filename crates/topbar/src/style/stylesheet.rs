@@ -1854,12 +1854,18 @@ osd-bar {
     min-height: 36px;
 }
 
+/* 28 and 4px of padding is 36 on screen, the same round control as the header's
+   two buttons — and the height `.qs-slider-row` above asks for. At 32 it was
+   the only 40px control in the panel and the row's own rule never applied.
+   Worn by a button on the two rows that mute and by a plain image on the one
+   that does not; the box is the same either way, which is what keeps the icon
+   column straight. */
 .qs-slider-icon {
     background: transparent;
     border: none;
     border-radius: 9999px;
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 28px;
+    min-height: 28px;
     padding: 4px;
     color: var(--color-foreground);
     -gtk-icon-size: var(--icon-size);
@@ -1871,13 +1877,6 @@ osd-bar {
 
 .qs-slider-icon:disabled {
     color: var(--color-foreground-disabled);
-}
-
-/* The brightness icon is insensitive because there is nothing to press, not
-   because anything is unavailable. Dimming it made the one slider on the panel
-   that always works look like the one that had stopped. */
-.qs-slider-icon.qs-slider-static:disabled {
-    color: var(--color-foreground);
 }
 
 .qs-slider trough {
