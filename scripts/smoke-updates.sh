@@ -24,6 +24,12 @@
 # Screenshots and captured output land in target/visual-smoke/upd/<scenario>/.
 set -eu
 
+# These runs start no D-Bus sidecars — the fake package managers are shell
+# scripts that exit on their own — but the harness they call still brings up a
+# nested compositor, so the same guard is kept for the day a scenario here does
+# need a fake.
+trap 'pkill -f "target/debug/topbar-fake-" 2>/dev/null || true' EXIT INT TERM
+
 artifact_root="${1:-target/visual-smoke/upd}"
 mkdir -p "$artifact_root"
 artifact_root=$(cd "$artifact_root" && pwd)

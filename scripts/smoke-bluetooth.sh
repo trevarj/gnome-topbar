@@ -28,6 +28,15 @@
 # Screenshots and captured output land in target/visual-smoke/bt/<scenario>/.
 set -eu
 
+# The fakes do not exit when their private bus dies, so an interrupted or
+# timed-out run strands them — the tray run once left fourteen alive for nine
+# hours. Reap every fake this run spawned, whatever happens. The real BlueZ,
+# NetworkManager and UPower are on the system bus and are not matched by any
+# of these patterns.
+trap 'for fake in bluez nm power; do
+  pkill -f "target/debug/topbar-fake-" 2>/dev/null || true
+done' EXIT INT TERM
+
 artifact_root="${1:-target/visual-smoke/bt}"
 mkdir -p "$artifact_root"
 artifact_root=$(cd "$artifact_root" && pwd)
