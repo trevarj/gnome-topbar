@@ -87,7 +87,7 @@ impl QuickSettingsWidget {
         install_scroll(shell.root(), context, &settings);
         install_click_commands(shell.root(), &settings);
         install_tooltip_refresh(shell.root(), &indicators, &tooltip);
-        install_smoke_actions(&built, &context.services);
+        install_smoke_actions(&built, &context.services, shell.root());
 
         Self {
             shell,
@@ -215,8 +215,34 @@ fn smoke_env(name: &str) -> Option<String> {
 fn install_smoke_actions(
     built: &Rc<std::cell::RefCell<Option<Rc<panel::Panel>>>>,
     services: &topbar_services::Services,
+    anchor: &gtk4::Box,
 ) {
     use panel::Block;
+
+    // Where everything is, right now, so a pointer driver can click it. Run
+    // from inside the session with `topbar popover show quick-settings-dump`
+    // after each step: the panel moves as sections open, and a driver holding
+    // coordinates measured before that is a driver clicking empty space.
+    popovers::register_smoke_action("quick-settings-dump", {
+        let built = Rc::clone(built);
+        let anchor = anchor.downgrade();
+        move || {
+            // A marker first: the reader wants the *last* dump, and before the
+            // panel has ever been opened there is no panel to print an origin.
+            tracing::info!("qs-dump: begin");
+            if let Some(anchor) = anchor.upgrade() {
+                dump_bar_button(&anchor);
+            }
+            if let Some(panel) = built.borrow().clone() {
+                panel.dump();
+            } else {
+                tracing::warn!("qs-dump: the panel has not been built yet");
+            }
+            // Always, panel or no panel: the reader waits for this line to know
+            // the block it is about to parse is a whole one.
+            tracing::info!("qs-dump: end");
+        }
+    });
 
     // A volume the *panel* asked for, which is the whole point: a `topbar
     // volume set` would carry ChangeSource::Cli and raise a capsule, and the
@@ -463,11 +489,39 @@ fn install_smoke_actions(
     }
 }
 
+/// Log where the bar's Quick Settings button is, on the monitor.
+///
+/// The first thing a pointer-driven run has to click, and the one control in
+/// the story that is not in the panel — so it is measured the same way the
+/// panel's own are, against the bar's surface plus that surface's margins.
+#[cfg(debug_assertions)]
+fn dump_bar_button(anchor: &gtk4::Box) {
+    use gtk4_layer_shell::{Edge, LayerShell};
+
+    let Some(window) = anchor
+        .root()
+        .and_then(|root| root.downcast::<gtk4::Window>().ok())
+    else {
+        return;
+    };
+    let Some(bounds) = anchor.compute_bounds(&window) else {
+        return;
+    };
+    tracing::info!(
+        "qs-dump: bar-button [] \"\" {} {} {} {}",
+        LayerShell::margin(&window, Edge::Left) + bounds.x().round() as i32,
+        LayerShell::margin(&window, Edge::Top) + bounds.y().round() as i32,
+        bounds.width().round() as i32,
+        bounds.height().round() as i32,
+    );
+}
+
 /// Nothing to install in a packaged build.
 #[cfg(not(debug_assertions))]
 fn install_smoke_actions(
     _built: &Rc<std::cell::RefCell<Option<Rc<panel::Panel>>>>,
     _services: &topbar_services::Services,
+    _anchor: &gtk4::Box,
 ) {
 }
 

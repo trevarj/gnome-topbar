@@ -24,6 +24,12 @@
 #
 #   shot <name>                     the bar alone, or whatever is on screen
 #   shot <name> <layer-namespace>   wait for that surface to be drawn
+#   snap <name> [seconds]           one frame, without waiting for a still one
+#
+# `snap` is for the states that never go still: a row with a spinner in it, a
+# hold part-way along. `shot` fails on those after thirty seconds of watching
+# the frame change, which is the right answer to "the panel is still drawing"
+# and the wrong one to "the panel is drawing a spinner".
 #
 #     topbar-popover        any widget's popover
 #     topbar-dialog         the weather location dialog
@@ -45,6 +51,14 @@ shot_colours() {
 # Whether niri has the named layer surface mapped.
 shot_mapped() {
   niri msg layers 2>/dev/null | grep -q "\"$1\""
+}
+
+# One frame, after letting the panel settle for a moment. No stillness check:
+# what this is for is the frames that are never still.
+snap() {
+  sleep "${2:-3}"
+  grim "$SMOKE_ARTIFACTS/$1.png"
+  echo "smoke-shot: $1 snapped"
 }
 
 shot() {

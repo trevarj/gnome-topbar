@@ -17,11 +17,23 @@
 #
 #   pointer_to <x> <y>          park the pointer at a logical coordinate
 #   click_at <x> <y> [button]   move there, then click (default left)
-#   press_at <x> <y> [button]   move there, then press and hold
+#   press_at <x> <y> [button]   move there, then press
 #   pointer_release [button]    let go
 #   scroll_at <x> <y> <amount>  move there, then scroll
 #   type_text <text>            type it on the virtual keyboard
 #   key_press <key>             one key by xkb name, e.g. Escape
+#   hold_key <key> <ms>         hold one down for that long, then let go
+#
+# `press_at` does NOT hold the button down. Every wlrctl call is a Wayland
+# client of its own: it connects, creates a virtual pointer, sends its events
+# and exits, and the compositor releases whatever that device was holding when
+# it goes. So a `press_at` followed by a `pointer_release` is two clicks, not
+# one press — the pair is still worth having, because "an early release must
+# cancel" is a real contract, but a control that only responds to a *sustained*
+# press cannot be driven this way and a run that thinks it is being held is
+# being lied to. `hold_key` is the way to hold something: wtype takes a whole
+# press-sleep-release sequence in one invocation, so the key stays down for as
+# long as it is asked to.
 #
 # Coordinates are the nested output in *logical* pixels — which is the pixel
 # size of the winit window divided by the `output "winit" { scale }` in the
@@ -104,7 +116,8 @@ click_at() {
   sleep "$POINTER_SETTLE"
 }
 
-# Move there, press, and hold — for the hold-to-confirm rows.
+# Move there and press. See the note above: the button comes back up when this
+# wlrctl exits, so this is the first half of a click and not a hold.
 press_at() {
   pointer_to "$1" "$2"
   wlrctl pointer click "${3:-left}" state:press
@@ -133,6 +146,18 @@ type_text() {
 # One key by its xkb name: Escape, Return, Tab.
 key_press() {
   wtype -k "$1"
+  sleep "$POINTER_SETTLE"
+}
+
+# Hold a key down for `<ms>` milliseconds, then let it go.
+#
+# The press, the wait and the release are one wtype invocation, which is what
+# makes this a real hold: a virtual keyboard, like a virtual pointer, releases
+# everything it was holding the moment the client that made it exits. The
+# hold-to-confirm power rows are the only thing in the panel that needs it, and
+# they take Enter and space as well as a press.
+hold_key() {
+  wtype -P "$1" -s "$2" -p "$1"
   sleep "$POINTER_SETTLE"
 }
 

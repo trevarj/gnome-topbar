@@ -242,6 +242,62 @@ impl Panel {
         &self.power
     }
 
+    /// Log where every control in the panel currently is, on the output.
+    ///
+    /// The pointer-driven smoke run has to click things, and a driver holding a
+    /// table of coordinates measured off a screenshot is a driver that starts
+    /// clicking empty space the first time a padding changes — which looks
+    /// exactly like the dead-control bugs the run exists to catch. So the panel
+    /// says where its controls are and the driver reads it back.
+    ///
+    /// Coordinates are **logical pixels on the monitor**: GTK measures against
+    /// the surface, and the compositor put the surface where the layer-shell
+    /// margins say. Debug builds only.
+    #[cfg(debug_assertions)]
+    pub fn dump(&self) {
+        use gtk4_layer_shell::{Edge, LayerShell};
+
+        let Some(root) = self.root.root() else {
+            tracing::warn!("qs-dump: the panel is not on a surface");
+            return;
+        };
+        let Ok(window) = root.clone().downcast::<gtk4::Window>() else {
+            tracing::warn!("qs-dump: the panel's root is not a window");
+            return;
+        };
+        // Anchored top-left, so the margins *are* the surface's origin — and
+        // the bar's exclusive zone has already been taken off the top by the
+        // compositor, which is why nothing is added for it here.
+        let origin_x = LayerShell::margin(&window, Edge::Left);
+        let origin_y = LayerShell::margin(&window, Edge::Top) + Self::bar_height();
+        tracing::info!("qs-dump: origin {origin_x} {origin_y}");
+
+        dump_tree(&self.root.clone().upcast(), &window, origin_x, origin_y);
+    }
+
+    /// How far down the monitor the popover surface starts.
+    ///
+    /// The compositor honours a top margin from the *bottom of the exclusive
+    /// zone*, so a coordinate on the monitor is the bar's own reserved height
+    /// plus the margin. GDK4 has no work-area call, so the number is read off
+    /// the bar's layer surface — which is the window that reserved it.
+    #[cfg(debug_assertions)]
+    fn bar_height() -> i32 {
+        use gtk4_layer_shell::LayerShell;
+
+        // By index rather than through the typed iterator: GTK reports the
+        // toplevel list's item type as `GtkWidget`, and asking gio for
+        // `GtkWindow`s out of it asserts.
+        let toplevels = gtk4::Window::toplevels();
+        (0..toplevels.n_items())
+            .filter_map(|index| toplevels.item(index))
+            .filter_map(|object| object.downcast::<gtk4::Window>().ok())
+            .filter(LayerShell::is_layer_window)
+            .map(|window| LayerShell::exclusive_zone(&window))
+            .find(|zone| *zone > 0)
+            .unwrap_or_default()
+    }
+
     /// Bound the panel's height to the monitor it is on.
     ///
     /// Done on every open rather than once: a monitor can change resolution,
@@ -252,6 +308,68 @@ impl Panel {
         self.scroll
             .set_max_content_height((height - BOTTOM_MARGIN).max(240));
     }
+}
+
+/// Walk `widget` and its children, logging every control's screen rectangle.
+///
+/// Only the things a pointer can act on are worth a line: a driver looking for
+/// "the Wi-Fi chevron" wants one match, not the four boxes it is nested in.
+#[cfg(debug_assertions)]
+fn dump_tree(widget: &gtk4::Widget, window: &gtk4::Window, origin_x: i32, origin_y: i32) {
+    if !widget.is_visible() {
+        return;
+    }
+    // The power rows are the exception: they are overlays with a gesture on
+    // them rather than buttons, because what they draw is a fill behind their
+    // own content. They are still the most important thing in the panel to be
+    // able to press, so they are named explicitly.
+    let interactive = widget.is::<gtk4::Button>()
+        || widget.is::<gtk4::Scale>()
+        || widget.is::<gtk4::Switch>()
+        || widget.is::<gtk4::Editable>()
+        || widget.has_css_class(classes::QS_POWER_ROW);
+    if interactive && let Some(bounds) = widget.compute_bounds(window) {
+        // The text on it as well as the classes it wears: four pills in the
+        // grid are the same widget with the same classes, and a driver that
+        // could only say "the fourth one" would click the wrong control the
+        // first time a machine turned out to have no VPN profiles. Every line
+        // of it, because the Power Mode pill is titled with the profile and
+        // says what kind of thing that is only on its second line.
+        tracing::info!(
+            "qs-dump: {} [{}] \"{}\" {} {} {} {} sensitive={}",
+            widget.type_().name(),
+            widget.css_classes().join("."),
+            labels_of(widget).join(" · "),
+            origin_x + bounds.x().round() as i32,
+            origin_y + bounds.y().round() as i32,
+            bounds.width().round() as i32,
+            bounds.height().round() as i32,
+            widget.is_sensitive(),
+        );
+    }
+
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        dump_tree(&current, window, origin_x, origin_y);
+        child = current.next_sibling();
+    }
+}
+
+/// Every visible label under `widget`, which is what a control is called.
+#[cfg(debug_assertions)]
+fn labels_of(widget: &gtk4::Widget) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if current.is_visible() {
+            match current.clone().downcast::<gtk4::Label>() {
+                Ok(label) => found.push(label.text().to_string()),
+                Err(_) => found.extend(labels_of(&current)),
+            }
+        }
+        child = current.next_sibling();
+    }
+    found
 }
 
 impl PopoverContent for Panel {

@@ -105,6 +105,18 @@
 #                         sound server is on the session they are logged into
 #                         and must never hear from a test — so this is how the
 #                         volume OSD gets driven by real volume changes.
+#                         `2` loads a second null sink: Quick Settings hides its
+#                         output chooser on a machine with one output, which is
+#                         correct and means a run with one sink cannot click it.
+#   TOPBAR_SMOKE_SCALE    the nested output's scale (0.75). The default gives
+#                         the session more logical room than the host's window
+#                         has pixels, which is what stops the bar clipping its
+#                         right-hand section — but it also means GTK renders
+#                         every 16px icon into 12 device pixels, and the
+#                         resampling hides exactly the fringing and misalignment
+#                         a refinement pass is looking for. `1.0` is what a
+#                         real display does: fewer logical pixels to lay out in,
+#                         and every one of them a pixel.
 #   TOPBAR_SMOKE_TIMEOUT  seconds before the session is killed (30).
 #
 # The driver is also given $SMOKE_TOPBAR, the panel binary, so it can run
@@ -185,16 +197,6 @@ input {
     }
 }
 
-// The nested window is however big the *host* compositor made it, which is
-// narrower than a real screen and narrow enough that the panel clips its
-// right-hand section — which looks exactly like a widget that failed to build
-// and is not. Scaling the output down gives the nested session more logical
-// room inside the same window, without a script reaching out to resize a
-// window in the developer's own session.
-output "winit" {
-    scale 0.75
-}
-
 // The same blur the developer's own session runs, so a panel asking for a
 // blurred region here is answered the way it is answered in real use. The
 // numbers are copied from their config; what matters is that blur is on at
@@ -218,6 +220,25 @@ layer-rule {
     background-effect {
         xray false
     }
+}
+KDL
+
+# The nested window is however big the *host* compositor made it, which is
+# narrower than a real screen and narrow enough that the panel clips its
+# right-hand section — which looks exactly like a widget that failed to build
+# and is not. Scaling the output down gives the nested session more logical
+# room inside the same window, without a script reaching out to resize a
+# window in the developer's own session.
+#
+# It costs something, though, and a refinement pass is the one thing that
+# notices: at 0.75 every logical pixel is three quarters of a device one, so a
+# 16px icon is resampled into 12 and the fringing, the half-pixel baselines and
+# the knob edges a real display would show are averaged away. TOPBAR_SMOKE_SCALE
+# is how a run asks for the display the panel actually ships to.
+cat >>"$XDG_CONFIG_HOME/niri/config.kdl" <<KDL
+
+output "winit" {
+    scale ${TOPBAR_SMOKE_SCALE:-0.75}
 }
 KDL
 
@@ -295,9 +316,18 @@ if [ -n "$7" ]; then
   PULSE_RUNTIME_PATH="$XDG_RUNTIME_DIR/pulse"
   export PULSE_RUNTIME_PATH
   mkdir -p "$PULSE_RUNTIME_PATH"
+  # A second output only when a run asks for one. Quick Settings hides its
+  # output chooser on a machine with a single sink — correctly — so a run that
+  # wants to click that chevron has to be a machine with two.
+  second_sink=""
+  if [ "$7" = "2" ]; then
+    second_sink="--load=module-null-sink sink_name=topbar_smoke_hdmi sink_properties=device.description=Smoke_HDMI"
+  fi
+  # shellcheck disable=SC2086
   pulseaudio --daemonize=no --exit-idle-time=-1 -n \
     --load="module-native-protocol-unix" \
     --load="module-null-sink sink_name=topbar_smoke sink_properties=device.description=Smoke_Output" \
+    ${second_sink:+"$second_sink"} \
     --load="module-null-source source_name=topbar_smoke_mic" \
     --log-target=file:"$3/pulse.log" &
   pulse_pid=$!
