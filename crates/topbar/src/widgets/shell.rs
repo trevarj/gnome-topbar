@@ -18,7 +18,7 @@
 use gtk4::prelude::*;
 use gtk4::{Align, BaselinePosition, Orientation, Overlay};
 
-use crate::anim::{Animation, AnimationParams, Easing};
+use crate::anim::{Animation, AnimationParams, Easing, Ripple};
 use crate::style::classes;
 use crate::surfaces::tooltip::{self, TooltipHandle};
 
@@ -33,6 +33,7 @@ pub struct WidgetShell {
     content: gtk4::Box,
     fill: gtk4::Box,
     fade: Animation,
+    ripple: Ripple,
 }
 
 impl WidgetShell {
@@ -57,6 +58,14 @@ impl WidgetShell {
         fill.add_css_class(classes::WIDGET_FILL);
         fill.set_opacity(0.0);
 
+        // The ripple is drawn inside the fill, which is the only box in the
+        // shell that is exactly the painted pill: it has no padding of its own
+        // (that lives on `.content`), so a circle in it reaches every edge, and
+        // the surface above clips it to the rounded shape. Being inside the
+        // fill also means it fades out with the hover it belongs to.
+        let ripple = Ripple::new();
+        fill.append(ripple.area());
+
         let content = gtk4::Box::new(Orientation::Horizontal, 0);
         content.add_css_class(classes::CONTENT);
         content.set_vexpand(true);
@@ -78,6 +87,7 @@ impl WidgetShell {
             content,
             fill,
             fade,
+            ripple,
         }
     }
 
@@ -113,12 +123,18 @@ impl WidgetShell {
         self.wrapper.add_controller(motion);
 
         // Press feedback is a color swap, not a fade: it has to read as
-        // immediate. The ripple that goes with it arrives in M11.
+        // immediate. The ripple expanding from the pointer is what gives the
+        // press its direction, and it finishes even if the button is let go
+        // first — a circle cut off mid-flight reads as a dropped frame.
         let click = gtk4::GestureClick::new();
         click.set_button(gtk4::gdk::BUTTON_PRIMARY);
         click.connect_pressed({
             let fill = self.fill.clone();
-            move |_, _, _, _| fill.add_css_class(classes::PRESSED)
+            let ripple = self.ripple.clone();
+            move |gesture, _, x, y| {
+                fill.add_css_class(classes::PRESSED);
+                ripple.start_from(gesture, x, y);
+            }
         });
         click.connect_released({
             let fill = self.fill.clone();

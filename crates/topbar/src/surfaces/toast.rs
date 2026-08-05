@@ -34,7 +34,7 @@ use topbar_core::Config;
 use topbar_services::{NotifState, Services, ToastView};
 use tracing::debug;
 
-use crate::anim::{Animation, AnimationParams, Easing, SlideBox};
+use crate::anim::{Animation, AnimationParams, Easing, SlideBox, ripple};
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::{self, classes};
 use crate::surfaces::layer_popover;
@@ -476,6 +476,7 @@ impl Card {
         for action in buttons {
             let button = Button::with_label(&action.label);
             button.add_css_class(classes::TOAST_ACTION);
+            ripple::install(&button);
             button.set_focus_on_click(false);
             let key = action.key.clone();
             let id = notification.id;

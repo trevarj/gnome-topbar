@@ -34,6 +34,7 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation};
 use topbar_services::{BtState, InhibitorState, NetworkState, PowerProfilesState, Services};
 
+use crate::anim::ripple;
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
@@ -94,12 +95,14 @@ impl Pill {
 
         content.append(&text);
         button.set_child(Some(&content));
+        ripple::install(&button);
         root.append(&button);
 
         let expand = expandable.then(|| {
             let expand = Button::new();
             expand.add_css_class(classes::QS_TOGGLE_EXPAND);
             expand.set_child(Some(&Image::from_icon_name(icons::EXPAND)));
+            ripple::install(&expand);
             expand.set_valign(Align::Center);
             content.append(&expand);
             expand
@@ -715,6 +718,7 @@ impl Toggles {
             line.append(&mark);
 
             row.set_child(Some(&line));
+            ripple::install(&row);
             // The mark is remembered beside the identifier it belongs to, so
             // moving the checkmark is a lookup rather than a walk over the
             // widget tree guessing which child is which.

@@ -345,6 +345,22 @@ sectioned-bar.bar {
     background-color: var(--color-widget-pressed);
 }
 
+/* The press ripple, drawn from Rust with Cairo (see anim::ripple). The tint is
+   stated here rather than measured, so a circle expanding inside a widget that
+   is wearing a .state-* class stays white instead of turning orange with it.
+   `color` is the whole rule: the drawing area reads it, alpha and all. */
+.ripple {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.12);
+}
+
+/* Wrapping a button's child to hold its ripple must change nothing about the
+   button, so the wrapper takes the shape of whatever it was put inside and the
+   circle is clipped to that instead of to a rectangle. */
+.ripple-clip {
+    border-radius: inherit;
+}
+
 /* Exactly one widget is checked at a time: the one whose popover is open.
    It paints on the surface rather than on the fill, because the fill's opacity
    belongs to the hover animation and sits at zero while the pointer is away —

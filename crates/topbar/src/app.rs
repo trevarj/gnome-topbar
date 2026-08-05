@@ -29,6 +29,7 @@ const APP_ID: &str = "io.github.trevarj.topbar";
 pub fn run(config: Config, config_path: Option<PathBuf>, services: Services) -> ExitCode {
     force_wayland_backend();
     anim::set_animations_enabled(config.theme.animations);
+    anim::ripple::set_enabled(config.theme.ripple);
 
     let config = SharedConfig::new(config);
     let app = Application::builder()

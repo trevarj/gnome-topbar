@@ -18,6 +18,7 @@ use chrono::{Datelike, Days, Months, NaiveDate};
 use gtk4::prelude::*;
 use gtk4::{Align, Button, Grid, Image, Label, Orientation, glib};
 
+use crate::anim::ripple;
 use crate::style::classes;
 use crate::widgets::set_class;
 
@@ -202,6 +203,7 @@ impl Calendar {
         home.set_has_frame(false);
         home.set_hexpand(true);
         home.set_child(Some(&title));
+        ripple::install(&home);
         home.set_tooltip_text(Some("Back to today"));
 
         header_row.append(&previous);
@@ -379,6 +381,7 @@ fn chevron(icon: &str, tooltip: &str) -> Button {
     button.add_css_class(classes::CALENDAR_NAV);
     button.set_has_frame(false);
     button.set_child(Some(&Image::from_icon_name(icon)));
+    ripple::install(&button);
     button.set_tooltip_text(Some(tooltip));
     button.set_valign(Align::Center);
     button

@@ -18,6 +18,7 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation};
 use topbar_services::{BatteryState, Services};
 
+use crate::anim::ripple;
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
@@ -71,6 +72,7 @@ impl Header {
         percent.add_css_class(classes::QS_BATTERY_PERCENT);
         content.append(&percent);
         pill.set_child(Some(&content));
+        ripple::install(&pill);
         pill.set_visible(false);
         if show_battery {
             row.append(&pill);
@@ -167,6 +169,7 @@ fn round_button(icon: &str, tooltip: &str) -> Button {
     let button = Button::new();
     button.add_css_class(classes::QS_ROUND_BUTTON);
     button.set_child(Some(&Image::from_icon_name(icon)));
+    ripple::install(&button);
     button.set_valign(Align::Center);
     button.set_tooltip_text(Some(tooltip));
     button

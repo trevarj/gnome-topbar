@@ -29,6 +29,7 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation, PasswordEntry, Spinner};
 use topbar_services::{ApView, NetworkState, Pending, Services, VpnView};
 
+use crate::anim::ripple;
 use crate::style::{classes, icons};
 use crate::surfaces::inline::names;
 use crate::surfaces::popovers;
@@ -231,6 +232,7 @@ impl WifiList {
         line.append(&mark);
 
         button.set_child(Some(&line));
+        ripple::install(&button);
         button.connect_clicked({
             let list = Rc::downgrade(self);
             let ssid = ap.ssid.clone();
@@ -581,6 +583,7 @@ impl VpnList {
         line.append(&mark);
 
         button.set_child(Some(&line));
+        ripple::install(&button);
         button.connect_clicked({
             let network = self.services.network.handle().clone();
             let uuid = profile.uuid.clone();

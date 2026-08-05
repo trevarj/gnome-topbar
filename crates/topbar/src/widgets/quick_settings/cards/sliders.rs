@@ -26,6 +26,7 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation, Scale};
 use topbar_services::{AudioState, BrightnessState, ChangeSource, Services};
 
+use crate::anim::ripple;
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
@@ -60,6 +61,7 @@ impl Slider {
         let button = Button::new();
         button.add_css_class(classes::QS_SLIDER_ICON);
         button.set_child(Some(&icon));
+        ripple::install(&button);
         button.set_valign(Align::Center);
         // A static icon must not look like a button: no hover, no pointer.
         button.set_sensitive(interactive_icon);
@@ -145,6 +147,7 @@ impl Sliders {
         let chooser_button = Button::new();
         chooser_button.add_css_class(classes::QS_CHOOSER);
         chooser_button.set_child(Some(&Image::from_icon_name(icons::EXPAND)));
+        ripple::install(&chooser_button);
         chooser_button.set_valign(Align::Center);
         chooser_button.set_visible(false);
         output.row.append(&chooser_button);
@@ -448,6 +451,7 @@ impl Sliders {
             line.append(&mark);
 
             row.set_child(Some(&line));
+            ripple::install(&row);
             row.connect_clicked({
                 let audio = self.services.audio.handle().clone();
                 let id = device.id.clone();

@@ -34,6 +34,10 @@ pub const CONTENT: &str = "content";
 pub const CLICKABLE: &str = "clickable";
 /// Set on the fill while a primary press is held.
 pub const PRESSED: &str = "pressed";
+/// The drawing area a press ripple is painted on.
+pub const RIPPLE: &str = "ripple";
+/// Wrapper holding a button's ripple, which takes the button's own shape.
+pub const RIPPLE_CLIP: &str = "ripple-clip";
 /// Set on the wrapper while this widget's popover is open.
 pub const CHECKED: &str = "checked";
 
@@ -593,6 +597,8 @@ pub const ALL: &[&str] = &[
     CONTENT,
     CLICKABLE,
     PRESSED,
+    RIPPLE,
+    RIPPLE_CLIP,
     CHECKED,
     DISCONNECTED,
     STATE_SUCCESS,
