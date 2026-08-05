@@ -20,6 +20,7 @@ use crate::crypto::Crypto;
 use crate::inhibitor::Inhibitor;
 use crate::ipc::Ipc;
 use crate::media::Media;
+use crate::network::Network;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
 use crate::power::Power;
@@ -66,7 +67,9 @@ pub struct Services {
     pub notifications: Notifications,
     /// The MPRIS media players.
     pub media: Media,
-    /// Whether the machine is online.
+    /// The network: Wi-Fi, Ethernet, VPN and the secret agent.
+    pub network: Network,
+    /// Whether the machine is online. A projection of [`Services::network`].
     pub connectivity: Connectivity,
     /// The weather, as one cache for the whole panel.
     pub weather: Weather,
@@ -101,6 +104,13 @@ pub struct Services {
 const SMOKE_BUS: &str = "TOPBAR_SMOKE_POWER_BUS";
 /// The same, for `/sys/class/power_supply`.
 const SMOKE_SYSFS: &str = "TOPBAR_SMOKE_POWER_SYSFS";
+/// The same again, for NetworkManager.
+///
+/// The real one is the machine's live network, and this is the switch that
+/// makes the network service willing to change anything at all — see
+/// [`crate::network::Access`]. A debug build with this unset reads and does
+/// nothing else.
+const SMOKE_NM_BUS: &str = "TOPBAR_SMOKE_NM_BUS";
 
 /// A smoke override, in debug builds only.
 fn smoke(variable: &str) -> Option<String> {
@@ -131,14 +141,17 @@ impl Services {
         let allow_overdrive = config.audio.allow_overdrive;
         let power_bus = smoke(SMOKE_BUS);
         let power_sysfs = smoke(SMOKE_SYSFS).map(PathBuf::from);
+        let nm_bus = smoke(SMOKE_NM_BUS);
         Runtime::handle().block_on(async move {
             // The state file is read once, here, so every service that
             // restores something starts from one consistent document.
             let (state, store) = StateStore::open();
-            // Connectivity first: the weather service subscribes to it, and a
-            // subscriber built before the watcher exists would have nothing to
-            // read on its first frame.
-            let connectivity = Connectivity::start(None);
+            // The network first, and connectivity out of it: the weather and
+            // crypto services subscribe to connectivity, and a subscriber built
+            // before the service exists would have nothing to read on its first
+            // frame.
+            let network = Network::start(nm_bus, state.network, Some(store.clone()));
+            let connectivity = Connectivity::from_network(&network);
             Self {
                 niri: Niri::start(niri_socket),
                 notifications: Notifications::start(state.notifications, store.clone(), None),
@@ -153,6 +166,7 @@ impl Services {
                 power_profiles: PowerProfiles::start(power_bus),
                 power: Power::new(None),
                 ipc: Ipc::start(),
+                network,
                 connectivity,
             }
         })

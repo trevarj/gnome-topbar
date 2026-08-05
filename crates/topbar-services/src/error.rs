@@ -108,6 +108,15 @@ pub enum SvcError {
     #[error("logind refused the power action: {0}")]
     PowerAction(String),
 
+    /// NetworkManager refused a change, or there was nothing to change.
+    ///
+    /// Covers joining a network, switching the radio and switching a VPN. The
+    /// user-facing sentence is deliberately the same for all three: a person
+    /// who pressed a Wi-Fi row and got nothing does not need the word
+    /// "activation", and the detail is in the log line beside it.
+    #[error("the network could not be changed: {0}")]
+    Network(String),
+
     /// A command the user configured could not be started.
     #[error("could not run `{command}`: {reason}")]
     Command {
@@ -148,6 +157,7 @@ impl SvcError {
             Self::PowerProfile(_) => "Could not change the power mode",
             Self::Battery(_) => "Could not change the charge limit",
             Self::PowerAction(_) => "The system refused that power action",
+            Self::Network(_) => "Could not change the network",
             Self::Command { .. } => "That command could not be run",
             Self::ServiceStopped(_) => "That part of the panel has stopped",
         }
@@ -182,6 +192,7 @@ mod tests {
             SvcError::PowerProfile("no power-profiles daemon is running".into()),
             SvcError::Battery("start 90% must be below stop 80%".into()),
             SvcError::PowerAction("Interactive authentication required".into()),
+            SvcError::Network("802-11-wireless-security.psk was refused".into()),
             SvcError::Command {
                 command: "loginctl lock-session".into(),
                 reason: "No such file or directory".into(),

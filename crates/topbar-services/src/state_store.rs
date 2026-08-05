@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::crypto::PersistedCrypto;
+use crate::network::PersistedNetwork;
 use crate::notifications::PersistedNotifications;
 use crate::weather::PersistedWeather;
 
@@ -46,6 +47,8 @@ pub struct PersistedState {
     pub weather: PersistedWeather,
     /// The price entries the crypto settings view last saved.
     pub crypto: PersistedCrypto,
+    /// The VPN profile that was last actually up.
+    pub network: PersistedNetwork,
 }
 
 /// One queued change to the state document.

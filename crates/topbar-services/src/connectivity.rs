@@ -1,16 +1,16 @@
 //! Is this machine on the internet?
 //!
-//! The weather service — and, from M10, every `custom-*` widget marked
-//! `requires_network` — has to know, because polling an HTTP endpoint on a
-//! laptop in a tunnel is a request that will fail slowly and then be retried.
-//! One `State` property on NetworkManager answers it, so that is all this
-//! module reads.
+//! The weather and crypto services — and, from M10, every `custom-*` widget
+//! marked `requires_network` — have to know, because polling an HTTP endpoint
+//! on a laptop in a tunnel is a request that will fail slowly and then be
+//! retried.
 //!
-//! **This is deliberately not the network service.** M9 builds that one:
-//! devices, access points, VPN, the secret agent. When it lands it absorbs
-//! this module — the `Connectivity` handle keeps its shape so the consumers do
-//! not change, but the task behind it becomes one more subscriber to the full
-//! NetworkManager state rather than a connection of its own.
+//! **This is no longer a service.** Until M9b it was: a NetworkManager
+//! connection of its own that read one property. M9b's [network
+//! service](crate::network) reads that property among many others, so this is
+//! now a projection of that one snapshot down to the single boolean its
+//! consumers care about — one NetworkManager client on the bus, not two. The
+//! handle keeps its shape, so nothing that subscribes to it changed.
 //!
 //! The failure mode is chosen rather than inherited: a machine with no
 //! NetworkManager on its system bus is assumed to be **online**. Guessing
@@ -20,21 +20,16 @@
 
 use std::sync::Arc;
 
-use futures_util::StreamExt;
 use tokio::sync::watch;
-use tracing::{debug, info, warn};
-use zbus::Connection;
+use tracing::{debug, info};
 
-/// `NM_STATE_UNKNOWN` — NetworkManager is not sure, so neither are we.
-const STATE_UNKNOWN: u32 = 0;
-/// `NM_STATE_CONNECTED_SITE`: routable, but NM's own connectivity check did
-/// not reach its test endpoint.
-const STATE_CONNECTED_SITE: u32 = 60;
+use crate::network::{Network, NetworkState};
 
-/// What the panel knows about the network.
+/// What the panel knows about reaching the internet.
 ///
-/// One field on purpose. Anything richer is M9's, and a snapshot that grows
-/// speculative fields is a snapshot every consumer has to re-read.
+/// One field on purpose. Anything richer is the network service's, and a
+/// snapshot that grows speculative fields is a snapshot every consumer has to
+/// re-read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConnectivityState {
     /// Whether a request to the internet is worth making.
@@ -52,24 +47,61 @@ impl Default for ConnectivityState {
     }
 }
 
-/// The connectivity watcher.
+/// Whether the machine is online, as a subscription.
 ///
 /// Cloning is cheap: it is one watch subscription.
 #[derive(Clone)]
 pub struct Connectivity {
     state: watch::Receiver<Arc<ConnectivityState>>,
+    /// The service being followed, when nothing else is holding it.
+    ///
+    /// Production's lives in [`crate::Services`]; a test builds one of its own
+    /// and would otherwise drop it on the floor the moment this is constructed.
+    #[cfg(test)]
+    #[expect(dead_code, reason = "held so the service it follows stays alive")]
+    network: Option<Network>,
 }
 
 impl Connectivity {
-    /// Start watching NetworkManager.
+    /// Follow the network service's idea of being online.
+    pub(crate) fn from_network(network: &Network) -> Self {
+        let mut source = network.state();
+        let initial = ConnectivityState {
+            online: source.borrow_and_update().online,
+        };
+        let (publisher, state) = watch::channel(Arc::new(initial));
+
+        tokio::spawn(async move {
+            while source.changed().await.is_ok() {
+                let online = source.borrow_and_update().online;
+                publish(&publisher, online);
+            }
+            // The network service stopped. Whatever replaced it — or nothing at
+            // all — the panel must not be left believing the machine is offline
+            // for good.
+            info!("the network service stopped; assuming the machine is online");
+            let _ = publisher.send(Arc::new(ConnectivityState::default()));
+        });
+
+        Self {
+            state,
+            #[cfg(test)]
+            network: None,
+        }
+    }
+
+    /// Start a network service and follow it. Tests only.
     ///
-    /// `address` overrides the system bus, which is how the bus test points
-    /// this at a `dbus-daemon` of its own instead of the machine's real
-    /// NetworkManager.
+    /// The weather and crypto bus tests want a `Connectivity` pointed at a
+    /// NetworkManager of their own, and this keeps them talking to the very
+    /// same code path production uses rather than to a stub of it.
+    #[cfg(test)]
     pub(crate) fn start(address: Option<String>) -> Self {
-        let (publisher, state) = watch::channel(Arc::new(ConnectivityState::default()));
-        tokio::spawn(run(publisher, address));
-        Self { state }
+        let network = Network::start(address, crate::network::PersistedNetwork::default(), None);
+        Self {
+            network: Some(network.clone()),
+            ..Self::from_network(&network)
+        }
     }
 
     /// Subscribe to the online/offline state.
@@ -83,92 +115,13 @@ impl Connectivity {
     }
 }
 
-/// Whether an `NM_STATE_*` value means "a request is worth making".
-///
-/// The threshold is `CONNECTED_SITE`, one step below v1's, which took
-/// `CONNECTED_GLOBAL` (70) alone — v1 could afford that because it fell back
-/// to link-level state (`wifi.connected || wired.connected`) whenever NM's own
-/// answer was missing, and this module has no such fallback. A box whose
-/// connectivity check is switched off, or whose captive-portal probe is
-/// blocked, sits at 60 forever; refusing to fetch there would be the same
-/// permanent blank the missing-NetworkManager case is written to avoid.
-/// `UNKNOWN` is treated the same way, and for the same reason.
-fn online_from_state(state: u32) -> bool {
-    state == STATE_UNKNOWN || state >= STATE_CONNECTED_SITE
-}
-
-/// Follow NetworkManager's `State` for as long as it is on the bus.
-async fn run(publisher: watch::Sender<Arc<ConnectivityState>>, address: Option<String>) {
-    let connection = match connect(address).await {
-        Ok(connection) => connection,
-        Err(error) => {
-            info!("no system bus ({error}); assuming the machine is online");
-            return;
-        }
-    };
-
-    let proxy = match NetworkManagerProxy::new(&connection).await {
-        Ok(proxy) => proxy,
-        Err(error) => {
-            info!("no NetworkManager proxy ({error}); assuming the machine is online");
-            return;
-        }
-    };
-
-    // Subscribed before the first read, so a change that lands between the two
-    // is queued rather than lost.
-    let mut changes = match proxy.receive_state_changed().await {
-        Ok(changes) => changes,
-        Err(error) => {
-            info!("NetworkManager is not answering ({error}); assuming the machine is online");
-            return;
-        }
-    };
-
-    match proxy.nm_state().await {
-        Ok(state) => publish(&publisher, state),
-        Err(error) => {
-            info!("NetworkManager has no state to report ({error}); assuming online");
-            return;
-        }
-    }
-
-    while let Some(signal) = changes.next().await {
-        match signal.args() {
-            Ok(args) => publish(&publisher, args.state),
-            Err(error) => warn!("unreadable NetworkManager state change: {error}"),
-        }
-    }
-
-    // NetworkManager went away. Whatever replaced it — or nothing at all — the
-    // panel must not be left believing the machine is offline for good.
-    warn!("NetworkManager stopped reporting; assuming the machine is online");
-    let _ = publisher.send(Arc::new(ConnectivityState::default()));
-}
-
-/// The system bus, or the address a test handed us.
-async fn connect(address: Option<String>) -> zbus::Result<Connection> {
-    match address {
-        Some(address) => {
-            zbus::connection::Builder::address(address.as_str())?
-                .build()
-                .await
-        }
-        None => Connection::system().await,
-    }
-}
-
 /// Publish a state, logging only the transitions.
-fn publish(publisher: &watch::Sender<Arc<ConnectivityState>>, state: u32) {
-    let online = online_from_state(state);
+fn publish(publisher: &watch::Sender<Arc<ConnectivityState>>, online: bool) {
     if publisher.borrow().online == online {
-        debug!("NetworkManager state {state}; still {}", label(online));
+        debug!("still {}", label(online));
         return;
     }
-    info!(
-        "NetworkManager state {state}; the machine is {}",
-        label(online)
-    );
+    info!("the machine is {}", label(online));
     let _ = publisher.send(Arc::new(ConnectivityState { online }));
 }
 
@@ -177,29 +130,28 @@ fn label(online: bool) -> &'static str {
     if online { "online" } else { "offline" }
 }
 
-/// The one property and the one signal this module reads.
+/// Whether an `NM_STATE_*` value means "a request is worth making".
 ///
-/// The property is renamed on the Rust side: zbus derives
-/// `receive_state_changed` from a property called `State` *and* from a signal
-/// called `StateChanged`, and NetworkManager has both.
-#[zbus::proxy(
-    interface = "org.freedesktop.NetworkManager",
-    default_service = "org.freedesktop.NetworkManager",
-    default_path = "/org/freedesktop/NetworkManager"
-)]
-trait NetworkManager {
-    /// `NM_STATE_*` for the machine as a whole.
-    #[zbus(property, name = "State")]
-    fn nm_state(&self) -> zbus::Result<u32>;
+/// Re-exported from the network service's model, where the rule lives with the
+/// rest of NetworkManager's constants.
+pub use crate::network::online_from_state;
 
-    /// Emitted whenever that value changes.
-    #[zbus(signal)]
-    fn state_changed(&self, state: u32) -> zbus::Result<()>;
+/// Where the state comes from, for a consumer that wants the whole picture.
+impl From<&NetworkState> for ConnectivityState {
+    fn from(state: &NetworkState) -> Self {
+        Self {
+            online: state.online,
+        }
+    }
 }
 
-/// A NetworkManager that only has a `State`, served on a bus of the test's
-/// own. The weather service's own bus tests reach for it too, which is why it
-/// is a module rather than a few functions in one test file.
+/// A NetworkManager that only has a `State`, served on a bus of the test's own.
+///
+/// The weather service's own bus tests reach for it, which is why it is a
+/// module rather than a few functions in one test file. It is deliberately
+/// *minimal* — no devices, no settings store, no access points — because that
+/// is also a test: the full network service has to cope with a NetworkManager
+/// that answers one property and nothing else.
 #[cfg(test)]
 pub(crate) mod bus_tests {
     use std::time::Duration;
@@ -331,20 +283,15 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_state_is_treated_as_online() {
-        assert!(online_from_state(STATE_UNKNOWN));
-    }
-
-    #[test]
-    fn a_value_networkmanager_has_never_defined_is_treated_as_online() {
-        // Above every documented state: a newer NetworkManager adding a
-        // "more connected" value must not read as a disconnection.
-        assert!(online_from_state(80));
-        assert!(online_from_state(u32::MAX));
-    }
-
-    #[test]
     fn the_panel_starts_optimistic() {
         assert!(ConnectivityState::default().online);
+    }
+
+    #[test]
+    fn the_projection_carries_exactly_the_networks_answer() {
+        let mut state = NetworkState::default();
+        assert!(ConnectivityState::from(&state).online);
+        state.online = false;
+        assert!(!ConnectivityState::from(&state).online);
     }
 }

@@ -20,6 +20,7 @@ pub mod inhibitor;
 pub mod ipc;
 pub mod logind;
 pub mod media;
+pub mod network;
 pub mod niri;
 pub mod notifications;
 pub mod power;
@@ -50,6 +51,10 @@ pub use crypto::{Asset, Crypto, CryptoHandle, CryptoState, Entry, EntryQuote, Qu
 pub use error::SvcError;
 pub use inhibitor::{Inhibitor, InhibitorHandle, InhibitorState};
 pub use media::{ArtRef, Media, MediaHandle, MediaState, PlaybackStatus, PlayerView};
+pub use network::{
+    Access, ApView, Network, NetworkHandle, NetworkState, Pending, PendingPrompt, Secret, VpnKind,
+    VpnView, WifiState, WiredState,
+};
 pub use niri::{KeyboardLayoutSnapshot, Niri, NiriHandle, WorkspaceView, WorkspacesSnapshot};
 pub use notifications::{
     Action, CloseReason, GroupView, IconSource, ImageData, NotifState, NotificationView,

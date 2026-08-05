@@ -20,6 +20,10 @@ fake-sni = []
 # daemon, because the real ones live on the *system* bus and a smoke run must
 # never so much as look at that.
 fake-power = []
+# And for the network: `topbar-fake-nm` serves a NetworkManager — devices,
+# access points, a settings store, an agent manager — so the Wi-Fi and VPN
+# scenarios can be driven without going anywhere near the machine's real one.
+fake-nm = []
 
 [[bin]]
 name = "topbar-fake-player"
@@ -35,6 +39,11 @@ required-features = ["fake-sni"]
 name = "topbar-fake-power"
 path = "src/bin/fake_power.rs"
 required-features = ["fake-power"]
+
+[[bin]]
+name = "topbar-fake-nm"
+path = "src/bin/fake_nm.rs"
+required-features = ["fake-nm"]
 
 [dependencies]
 topbar-core = { workspace = true }
