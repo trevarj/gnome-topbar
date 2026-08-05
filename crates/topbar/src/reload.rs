@@ -230,7 +230,10 @@ impl Reloader {
         // something that is already running.
         let started = self.services.start_if_needed(&config);
         if !started.is_empty() {
-            info!("the reload started {} service(s)", started.join(", "));
+            info!(
+                "the reload started the {} service",
+                started.join(" and the ")
+            );
         }
         self.services.sync_custom(&previous, &config);
         self.reconfigure_services(&previous, &config, &delta);
