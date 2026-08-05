@@ -2052,10 +2052,14 @@ osd-bar {
     background-color: var(--color-widget-hover);
 }
 
+/* The fourth list row in the panel, and the same 44 as the other three. Left
+   to its content it came out at 40, so a panel with Power Mode open and any
+   other list open showed two lists whose rows were four pixels apart. */
 .qs-radio-row {
     background: transparent;
     border: none;
     border-radius: var(--radius-card);
+    min-height: 28px;
     padding: 8px 12px;
     color: var(--color-foreground);
 }
