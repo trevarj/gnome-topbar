@@ -42,9 +42,21 @@ repo=$(pwd)
 # the driver would lock the developer's screen half way through a screenshot.
 # The replacement is a path that does not exist, so the click takes the whole
 # inline-failure path instead — which is the thing worth photographing anyway.
+#
+# The second edit takes `update_count_command` out. The live config names a
+# guix helper that has not existed since the NixOS migration, and a configured
+# command always beats the distribution the panel deduced — so the updates card
+# spent every run reporting exit 127 and staying hidden, whatever fixtures were
+# put on PATH for it. Without the line, the Arch `/etc/os-release` and the
+# `checkupdates` below are what the card counts.
 config="$artifact_root/config.toml"
-sed 's|^on_click_right = .*|on_click_right = "/nonexistent/loginctl lock-session"|' \
+sed -e 's|^on_click_right = .*|on_click_right = "/nonexistent/loginctl lock-session"|' \
+  -e '/^update_count_command = /d' \
   "$repo/crates/topbar-core/tests/fixtures/live-config.toml" >"$config"
+if grep -q "^update_count_command" "$config"; then
+  echo "smoke-qs-pointer: the updates command is still configured" >&2
+  exit 1
+fi
 
 # A network of the run's own. The real NetworkManager is on the system bus and
 # IS the developer's connection; a run that clicks a Wi-Fi list must never be
@@ -72,6 +84,30 @@ smoke_bluez='--device buds|WH-1000XM4|AA:BB:CC:DD:EE:FF|audio-headset|connected|
   --device mouse|MX_Master_3S|11:22:33:44:55:66|input-mouse
   --device kb|Magic_Keyboard|99:88:77:66:55:44|input-keyboard'
 
+# An Arch with updates pending, so the updates card is in every screenshot.
+# The card is absent on a machine with nothing to say, which is correct and
+# means a run on this NixOS would never photograph it — and it is one of the
+# two cards at the foot of the panel whose height is worth looking at.
+fixtures="$artifact_root/fixtures"
+mkdir -p "$fixtures/bin"
+cat >"$fixtures/os-release" <<'EOF'
+NAME="Arch Linux"
+PRETTY_NAME="Arch Linux"
+ID=arch
+BUILD_ID=rolling
+EOF
+cat >"$fixtures/bin/checkupdates" <<'EOF'
+#!/usr/bin/env sh
+cat <<'PACKAGES'
+linux 6.12.4.arch1-1 -> 6.12.5.arch1-1
+mesa 1:24.3.1-1 -> 1:24.3.2-1
+firefox 133.0-1 -> 133.0.3-1
+sqlite 3.47.1-1 -> 3.47.2-1
+systemd 257.1-1 -> 257.2-1
+PACKAGES
+EOF
+chmod +x "$fixtures/bin/checkupdates"
+
 status=0
 
 run() {
@@ -85,6 +121,8 @@ run() {
   TOPBAR_SMOKE_NM="$smoke_nm" \
   TOPBAR_SMOKE_BLUEZ="$smoke_bluez" \
   TOPBAR_SMOKE_POWER="--active balanced --percent 62 --state 2 --time-to-empty 8100" \
+  TOPBAR_SMOKE_OSRELEASE="$fixtures/os-release" \
+  SMOKE_PATH="$fixtures/bin" \
   TOPBAR_SMOKE_TIMEOUT="${TOPBAR_SMOKE_TIMEOUT:-400}" \
   TOPBAR_SMOKE_DRIVER="$repo/scripts/smoke-qs-pointer-shot.sh" \
   TOPBAR_VISUAL_CONFIG="$config" \

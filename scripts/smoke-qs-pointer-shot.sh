@@ -97,8 +97,13 @@ for line in block.splitlines():
         continue
     kind, classes, label = match.group(1), match.group(2), match.group(3)
     haystack = kind + " " + classes.replace(".", " ") + " " + label
-    if pattern in haystack:
-        found.append(match.group(4, 5, 6, 7))
+    if pattern not in haystack:
+        continue
+    rect = match.group(4, 5, 6, 7)
+    # A control with no size has not been laid out yet, and its centre is the
+    # top-left corner of the screen. Clicking there hits the workspace switcher.
+    if int(rect[2]) > 0 and int(rect[3]) > 0:
+        found.append(rect)
 
 if len(found) < index:
     sys.exit("%s: wanted #%d, found %d" % (pattern, index, len(found)))
@@ -193,8 +198,19 @@ fi
 # The panel has to be built before it can say where anything is, and the bar
 # button is the only control on screen before it is. One dump, one click, and
 # from there every coordinate comes out of the panel itself.
+#
+# The bar is asked more than once: the driver starts two seconds after the
+# panel does, and on a cold debug build that is sometimes before the bar has
+# been through a size negotiation. A widget that has not been laid out has no
+# rectangle, and `rect_of` refuses to hand back a centre of nothing.
 open_panel() {
-  dump
+  tries=0
+  while [ "$tries" -lt 10 ]; do
+    dump
+    rect_of bar-button 1 >/dev/null 2>&1 && break
+    echo "smoke-qs-pointer: the bar has no button yet; asking again"
+    tries=$((tries + 1))
+  done
   check click_on bar-button
   check assert_mapped topbar-popover "opened by a click on the bar"
   dump
@@ -232,6 +248,17 @@ case "$scenario" in
     sleep 2
     pointer_park
     check shot 06-lock-error
+
+    # The panel is retained, so the caption is the same widget the next time it
+    # is opened. Nothing clears it but the same action being tried again, and
+    # for a lock command nobody tries twice that is never — this is the shot
+    # that says the header comes back without Tuesday's failure on it.
+    echo "--- and the caption does not survive the panel"
+    click_at 200 940
+    check assert_unmapped topbar-popover "click-away dismissed it"
+    open_panel
+    pointer_park
+    check shot 06b-reopened-clean
 
     echo "--- the power button opens the power section"
     check click_on qs-round-button 2
@@ -357,12 +384,18 @@ case "$scenario" in
     type_text "wrong-key-on-purpose"
     check snap 06-password-typed
     echo "--- and Connect sends it, which the fake refuses"
-    check click_on Connect
+    # By class and position, not by the word on it. `rect_of` matches a
+    # substring of "<type> <classes> <label>", and the Wi-Fi pill's own label
+    # is "Usadba · Connected" — which contains "Connect". So `click_on Connect`
+    # pressed the *pill*, switched the radio off, took the whole list away with
+    # it and then reported every following step as a control that had vanished.
+    # The password box has exactly two buttons, in this order.
+    check click_on qs-password-button 2
     sleep 3
     dump
     pointer_park
     check snap 07-password-refused
-    check click_on Cancel
+    check click_on qs-password-button 1
     sleep 2
     dump
 
@@ -418,9 +451,21 @@ case "$scenario" in
     echo "--- a VPN row switches its tunnel"
     check click_on qs-vpn-row 1
     sleep 3
-    dump
     pointer_park
     check snap 06-vpn-up
+
+    # `vpn_close_on_connect` defaults to on, so the tunnel coming up takes the
+    # panel with it — which is the setting working. Everything after this point
+    # needs the panel back, and without the reopen the last third of this
+    # scenario spent its life clicking at a closed popover and reporting Power
+    # Mode as a control that was not there.
+    echo "--- the panel closed itself on the connect; open it again"
+    check assert_unmapped topbar-popover "vpn_close_on_connect closed it"
+    # Guarded: a reopen aimed at a panel that never closed would *close* it,
+    # and the rest of the scenario would fail for the opposite reason.
+    if ! pointer_mapped topbar-popover; then
+      open_panel
+    fi
 
     echo "--- Power Mode expands from its body, not only its chevron"
     check click_on "Power Mode"
