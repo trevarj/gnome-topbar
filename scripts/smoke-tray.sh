@@ -25,6 +25,11 @@
 # Screenshots land in target/visual-smoke/tray/<scenario>/.
 set -eu
 
+# The fake applications do not exit when their private bus dies, so an
+# interrupted or timed-out run strands them (14 of them once survived nine
+# hours). Reap every fake this run spawned, whatever happens.
+trap 'pkill -f "target/debug/topbar-fake-sni" 2>/dev/null || true' EXIT INT TERM
+
 artifact_root="${1:-target/visual-smoke/tray}"
 mkdir -p "$artifact_root"
 artifact_root=$(cd "$artifact_root" && pwd)
