@@ -125,9 +125,227 @@ The lookup order is `$XDG_CONFIG_HOME/topbar/config.toml`, then
 specific file (it must exist), and `--strict` to turn configuration warnings
 into errors.
 
-Every key, its default and what it does:
-[docs/configuration.md](docs/configuration.md). How the thing is built:
-[docs/architecture.md](docs/architecture.md).
+The tables below list every module and every key. The longer story — search
+order, v1 compatibility, what hot reload costs per key, what the panel never
+writes — is [docs/configuration.md](docs/configuration.md). How the thing is
+built: [docs/architecture.md](docs/architecture.md).
+
+### `[bar]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `position` | `"top"` | Screen edge. `"top"` is the only value; `"bottom"` is an error. |
+| `size` | `36` | Bar height in pixels. Must be above zero. |
+| `spacing` | `2` | Gap between widgets. |
+| `screen_margin` | `0` | Gap between the screen edge and the bar window. |
+| `inset` | `4` | Gap between the bar edge and the first/last section. |
+| `padding` | `0` | Extra vertical padding inside the bar. |
+| `border_radius` | `0` | Bar corner radius in pixels. |
+| `popover_offset` | `1` | Gap between the bar and popovers anchored to it. |
+| `background_color` | `"#000000"` | Bar background colour (hex). |
+| `background_opacity` | `1.0` | Bar background opacity, `0.0`–`1.0`. |
+
+### `[widgets]` — placement and shared styling
+
+| Key | Default | Meaning |
+|---|---|---|
+| `left` | `["workspaces"]` | Left section, in order. |
+| `center` | `["clock"]` | Center section, in order. |
+| `right` | `["tray", "quick_settings"]` | Right section, in order. |
+| `border_radius` | `50` | Widget corner radius as a percentage of bar height; `50`+ is a full pill. |
+| `background_color` | unset | Widget surface colour. Unset uses the theme surface. |
+| `background_opacity` | `0.0` | Widget background opacity; `0.0` = transparent until hovered. |
+| `popover_background_opacity` | unset | Popover opacity. Unset follows the bar's. |
+
+Available widgets: `workspaces`, `clock`, `weather`, `crypto`, `tray`,
+`quick_settings`, `system_monitor`, `headset`, `keyboard_layout`, `os_logo`,
+and any number of `custom-<name>` script widgets. Every `[widgets.<name>]`
+section also accepts `on_click`, `on_click_right` and `on_click_middle` shell
+commands; widgets whose click already does something (opening a popover, say)
+accept the keys but act only on the buttons they have free.
+
+### `[widgets.workspaces]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `label_type` | `"none"` | `"none"` (dots), `"index"`, or `"name"`. |
+| `animate` | unset | Animate dot/pill transitions. Unset follows `theme.animations`. |
+| `filter_by_output` | `true` | Show only this monitor's workspaces. |
+| `show_unoccupied` | `false` | Show workspaces that hold no windows. |
+
+### `[widgets.clock]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `format` | `"%a %b %-d  %H:%M"` | `strftime` format for the panel label. |
+| `control_panel` | `false` | Open the notifications/calendar panel on click. |
+| `show_week_numbers` | `true` | ISO week numbers in the calendar. |
+| `world_clocks` | `[]` | Extra time zones: `{ label = "UTC", timezone = "Etc/UTC" }`. |
+
+### `[widgets.weather]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `latitude`, `longitude` | unset | Seed coordinates. A location saved from the popover's search wins. |
+| `unit` | `"celsius"` | `"celsius"`/`"c"` or `"fahrenheit"`/`"f"`. |
+| `interval` | `1800` | Seconds between refreshes. Minimum 60. |
+| `tooltip` | `"Weather"` | Static tooltip prefix. |
+| `max_chars` | unset | Ellipsize the panel label past this many characters. |
+| `forecast_days` | `5` | Forecast rows in the control panel, `3`–`5`. |
+
+### `[widgets.crypto]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `entries` | `["btc", "eth", "eth/btc"]` | Assets (`btc`, `eth`, `xmr`) or pairs (`eth/btc`). |
+| `interval` | `1800` | Seconds between refreshes. Minimum 60. |
+| `tooltip` | `"Crypto prices"` | Static tooltip prefix. |
+| `max_chars` | unset | Ellipsize the panel label past this many characters. |
+
+Entries picked in the widget's own settings view are saved to `state.json` and
+override this key from then on.
+
+### `[widgets.tray]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `max_icons` | `12` | Icons shown inline before the overflow chevron. |
+| `pixmap_icon_size` | unset | Render size for non-themed icons. Unset uses the theme size. |
+
+### `[widgets.quick_settings]`
+
+Every key is a row in the menu; set one to `false` to hide it.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `network` | `true` | The Wi-Fi/wired row. |
+| `bluetooth` | `true` | The Bluetooth row. |
+| `vpn` | `true` | The VPN row. |
+| `idle_inhibitor` | `true` | The Caffeine toggle. |
+| `updates` | `true` | The pending-updates card. |
+| `audio` | `true` | The output volume slider. |
+| `mic` | `true` | The microphone slider, shown while a source is in use. |
+| `brightness` | `true` | The backlight slider. |
+| `power` | `true` | The suspend/restart/shut down section. |
+| `battery` | `true` | The battery pill in the panel indicator. |
+| `battery_health` | `true` | The battery health and charge-threshold card. |
+| `resource_overview` | `true` | The CPU/memory/disk card. |
+| `vpn_close_on_connect` | `true` | Close the menu once a VPN connects. |
+| `audio_scroll_percentage` | `5` | Volume change per scroll tick on the bar button, `1`–`25`. |
+
+### `[widgets.system_monitor]`
+
+Alert-only: invisible while healthy, fades in once a threshold is crossed
+(with hysteresis, so a machine sitting on the line does not flicker).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cpu_threshold` | `90` | CPU percentage that makes the widget appear, `1`–`100`. |
+| `memory_threshold` | `85` | Memory percentage, `1`–`100`. |
+| `disk_threshold` | `90` | Disk percentage, `1`–`100`. |
+| `interval` | `5` | Seconds between samples. |
+| `tooltip` | `"System load"` | Static tooltip prefix. |
+
+### `[widgets.headset]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `interval` | `5` | Seconds between polls. |
+| `tooltip` | `"Headset battery"` | Static tooltip prefix. |
+| `max_chars` | unset | Ellipsize the panel label past this many characters. |
+| `command` | `"headsetcontrol"` | Executable queried for battery state. |
+
+### `[widgets.keyboard_layout]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `show_icon` | `true` | Show the keyboard icon. |
+| `show_label` | `true` | Show the layout label. |
+| `format` | `"short"` | `"short"` (`US`) or `"long"` (`English (US)`). |
+
+### `[widgets.os_logo]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `tooltip` | unset | Tooltip override. Unset uses the detected distro name. |
+| `label` | unset | Label override. Unset uses the detected distro glyph. |
+| `max_chars` | `4` | Ellipsize the panel label past this many characters. |
+
+### `[widgets.custom-*]`
+
+Script-backed indicators; the section name after `custom-` is the widget name
+used in a placement array. A section needs at least one of `exec`, `label` or
+`icon`. `exec` output is a plain first line or Waybar-style JSON.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `exec` | unset | Command whose output becomes the label. |
+| `interval` | `0` | Seconds between runs. `0` runs once at start-up. |
+| `template` | unset | Format for the output; must contain `{output}`. |
+| `icon` | unset | Symbolic icon name shown before the label. |
+| `label` | `""` | Static or fallback label text. |
+| `tooltip` | unset | Static tooltip. Overridden by JSON output. |
+| `max_chars` | unset | Ellipsize the panel label past this many characters. |
+| `requires_network` | `false` | Wait for a live connection before running `exec`. |
+
+### `[theme]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mode` | `"dark"` | Accepted for compatibility; `"dark"` is the only value honoured. |
+| `accent` | `"#3584e4"` | A hex colour, or `"none"` for monochrome. |
+| `animations` | `true` | Master switch for transitions and animations. |
+| `ripple` | `true` | Material-style ripple on press. |
+| `blur` | `false` | Ask the compositor to blur behind panel surfaces. |
+
+### `[theme.icons]`, `[theme.states]`, `[theme.typography]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `icons.theme` | `"Adwaita"` | GTK icon theme, pinned at start-up. The package ships Adwaita. |
+| `icons.weight` | `400` | Accepted and unread; a leftover from v1's Material backend. |
+| `states.success` | `"#4a7a4a"` | Success/connected tint. |
+| `states.warning` | `"#e5c07b"` | Warning tint. |
+| `states.urgent` | `"#ff6b6b"` | Urgent/error tint. |
+| `typography.font_family` | `"Adwaita Sans, Cantarell, Noto Sans, sans-serif"` | CSS font stack. |
+
+### `[osd]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Show the volume/brightness capsule at all. |
+| `position` | `"bottom"` | `"bottom"`, `"top"`, `"left"`, or `"right"`. |
+| `show_value` | `false` | Draw the numeric value next to the bar. |
+| `timeout_ms` | `1500` | Milliseconds the capsule stays up after the last event. |
+
+The capsule never appears for the panel's own sliders — media keys and
+anything else on the machine raise it.
+
+### `[audio]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `allow_overdrive` | `false` | Allow volume above 100%, capped at PulseAudio's UI maximum. |
+
+### `[updates]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `check_interval` | `3600` | Seconds between checks. Minimum 60. |
+| `update_count_command` | unset | Shell override: print a number, or one update per line. |
+| `flake` | unset | NixOS only: where the system flake lives (default `/etc/nixos`). |
+
+With no override, the card deduces a read-only counting command from
+`/etc/os-release` (Guix, Debian, Arch, Fedora and the image-based editions);
+on NixOS it re-locks a scratch copy of the system flake and counts the inputs
+that moved. Failure hides the card rather than showing a zero that lies.
+
+### `[advanced]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `compositor` | `"auto"` | `"auto"` or `"niri"`; both select the niri backend. Needs a restart. |
+| `pango_font_rendering` | `false` | Route label fonts through Pango's DPI-aware path. |
 
 ## Switching from gnome-topbar (v1)
 
