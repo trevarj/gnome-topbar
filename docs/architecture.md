@@ -343,6 +343,23 @@ dialog still reading "Searching…" never reaches disk. A capture that never
 satisfies all three fails loudly rather than leaving a stale frame for somebody
 to describe as though it were real.
 
+**A driver can click, and it asks the panel where to click.** niri advertises
+`zwlr_virtual_pointer_manager_v1` and `zwp_virtual_keyboard_manager_v1` inside a
+nested session too, so `scripts/smoke-pointer.sh` drives a real pointer into the
+nested seat — which is the only way the path from "the compositor delivered a
+button event" to "a GTK gesture fired" is exercised at all. Three dead controls
+shipped behind a green suite before there was any way to press one. Coordinates
+are never written down: `topbar popover show surface-dump` makes the panel log a
+rectangle per control on every mapped layer surface, in monitor pixels, with the
+classes and the text on it, and the drivers read the last block back out of
+`panel.log`. A driver holding coordinates measured off a screenshot starts
+clicking empty space the first time a padding changes, which looks exactly like
+the bug it is hunting. Two things the readers have to respect: a pattern is
+matched against `"<GtkType> <classes> <label>"`, so `Reply` also matches the
+*banner* whose button says that — name the type when it matters — and a row
+scrolled out of a list still has a rectangle, so scroll it into view before
+clicking it.
+
 **Every XDG path is sandboxed.** `XDG_STATE_HOME`, `XDG_CACHE_HOME`,
 `XDG_CONFIG_HOME` and `XDG_RUNTIME_DIR` are redirected into a temporary
 directory for the length of the run, so a run cannot touch the developer's real

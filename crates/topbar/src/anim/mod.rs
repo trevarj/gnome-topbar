@@ -27,9 +27,9 @@
 //! | Tray attention pulse | `tray::PULSE_MS` 1200, 2 cycles | cosine | restart only; **ends steady** |
 //! | Screen-share dot | `button::PULSE_MS` 2000 per breath | cosine | — |
 //! | System monitor fade-in | `system_monitor::FADE_MS` 150 | ease-out | hiding is instant |
-//! | QS section reveal | `expander::REVEAL_MS` 200 | ease-out / ease-in | yes, from the live reveal |
+//! | Section reveal | `expander::REVEAL_MS` 200 | ease-out / ease-in | yes, from the live reveal |
 //! | QS row reveal | `expander::ROW_REVEAL_MS` 150 | ease-out / ease-in | yes |
-//! | QS chevron turn | `expander::REVEAL_MS` 200, `CHEVRON_TURN` 180° | ease-out / ease-in | yes, from the live angle |
+//! | Chevron turn | `expander::REVEAL_MS` 200, `CHEVRON_TURN` 180° | ease-out / ease-in | yes, from the live angle |
 //! | Crypto view crossfade | `crypto::popover::SWITCH_MS` 150 | linear | superseded-safe |
 //! | Media art crossfade | `media::ART_FADE_MS` 150 | linear | restart only |
 //! | Keyboard layout switch | `keyboard_layout::SWITCH_FADE_MS` 150 | ease-out | restart only |

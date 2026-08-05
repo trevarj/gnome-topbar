@@ -429,17 +429,23 @@ case "$scenario" in
 
   # The shapes a real desktop produces that a tidy fixture never does.
   edges)
-    echo "--- a long application name, a huge body, and markup"
-    notify -t 120000 -a "Mokrinskiy Corporate Messenger Enterprise Edition" \
+    echo "--- a long application name, a huge body, three long actions, markup"
+    # In the background because `-A` implies `--wait`: a foreground sender
+    # blocks the driver and then takes its own notification away with it, which
+    # is a photograph of the desktop where the banner should be.
+    notify-send -t 120000 -a "Mokrinskiy Corporate Messenger Enterprise Edition" \
       -i mail-unread-symbolic \
       -A read="Mark everything as read" -A later="Remind me tomorrow morning" \
       -A open=Open \
       "A summary far longer than the column it has to fit inside" \
-      "The body is longer still: it runs past two lines and has to end in an ellipsis rather than half a letter, which is what a clipped label looks like when nobody checks. It also carries <b>bold</b>, <i>italic</i> and <u>underlined</u> markup, an unclosed <b>tag, an escaped ampersand (Tom & Jerry) and an <img src=x> element no notification has any business sending."
+      "The body is longer still: it runs past two lines and has to end in an ellipsis rather than half a letter, which is what a clipped label looks like when nobody checks. It also carries <b>bold</b>, <i>italic</i> and <u>underlined</u> markup, an unclosed <b>tag, an escaped ampersand (Tom & Jerry) and an <img src=x> element no notification has any business sending." \
+      >"$art/long-action.out" 2>&1 &
+    long_sender=$!
     notify -t 120000 -a Telegram -h string:desktop-entry:org.telegram.desktop \
       -i telegram "Ada" "short one"
     sleep 4
     check shot 01-banner-long topbar-toast
+    kill "$long_sender" 2>/dev/null || true
 
     echo "--- an icon from a file on disk, and one the theme has never heard of"
     notify -t 120000 -a Camera -i "$SMOKE_ARTIFACTS/icon.png" \

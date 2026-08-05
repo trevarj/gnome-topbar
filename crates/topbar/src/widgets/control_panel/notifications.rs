@@ -4,7 +4,7 @@
 //! header        "Notifications" + Clear, only while there is something to clear
 //! scroll
 //! └── list
-//!     └── group   app icon, name, count, chevron, clear
+//!     └── group   app icon, name, newest summary, count, chevron, clear
 //!         └── rows  summary, body, age, close   (while expanded)
 //! empty         the designed state for a column with nothing in it
 //! dnd           Do Not Disturb
