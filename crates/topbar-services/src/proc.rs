@@ -16,10 +16,29 @@
 //! child [`GRACE`] to fall over: if it does, the caller gets an error it can
 //! show, and if it is still running it is detached and left alone, because a
 //! click that opened a terminal has succeeded and must not be waited on.
+//!
+//! ## Two shapes, and why
+//!
+//! [`run`] is fire-and-forget: a click command whose *output* nobody wants.
+//! [`capture`] waits for a program to finish and reads what it printed, which
+//! is what the updates service does to every package manager it asks. They are
+//! separate functions because the safety rules differ — a captured command has
+//! a hard timeout and a hard output cap, because `dnf check-update` on a slow
+//! mirror is a minute of nothing and `apt-get -s upgrade` on a neglected
+//! machine is a megabyte of text, and neither may be allowed to sit in the
+//! panel's memory or its runtime for ever.
+//!
+//! [`CmdSpec::argv`] takes an **argument vector**, not a string: nothing the
+//! panel deduces for itself goes near a shell, so a mount point or a package
+//! name with a space in it cannot become two arguments. The one exception is
+//! [`CmdSpec::shell`], for the user's own `update_count_command` — that key has
+//! always been a shell command line, pipes and all, and turning it into an
+//! argv would break every configuration that has one.
 
 use std::process::Stdio;
 use std::time::Duration;
 
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tracing::{debug, warn};
 
@@ -34,6 +53,185 @@ const GRACE: Duration = Duration::from_millis(250);
 
 /// How much of a failing command's stderr is quoted back.
 const STDERR_CAP: usize = 200;
+
+/// How long a captured command may run before it is killed.
+///
+/// Generous, because `dnf check-update` against a cold mirror really does take
+/// twenty seconds — but bounded, because the alternative is a package manager
+/// waiting on a lock file holding a task open until the session ends.
+pub const CAPTURE_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// How much of a captured command's output is kept.
+///
+/// `apt-get -s upgrade` on a machine that has not been updated in a year runs
+/// to hundreds of kilobytes. The count is on the first lines; the rest is
+/// dropped rather than carried around in a snapshot.
+pub const CAPTURE_CAP: usize = 256 * 1024;
+
+/// One program to run and read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CmdSpec {
+    /// The program and its arguments. `argv[0]` is looked up on `PATH`.
+    pub argv: Vec<String>,
+    /// How long it may run.
+    pub timeout: Duration,
+    /// How much of its standard output is kept.
+    pub max_output_bytes: usize,
+}
+
+impl CmdSpec {
+    /// A program run directly, with no shell between.
+    ///
+    /// The form everything the panel decides for itself uses.
+    pub fn argv<I, S>(argv: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            argv: argv.into_iter().map(Into::into).collect(),
+            timeout: CAPTURE_TIMEOUT,
+            max_output_bytes: CAPTURE_CAP,
+        }
+    }
+
+    /// A command line run through `sh -c`.
+    ///
+    /// **The documented exception.** `[updates] update_count_command` has been
+    /// a shell command line since v1 — the live configuration's own value is a
+    /// pipeline — and rewriting it as an argument vector would break every
+    /// configuration that has one. It is the user's own string, from the user's
+    /// own file, and it is the only caller.
+    pub fn shell(command: &str) -> Self {
+        Self::argv(["sh", "-c", command])
+    }
+
+    /// The same, with a different ceiling on how long it may take.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// What to call this in a message.
+    fn label(&self) -> String {
+        self.argv.join(" ")
+    }
+}
+
+/// What a captured command left behind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Captured {
+    /// Its exit status, or `None` if a signal ended it.
+    pub code: Option<i32>,
+    /// Standard output, capped at [`CmdSpec::max_output_bytes`].
+    pub stdout: String,
+    /// Standard error, capped the same way.
+    pub stderr: String,
+}
+
+impl Captured {
+    /// Whether the command exited zero.
+    pub fn ok(&self) -> bool {
+        self.code == Some(0)
+    }
+}
+
+/// Run `spec` to completion and read what it printed.
+///
+/// An error means the program could not be started or did not finish in time;
+/// a program that ran and exited non-zero is a [`Captured`] with the status in
+/// it, because "non-zero" is a *result* for several of the callers here —
+/// `dnf check-update` says "there are updates" with exit 100.
+pub async fn capture(spec: &CmdSpec) -> Result<Captured, SvcError> {
+    let Some((program, arguments)) = spec.argv.split_first() else {
+        return Err(SvcError::Command {
+            command: String::new(),
+            reason: "the command is empty".to_string(),
+        });
+    };
+
+    debug!("capturing `{}`", spec.label());
+    let mut child = Command::new(program)
+        .args(arguments)
+        // No stdin, for the same reason `run` gives it none: a package manager
+        // that asks a question nobody can see would hold the task until it
+        // timed out.
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // The child dies with the task rather than outliving the panel: a
+        // service that is torn down mid-check must not leave `apt-get` behind.
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| SvcError::Command {
+            command: spec.label(),
+            reason: error.to_string(),
+        })?;
+
+    let mut out = child.stdout.take();
+    let mut err = child.stderr.take();
+    let cap = spec.max_output_bytes;
+
+    // The pipes are drained *while* the child runs. Waiting first and reading
+    // afterwards deadlocks the moment a command prints more than a pipe buffer.
+    let collect = async {
+        let (stdout, stderr, status) = tokio::join!(
+            read_capped(&mut out, cap),
+            read_capped(&mut err, cap),
+            child.wait(),
+        );
+        status.map(|status| (status, stdout, stderr))
+    };
+
+    match tokio::time::timeout(spec.timeout, collect).await {
+        Ok(Ok((status, stdout, stderr))) => Ok(Captured {
+            code: status.code(),
+            stdout,
+            stderr,
+        }),
+        Ok(Err(error)) => Err(SvcError::Command {
+            command: spec.label(),
+            reason: error.to_string(),
+        }),
+        Err(_) => Err(SvcError::Command {
+            command: spec.label(),
+            reason: format!("timed out after {:?}", spec.timeout),
+        }),
+    }
+}
+
+/// Read a pipe to its end, or to `cap` bytes, whichever comes first.
+async fn read_capped<R>(pipe: &mut Option<R>, cap: usize) -> String
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    match pipe.as_mut() {
+        Some(pipe) => read_stream(pipe, cap).await,
+        None => String::new(),
+    }
+}
+
+/// The same, for a stream that is definitely there.
+async fn read_stream(reader: &mut (impl tokio::io::AsyncRead + Unpin), cap: usize) -> String {
+    let mut buffer = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                let room = cap.saturating_sub(buffer.len());
+                if room == 0 {
+                    // Keep draining so the child is never blocked on a full
+                    // pipe; simply stop keeping what comes out.
+                    continue;
+                }
+                buffer.extend_from_slice(&chunk[..read.min(room)]);
+            }
+        }
+    }
+    String::from_utf8_lossy(&buffer).into_owned()
+}
 
 /// Run `command` through a shell, reaping it whatever it does.
 ///
@@ -200,6 +398,95 @@ mod tests {
             zombie_children(),
             0,
             "a click command must not leave a defunct process behind"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_captured_command_hands_back_what_it_printed() {
+        let captured = capture(&CmdSpec::argv(["echo", "7"]))
+            .await
+            .expect("echo runs");
+        assert!(captured.ok());
+        assert_eq!(captured.stdout.trim(), "7");
+        assert!(captured.stderr.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_non_zero_exit_is_a_result_rather_than_an_error() {
+        // `dnf check-update` says "there are updates" with exit 100, so the
+        // runner has to hand the status back rather than throwing it away.
+        let captured = capture(&CmdSpec::shell("echo hi; exit 100"))
+            .await
+            .expect("the shell ran");
+        assert_eq!(captured.code, Some(100));
+        assert_eq!(captured.stdout.trim(), "hi");
+    }
+
+    #[tokio::test]
+    async fn a_program_that_is_not_installed_is_an_error_not_a_status() {
+        // `checkupdates` on a machine without pacman-contrib: the updates
+        // service reads this as "no way to count here", which is different
+        // from "zero updates".
+        let error = capture(&CmdSpec::argv(["topbar-no-such-program-exists"]))
+            .await
+            .expect_err("there is no such program");
+        assert!(matches!(error, SvcError::Command { .. }));
+    }
+
+    #[tokio::test]
+    async fn an_empty_argv_is_refused_rather_than_run() {
+        let error = capture(&CmdSpec::argv(Vec::<String>::new()))
+            .await
+            .expect_err("nothing to run");
+        assert!(matches!(error, SvcError::Command { .. }));
+    }
+
+    #[tokio::test]
+    async fn a_command_that_never_finishes_is_killed_at_the_timeout() {
+        let spec = CmdSpec::argv(["sleep", "30"]).with_timeout(Duration::from_millis(300));
+        let started = std::time::Instant::now();
+        let error = capture(&spec).await.expect_err("it should time out");
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the timeout did not fire"
+        );
+    }
+
+    #[tokio::test]
+    async fn output_past_the_cap_is_dropped_rather_than_kept() {
+        // The child keeps printing well past the cap; the point is that it
+        // finishes at all — a runner that stopped reading would wedge it on a
+        // full pipe — and that only the cap is retained.
+        let spec = CmdSpec {
+            argv: vec![
+                "sh".into(),
+                "-c".into(),
+                "i=0; while [ $i -lt 400 ]; do echo 0123456789012345678901234567890123456789012345678901234567890123; i=$((i+1)); done".into(),
+            ],
+            timeout: Duration::from_secs(10),
+            max_output_bytes: 512,
+        };
+        let captured = capture(&spec).await.expect("it ran");
+        assert!(captured.ok(), "the child finished rather than blocking");
+        assert!(
+            captured.stdout.len() <= 512,
+            "kept {} bytes",
+            captured.stdout.len()
+        );
+    }
+
+    #[test]
+    fn the_users_own_command_line_is_the_only_thing_that_reaches_a_shell() {
+        assert_eq!(
+            CmdSpec::shell("pacman -Qu | wc -l").argv,
+            ["sh", "-c", "pacman -Qu | wc -l"]
+        );
+        // Everything the panel decides for itself is an argument vector, so a
+        // path with a space in it stays one argument.
+        assert_eq!(
+            CmdSpec::argv(["dnf", "-q", "check-update"]).argv,
+            ["dnf", "-q", "check-update"]
         );
     }
 
