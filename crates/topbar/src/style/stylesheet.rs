@@ -1760,6 +1760,43 @@ osd-bar {
     outline: none;
 }
 
+/* Keyboard focus, which the reset above took away along with Adwaita's
+ * background images: `outline: none` is what draws a focus ring in GTK4, so
+ * every control in the panel moved the focus and drew nothing. The power rows
+ * are the worst of it — they are the one thing here that has to be *held*
+ * down, they take Enter and space so that a keyboard can do it, and there was
+ * no way to see which row was about to be held.
+ *
+ * `:focus-visible` rather than `:focus`: GTK raises it only once the user has
+ * navigated with a key, so a panel driven by a pointer never draws a ring.
+ * The offset is negative so the ring is inside the control's own edge and
+ * never overlaps the row above it. */
+.qs-battery-pill:focus-visible,
+.qs-round-button:focus-visible,
+.qs-slider-icon:focus-visible,
+.qs-chooser:focus-visible,
+.qs-device-row:focus-visible,
+.qs-toggle:focus-visible,
+.qs-toggle-expand:focus-visible,
+.qs-radio-row:focus-visible,
+.qs-network-row:focus-visible,
+.qs-password-button:focus-visible,
+.qs-vpn-row:focus-visible,
+.qs-limit-button:focus-visible,
+.qs-power-row:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+}
+
+/* On something already filled with the accent, the ring has to be the colour
+   drawn *on* the accent or it is invisible. */
+.qs-toggle-pill.checked .qs-toggle:focus-visible,
+.qs-toggle-pill.checked .qs-toggle-expand:focus-visible,
+.qs-limit-button.checked:focus-visible,
+.qs-password-button.checked:focus-visible {
+    outline-color: var(--color-on-accent);
+}
+
 .qs-battery-pill {
     background-color: var(--color-card);
     border: none;
