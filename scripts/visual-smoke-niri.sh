@@ -194,6 +194,31 @@ input {
 output "winit" {
     scale 0.75
 }
+
+// The same blur the developer's own session runs, so a panel asking for a
+// blurred region here is answered the way it is answered in real use. The
+// numbers are copied from their config; what matters is that blur is on at
+// all, because a compositor with it off ignores the request entirely and a
+// blur smoke test would then be photographing nothing.
+blur {
+    on
+    passes 2
+    offset 3.0
+    noise 0.02
+    saturation 1.5
+}
+
+// Top and overlay layers take the real blur rather than the cheap xray
+// approximation, which is what makes the desktop behind a popover smear
+// instead of merely showing through.
+layer-rule {
+    match layer="top"
+    match layer="overlay"
+
+    background-effect {
+        xray false
+    }
+}
 KDL
 
 for tool in niri grim cargo timeout dbus-run-session; do
