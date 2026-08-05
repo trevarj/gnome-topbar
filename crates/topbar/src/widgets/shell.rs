@@ -29,6 +29,7 @@ const FADE_OUT_MS: u64 = 200;
 
 /// The common structure behind every panel widget.
 pub struct WidgetShell {
+    name: String,
     wrapper: gtk4::Box,
     content: gtk4::Box,
     fill: gtk4::Box,
@@ -83,6 +84,7 @@ impl WidgetShell {
 
         let fade = Animation::new(&fill);
         Self {
+            name: name.to_string(),
             wrapper,
             content,
             fill,
@@ -108,6 +110,7 @@ impl WidgetShell {
     pub fn make_interactive(&self) {
         self.wrapper.add_css_class(classes::CLICKABLE);
         self.wrapper.set_cursor_from_name(Some("pointer"));
+        self.install_ripple_smoke_action();
 
         let motion = gtk4::EventControllerMotion::new();
         motion.connect_enter({
@@ -151,6 +154,38 @@ impl WidgetShell {
     pub fn set_tooltip(&self, text: &str) -> TooltipHandle {
         tooltip::attach(&self.wrapper, text)
     }
+
+    /// Let a smoke run photograph this widget's hover and press states.
+    ///
+    /// `topbar popover show clock-hover` lights the hover fill;
+    /// `clock-ripple` does the same and adds the frame a press would have
+    /// produced part-way through. The difference between those two frames is
+    /// the ripple and nothing else, which is the only way to see it: there is
+    /// no synthetic pointer in the nested session to press with, and a ripple
+    /// that moved would never survive the helper's wait for a still frame.
+    #[cfg(debug_assertions)]
+    fn install_ripple_smoke_action(&self) {
+        use crate::surfaces::popovers::register_smoke_action;
+
+        let fill = self.fill.clone();
+        register_smoke_action(&format!("{}-hover", self.name), move || {
+            fill.set_opacity(1.0);
+        });
+
+        let ripple = self.ripple.clone();
+        let fill = self.fill.clone();
+        register_smoke_action(&format!("{}-ripple", self.name), move || {
+            // Under the hover fill, which is where a press puts it: the fill is
+            // at zero opacity with the pointer away, and a ripple inside an
+            // invisible box is an invisible ripple.
+            fill.set_opacity(1.0);
+            ripple.paint(0.35);
+        });
+    }
+
+    /// Nothing to install in a packaged build.
+    #[cfg(not(debug_assertions))]
+    fn install_ripple_smoke_action(&self) {}
 }
 
 /// Animate the fill toward `target` opacity.

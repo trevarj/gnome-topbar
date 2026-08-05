@@ -86,6 +86,20 @@ struct Run {
     radius: f64,
     /// Frame-clock time the run started, in microseconds.
     start: i64,
+    /// Progress to draw regardless of the clock, for a still frame.
+    #[cfg(debug_assertions)]
+    frozen: Option<f64>,
+}
+
+impl Run {
+    /// How far through the ripple is on the frame being drawn.
+    fn progress(&self, now: i64) -> f64 {
+        #[cfg(debug_assertions)]
+        if let Some(frozen) = self.frozen {
+            return frozen;
+        }
+        (now - self.start) as f64 / 1_000.0 / DURATION_MS
+    }
 }
 
 /// A ripple surface, and the presses it has been asked to draw.
@@ -128,8 +142,7 @@ impl Ripple {
                 let Some(clock) = area.frame_clock() else {
                     return;
                 };
-                let elapsed = (clock.frame_time() - run.start) as f64 / 1_000.0;
-                let progress = elapsed / DURATION_MS;
+                let progress = run.progress(clock.frame_time());
                 if progress > 1.0 {
                     return;
                 }
@@ -195,6 +208,8 @@ impl Ripple {
             y,
             radius: farthest_corner(x, y, width, height),
             start,
+            #[cfg(debug_assertions)]
+            frozen: None,
         });
 
         let run = Rc::clone(&self.run);
@@ -216,6 +231,36 @@ impl Ripple {
             area.queue_draw();
             glib::ControlFlow::Break
         });
+    }
+
+    /// Paint a ripple frozen part-way through, for a screenshot.
+    ///
+    /// A ripple is over in 300ms and the smoke helper waits for two identical
+    /// frames, so a real one can never be photographed — and there is no
+    /// synthetic pointer in the nested session to start one with anyway. This
+    /// paints the frame a press would have produced at `progress` and leaves it
+    /// there, with no tick callback to move it on. The same trick the power
+    /// card's hold fill uses, for the same reason.
+    #[cfg(debug_assertions)]
+    pub fn paint(&self, progress: f64) {
+        let width = f64::from(self.area.width());
+        let height = f64::from(self.area.height());
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        // A third of the way in, on the centre line: far enough from the middle
+        // that the circle is visibly off-centre, which is the whole point of a
+        // ripple starting where the pointer was.
+        let (x, y) = (width / 3.0, height / 2.0);
+        self.generation.set(self.generation.get().wrapping_add(1));
+        *self.run.borrow_mut() = Some(Run {
+            x,
+            y,
+            radius: farthest_corner(x, y, width, height),
+            start: 0,
+            frozen: Some(progress),
+        });
+        self.area.queue_draw();
     }
 
     /// Start a ripple where a gesture was pressed.
