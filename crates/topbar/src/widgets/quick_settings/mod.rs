@@ -139,28 +139,16 @@ fn install_scroll(anchor: &gtk4::Box, context: &BarContext, settings: &QuickSett
 ///
 /// The live configuration binds right-click to `loginctl lock-session`, which
 /// is the shortest path from "I am leaving my desk" to a locked screen: no
-/// panel to open, no row to find.
+/// panel to open, no row to find. The wiring itself is
+/// [`crate::widgets::install_click_commands`], shared with every widget that
+/// takes the same three keys.
 fn install_click_commands(anchor: &gtk4::Box, settings: &QuickSettingsConfig) {
-    for (button, command) in [
-        (gtk4::gdk::BUTTON_SECONDARY, settings.on_click_right.clone()),
-        (gtk4::gdk::BUTTON_MIDDLE, settings.on_click_middle.clone()),
-    ] {
-        let Some(command) = command else { continue };
-        let click = gtk4::GestureClick::new();
-        click.set_button(button);
-        click.connect_released(move |_, _, _, _| {
-            let command = command.clone();
-            // A toast rather than an inline slot: the panel is shut, so there
-            // is no row under the pointer for a caption to belong to.
-            bridge::act(
-                ActionScope::Toast {
-                    widget: WIDGET_NAME,
-                },
-                async move { topbar_services::proc::run(&command).await },
-            );
-        });
-        anchor.add_controller(click);
-    }
+    crate::widgets::install_click_commands(
+        anchor,
+        WIDGET_NAME,
+        settings.on_click_right.as_deref(),
+        settings.on_click_middle.as_deref(),
+    );
 }
 
 /// Keep the tooltip's text current while the pointer is over the button.

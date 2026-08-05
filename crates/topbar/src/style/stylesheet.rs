@@ -413,6 +413,76 @@ workspace-strip {
     -gtk-icon-size: var(--icon-size);
 }
 
+/* ===== Semantic states ===== */
+
+/* One class per state, put on whatever should wear it: a custom-* widget whose
+   script asked for `class: "warning"`, a headset down to its last tenth, a
+   metric over its threshold. `color` inherits, so a wrapper carrying one of
+   these tints every icon and label inside it. */
+.state-success {
+    color: var(--color-state-success);
+}
+
+.state-warning {
+    color: var(--color-state-warning);
+}
+
+.state-urgent {
+    color: var(--color-state-urgent);
+}
+
+/* ===== Custom widgets ===== */
+
+/* A script's own glyphs are usually the point, so the label is left alone
+   beyond the tabular figures every changing number on the bar gets. */
+.custom-label {
+    font-feature-settings: "tnum";
+}
+
+.custom-icon {
+    -gtk-icon-size: var(--icon-size);
+}
+
+/* ===== Headset ===== */
+
+.headset-icon {
+    -gtk-icon-size: var(--icon-size);
+}
+
+/* ===== System monitor ===== */
+
+/* Alert-only: everything here is drawn on a widget that is invisible until a
+   threshold is crossed. The reading beside each icon is small — the icon is
+   what catches the eye, the number is for whoever looks twice. */
+.system-monitor-icon {
+    -gtk-icon-size: var(--icon-size);
+}
+
+.system-monitor-value {
+    font-feature-settings: "tnum";
+    font-size: 0.85em;
+}
+
+/* The popover is the Quick Settings resource card with no panel around it, so
+   it brings its own padding rather than inheriting one. */
+.system-monitor-popover {
+    min-width: 300px;
+    padding: 12px;
+}
+
+/* ===== os-release logo ===== */
+
+/* The one glyph in the panel. It is bigger than the body text because a Nerd
+   Font logo is drawn to sit inside a monospace cell and reads small next to
+   symbolic icons at the same nominal size. */
+.os-logo-glyph {
+    font-size: 1.15em;
+}
+
+.os-logo-icon {
+    -gtk-icon-size: var(--icon-size);
+}
+
 /* ===== Popovers ===== */
 
 /* Both layer surfaces are invisible: the popover paints, the catcher does not

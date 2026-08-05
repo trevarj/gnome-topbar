@@ -19,6 +19,7 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Grid, Image, Label, Orientation, glib};
 
 use crate::style::classes;
+use crate::widgets::set_class;
 
 /// Weeks in the fixed window.
 const WEEKS: usize = 6;
@@ -381,19 +382,6 @@ fn chevron(icon: &str, tooltip: &str) -> Button {
     button.set_tooltip_text(Some(tooltip));
     button.set_valign(Align::Center);
     button
-}
-
-/// Add or remove a class without asking GTK to restyle for nothing.
-fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, wanted: bool) {
-    let widget = widget.as_ref();
-    if wanted == widget.has_css_class(class) {
-        return;
-    }
-    if wanted {
-        widget.add_css_class(class);
-    } else {
-        widget.remove_css_class(class);
-    }
 }
 
 /// Set a label only when it changed.

@@ -26,6 +26,7 @@ use tracing::debug;
 use crate::bar::BarContext;
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::classes;
+use crate::widgets::set_class;
 use crate::widgets::shell::WidgetShell;
 use model::{LabelType, ScrollAccumulator, Slot, SlotOptions};
 use strip::{StripColors, WorkspaceStrip};
@@ -172,19 +173,6 @@ fn focus(niri: &NiriHandle, id: u64) {
         },
         async move { niri.focus_workspace(id).await },
     );
-}
-
-/// Add or remove a CSS class without churning the style context.
-fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, wanted: bool) {
-    let widget = widget.as_ref();
-    if wanted == widget.has_css_class(class) {
-        return;
-    }
-    if wanted {
-        widget.add_css_class(class);
-    } else {
-        widget.remove_css_class(class);
-    }
 }
 
 /// Colors the strip paints itself with.

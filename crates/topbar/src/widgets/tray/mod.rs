@@ -39,6 +39,7 @@ use crate::style::classes;
 use crate::surfaces::layer_popover::Anchored;
 use crate::surfaces::popovers::{self, PopoverContent, PopoverHandle};
 use crate::surfaces::tooltip::{self, TooltipHandle};
+use crate::widgets::set_class;
 use crate::widgets::shell::WidgetShell;
 
 use self::icon::Contrast;
@@ -601,16 +602,6 @@ fn flat_button(class: &str) -> gtk4::Box {
     button.add_css_class(class);
     button.set_cursor_from_name(Some("pointer"));
     button
-}
-
-/// Add or remove a class, without asking GTK to do nothing.
-fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, wanted: bool) {
-    let widget = widget.as_ref();
-    if wanted {
-        widget.add_css_class(class);
-    } else {
-        widget.remove_css_class(class);
-    }
 }
 
 /// Show or hide, only when it is a change.

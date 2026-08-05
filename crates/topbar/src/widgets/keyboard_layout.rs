@@ -21,6 +21,7 @@ use crate::bar::BarContext;
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::tooltip::TooltipHandle;
+use crate::widgets::set_class;
 use crate::widgets::shell::WidgetShell;
 
 /// Name used in log lines about failed actions.
@@ -181,19 +182,6 @@ fn install_gestures(wrapper: &gtk4::Box, state: &Rc<State>) {
         }
     });
     wrapper.add_controller(scroll);
-}
-
-/// Add or remove a CSS class without churning the style context.
-fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, wanted: bool) {
-    let widget = widget.as_ref();
-    if wanted == widget.has_css_class(class) {
-        return;
-    }
-    if wanted {
-        widget.add_css_class(class);
-    } else {
-        widget.remove_css_class(class);
-    }
 }
 
 /// Reduce a layout description to something two characters wide.

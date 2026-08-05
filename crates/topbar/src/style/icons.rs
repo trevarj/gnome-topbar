@@ -136,6 +136,27 @@ pub fn wifi_signal(bucket: u8) -> &'static str {
 /// There is something to install.
 pub const UPDATES: &str = "software-update-available-symbolic";
 
+/// A processor working hard, preferring the gauge GNOME extensions ship.
+///
+/// Adwaita has never carried a CPU icon. `speedometer-symbolic` comes with
+/// several system-monitor extensions and is the one that reads as "load";
+/// `utilities-system-monitor-symbolic` is what a desktop that ships GNOME's own
+/// System Monitor has. The last is the Adwaita name that is always there.
+pub const CPU: &[&str] = &[
+    "speedometer-symbolic",
+    "utilities-system-monitor-symbolic",
+    "applications-system-symbolic",
+];
+
+/// Memory filling up.
+///
+/// Adwaita has no RAM icon either. The fallback is the flash-memory chip,
+/// which is the closest thing in the set to "a module of memory".
+pub const MEMORY: &[&str] = &["memory-symbolic", "ram-symbolic", "media-flash-symbolic"];
+
+/// A filesystem filling up. Adwaita's own, so there is nothing to prefer.
+pub const DISK: &[&str] = &["drive-harddisk-symbolic"];
+
 /// The chevron that opens an expandable row.
 pub const EXPAND: &str = "pan-down-symbolic";
 /// The mark against the item in force — a checkmark, and also what a radio
@@ -248,10 +269,28 @@ mod tests {
             .iter()
             .chain(SUSPEND)
             .chain(CAFFEINE)
+            .chain(CPU)
+            .chain(MEMORY)
+            .chain(DISK)
             .chain(&WIFI_SIGNAL)
         {
             assert!(name.ends_with("-symbolic"), "{name} is not symbolic");
         }
+    }
+
+    #[test]
+    fn every_preference_list_ends_in_a_name_adwaita_actually_ships() {
+        // The last entry is what `first_available` falls back to, so it is the
+        // one that must exist: asking for a name no theme has draws the
+        // broken-image glyph, which is worse than the plainer icon.
+        assert_eq!(CPU.last(), Some(&"applications-system-symbolic"));
+        assert_eq!(MEMORY.last(), Some(&"media-flash-symbolic"));
+        assert_eq!(DISK.last(), Some(&"drive-harddisk-symbolic"));
+        assert_eq!(SUSPEND.last(), Some(&"weather-clear-night-symbolic"));
+        assert_eq!(
+            CAFFEINE.last(),
+            Some(&"preferences-desktop-screensaver-symbolic")
+        );
     }
 
     #[test]

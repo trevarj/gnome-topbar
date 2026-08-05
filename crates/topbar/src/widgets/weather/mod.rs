@@ -26,6 +26,7 @@ use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::popovers::{self, PopoverContent, PopoverHandle};
 use crate::surfaces::tooltip::TooltipHandle;
+use crate::widgets::ellipsize;
 use crate::widgets::shell::WidgetShell;
 use crate::widgets::weather::forecast::{Forecast, age, degrees};
 
@@ -272,25 +273,6 @@ impl PopoverContent for Popover {
     }
 }
 
-/// Cut `text` to `max_chars`, ending it in an ellipsis. Ported from v1.
-///
-/// Done in Rust rather than left to Pango because `max_chars` is a promise
-/// about the *label*, not about the space the bar happened to give it: the
-/// widget must be the same width whether the condition is "Fog" or
-/// "Thunderstorm with hail".
-fn ellipsize(text: &str, max_chars: Option<usize>) -> String {
-    let Some(max_chars) = max_chars.filter(|max| *max > 0) else {
-        return text.to_string();
-    };
-    if text.chars().count() <= max_chars {
-        return text.to_string();
-    }
-    text.chars()
-        .take(max_chars.saturating_sub(1))
-        .collect::<String>()
-        + "…"
-}
-
 /// Set an icon only when it changed.
 fn set_icon(image: &Image, name: &str) {
     if image.icon_name().as_deref() != Some(name) {
@@ -317,36 +299,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_label_that_fits_is_left_alone() {
+    fn the_label_is_cut_to_the_configured_width() {
+        // The rule itself lives in `widgets::ellipsize`, where every widget
+        // with a `max_chars` reaches it; this is the weather's own case.
         assert_eq!(
-            ellipsize("21° Partly cloudy", Some(24)),
-            "21° Partly cloudy"
+            ellipsize("-11° Thunderstorm with hail", Some(24)),
+            "-11° Thunderstorm with …"
         );
-        assert_eq!(ellipsize("21° Partly cloudy", None), "21° Partly cloudy");
-    }
-
-    #[test]
-    fn a_label_that_does_not_fit_is_cut_with_an_ellipsis() {
-        // 24 characters is the live config's max_chars, and the longest
-        // condition the WMO table produces is "Thunderstorm with hail".
-        let long = "-11° Thunderstorm with hail";
-        let cut = ellipsize(long, Some(24));
-        assert_eq!(cut.chars().count(), 24);
-        assert!(cut.ends_with('…'));
-        assert_eq!(cut, "-11° Thunderstorm with …");
-    }
-
-    #[test]
-    fn the_cut_counts_characters_rather_than_bytes() {
-        // The degree sign is two bytes; cutting on bytes would split it.
-        let cut = ellipsize("21° Nebliger Hochnebel", Some(8));
-        assert_eq!(cut.chars().count(), 8);
-        assert_eq!(cut, "21° Neb…");
-    }
-
-    #[test]
-    fn a_max_chars_of_zero_is_treated_as_unset() {
-        assert_eq!(ellipsize("21° Clear", Some(0)), "21° Clear");
     }
 
     #[test]

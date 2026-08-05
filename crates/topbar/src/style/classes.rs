@@ -40,6 +40,18 @@ pub const CHECKED: &str = "checked";
 /// Set on a widget whose service has lost its connection.
 pub const DISCONNECTED: &str = "disconnected";
 
+/// Tint a widget's contents with the success colour.
+///
+/// The three of these are the panel's semantic states as a class rather than
+/// as a widget: a `custom-*` script asking for `class: "warning"`, a headset
+/// down to its last tenth, a metric over its threshold. `color` inherits in
+/// GTK's CSS, so putting one on a wrapper tints the icons and labels inside it.
+pub const STATE_SUCCESS: &str = "state-success";
+/// The same, in the warning colour.
+pub const STATE_WARNING: &str = "state-warning";
+/// The same, in the urgent colour.
+pub const STATE_URGENT: &str = "state-urgent";
+
 /// The clock widget.
 pub const CLOCK: &str = "clock";
 /// The bell-with-slash beside the time while Do Not Disturb is on.
@@ -174,6 +186,37 @@ pub const DIALOG_BUTTON_PRIMARY: &str = "dialog-button-primary";
 pub const KEYBOARD_LAYOUT: &str = "keyboard-layout";
 /// The keyboard-layout widget's icon.
 pub const KEYBOARD_LAYOUT_ICON: &str = "keyboard-layout-icon";
+
+/// A `custom-*` widget's configured icon.
+///
+/// The widget itself wears a class made from its own name — `custom-crypto`
+/// becomes `.custom-crypto` — so one script's indicator can be styled without
+/// styling the rest. These two are what every one of them has.
+pub const CUSTOM_ICON: &str = "custom-icon";
+/// Its label, which is whatever the script printed.
+pub const CUSTOM_LABEL: &str = "custom-label";
+
+/// The headset battery widget.
+pub const HEADSET: &str = "headset";
+/// The battery icon inside it.
+pub const HEADSET_ICON: &str = "headset-icon";
+
+/// The distribution logo.
+pub const OS_LOGO: &str = "os-logo";
+/// Its Nerd Font glyph — the one place in the panel a glyph stands in for an
+/// icon, because no icon theme ships distribution logos as symbolics.
+pub const OS_LOGO_GLYPH: &str = "os-logo-glyph";
+/// The themed icon drawn instead on a distribution with no glyph.
+pub const OS_LOGO_ICON: &str = "os-logo-icon";
+
+/// The alert-only system monitor.
+pub const SYSTEM_MONITOR: &str = "system-monitor";
+/// One offending metric's icon inside it.
+pub const SYSTEM_MONITOR_ICON: &str = "system-monitor-icon";
+/// The compact reading beside it.
+pub const SYSTEM_MONITOR_VALUE: &str = "system-monitor-value";
+/// The popover it opens, which is the Quick Settings resource card again.
+pub const SYSTEM_MONITOR_POPOVER: &str = "system-monitor-popover";
 
 /// The system tray.
 pub const TRAY: &str = "tray";
@@ -552,6 +595,9 @@ pub const ALL: &[&str] = &[
     PRESSED,
     CHECKED,
     DISCONNECTED,
+    STATE_SUCCESS,
+    STATE_WARNING,
+    STATE_URGENT,
     CLOCK,
     CLOCK_DND,
     WORKSPACES,
@@ -615,6 +661,17 @@ pub const ALL: &[&str] = &[
     DIALOG_BUTTON_PRIMARY,
     KEYBOARD_LAYOUT,
     KEYBOARD_LAYOUT_ICON,
+    CUSTOM_ICON,
+    CUSTOM_LABEL,
+    HEADSET,
+    HEADSET_ICON,
+    OS_LOGO,
+    OS_LOGO_GLYPH,
+    OS_LOGO_ICON,
+    SYSTEM_MONITOR,
+    SYSTEM_MONITOR_ICON,
+    SYSTEM_MONITOR_VALUE,
+    SYSTEM_MONITOR_POPOVER,
     TRAY,
     TRAY_ICONS,
     TRAY_ITEM,
