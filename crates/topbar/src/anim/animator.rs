@@ -22,7 +22,33 @@ use gtk4::prelude::*;
 thread_local! {
     /// `theme.animations`, cached for the lifetime of the process.
     static ANIMATIONS_ENABLED: Cell<bool> = const { Cell::new(true) };
+    /// Runs that actually registered a tick callback, counted for the audit.
+    #[cfg(debug_assertions)]
+    static TICKING_RUNS: Cell<u64> = const { Cell::new(0) };
 }
+
+/// Announce a run that is about to start ticking.
+///
+/// Every piece of motion in the panel goes through [`Animation::start`], and
+/// only the path below the reduce-motion guard reaches this — so a session run
+/// with `animations = false` produces this line exactly zero times, whatever
+/// the user does to the panel. That is the whole assertion behind the
+/// zero-motion audit, and it is why the counter is worth carrying in debug
+/// builds: a log line saying "run 41" is evidence, one saying "a run started"
+/// is an anecdote.
+#[cfg(debug_assertions)]
+fn count_run(duration_us: i64) {
+    let count = TICKING_RUNS.with(|cell| {
+        let count = cell.get() + 1;
+        cell.set(count);
+        count
+    });
+    tracing::debug!("motion: run {count} started ({}ms)", duration_us / 1_000);
+}
+
+/// The same, compiled out of release builds.
+#[cfg(not(debug_assertions))]
+fn count_run(_duration_us: i64) {}
 
 /// Record whether `theme.animations` allows motion.
 ///
@@ -167,6 +193,7 @@ impl Animation {
         }
 
         self.running.set(true);
+        count_run(params.duration_us);
 
         let gen_cell = Rc::clone(&self.generation);
         let running = Rc::clone(&self.running);

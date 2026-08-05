@@ -564,10 +564,15 @@ impl Card {
 
     /// Slide to `target` reveal, running `done` when it lands.
     ///
-    /// With motion switched off the animator jumps straight to the end and
-    /// still calls `done`, so a banner leaving is removed either way.
+    /// The run starts from where the banner actually is and is paid for by the
+    /// distance left, so a banner retired while it is still arriving turns
+    /// around from there instead of snapping to fully arrived and sliding the
+    /// whole way back out. With motion switched off the animator jumps straight
+    /// to the end and still calls `done`, so a banner leaving is removed either
+    /// way.
     fn slide(&self, target: f64, done: impl FnOnce() + 'static) {
-        let start = 1.0 - target;
+        let start = self.slide.reveal();
+        let duration = (SLIDE_MS as f64 * (target - start).abs()).round() as u64;
         let slide = self.slide.clone();
         let card = self.card.clone();
         let easing = if target > 0.0 {
@@ -577,7 +582,7 @@ impl Card {
         };
 
         self.animation.start(
-            AnimationParams::new(SLIDE_MS).with_easing(easing),
+            AnimationParams::new(duration).with_easing(easing),
             Box::new(move |progress| {
                 let reveal = start + (target - start) * progress;
                 slide.set_reveal(reveal);

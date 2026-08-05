@@ -34,13 +34,13 @@ use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation};
 use topbar_services::{BtState, InhibitorState, NetworkState, PowerProfilesState, Services};
 
-use crate::anim::ripple;
+use crate::anim::{Animation, AnimationParams, Easing, RotateBox, ripple};
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
 use crate::widgets::quick_settings::cards::bluetooth::BluetoothList;
 use crate::widgets::quick_settings::cards::network::{self, VpnList, WifiList};
-use crate::widgets::quick_settings::expander::{Accordion, Section};
+use crate::widgets::quick_settings::expander::{Accordion, REVEAL_MS, Section};
 use crate::widgets::quick_settings::model::{self, Toggle};
 use crate::widgets::quick_settings::{attempt, set_icon, set_text};
 
@@ -48,6 +48,8 @@ use crate::widgets::quick_settings::{attempt, set_icon, set_text};
 const GAP: i32 = 8;
 /// What the Power Mode pill shows before the daemon has answered.
 const POWER_MODE_ICON: &str = "power-profile-balanced-symbolic";
+/// Half a turn, which is what takes the chevron from pointing down to up.
+const CHEVRON_TURN: f32 = 180.0;
 
 /// One pill: an icon, a label, a subtitle, and optionally a chevron.
 struct Pill {
@@ -57,6 +59,9 @@ struct Pill {
     label: Label,
     subtitle: Label,
     expand: Option<Button>,
+    /// The chevron, and the run that turns it.
+    chevron: Option<RotateBox>,
+    rotation: Option<Animation>,
 }
 
 impl Pill {
@@ -98,15 +103,23 @@ impl Pill {
         ripple::install(&button);
         root.append(&button);
 
-        let expand = expandable.then(|| {
+        // One arrow that turns, rather than two that swap: the chevron is the
+        // handle on the section, so it moves with it.
+        let chevron = expandable.then(|| {
+            let chevron = RotateBox::new();
+            chevron.set_child(&Image::from_icon_name(icons::EXPAND));
+            chevron
+        });
+        let expand = chevron.as_ref().map(|chevron| {
             let expand = Button::new();
             expand.add_css_class(classes::QS_TOGGLE_EXPAND);
-            expand.set_child(Some(&Image::from_icon_name(icons::EXPAND)));
+            expand.set_child(Some(chevron));
             ripple::install(&expand);
             expand.set_valign(Align::Center);
             content.append(&expand);
             expand
         });
+        let rotation = chevron.as_ref().map(Animation::new);
 
         Rc::new(Self {
             root,
@@ -115,6 +128,8 @@ impl Pill {
             label,
             subtitle,
             expand,
+            chevron,
+            rotation,
         })
     }
 
@@ -143,21 +158,30 @@ impl Pill {
         }
     }
 
-    /// Point the chevron the way the section is going.
+    /// Turn the chevron the way the section is going.
+    ///
+    /// Half a turn over exactly as long as the section takes, from wherever the
+    /// arrow currently is: a section closed halfway through opening turns its
+    /// arrow back from there rather than snapping to upright first.
     fn set_expanded(&self, expanded: bool) {
-        let Some(expand) = &self.expand else {
+        let (Some(chevron), Some(rotation)) = (&self.chevron, &self.rotation) else {
             return;
         };
-        if let Some(image) = expand.child().and_downcast::<Image>() {
-            set_icon(
-                &image,
-                if expanded {
-                    "pan-up-symbolic"
-                } else {
-                    icons::EXPAND
-                },
-            );
-        }
+        let start = chevron.angle();
+        let target = if expanded { CHEVRON_TURN } else { 0.0 };
+        let distance = f64::from((target - start).abs()) / f64::from(CHEVRON_TURN);
+        let duration = (REVEAL_MS as f64 * distance).round() as u64;
+
+        let chevron = chevron.clone();
+        rotation.start(
+            AnimationParams::new(duration).with_easing(if expanded {
+                Easing::EaseOutCubic
+            } else {
+                Easing::EaseInCubic
+            }),
+            Box::new(move |progress| chevron.set_angle(start + (target - start) * progress as f32)),
+            None,
+        );
     }
 }
 
