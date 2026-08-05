@@ -342,6 +342,15 @@ impl LayerPopover {
         }
 
         self.place();
+        // ...and again once GTK has actually laid the content out. The first
+        // measurement of a freshly parented tree is taken before it has been
+        // through a size negotiation, and it can come back far wider than the
+        // surface ends up being — which puts the window's left margin at zero
+        // and slides a 360px panel to the far edge of the monitor. It happened
+        // in five of eight smoke scenarios and in none of the other three,
+        // which is what a race looks like.
+        self.replace_soon();
+
         // Order matters: the catcher maps first so it stays below the popover.
         self.catcher.set_visible(true);
         // Keyboard focus is taken only while a popover is up, and handed back
@@ -382,6 +391,36 @@ impl LayerPopover {
             self.close();
         } else {
             self.open(target);
+        }
+    }
+
+    /// Place the surface again, once and then again after the next frame.
+    ///
+    /// Twice because the two cheap moments to ask are both unreliable on their
+    /// own: an idle runs before the frame that allocates the content, and a
+    /// frame callback can be seconds away on a compositor that is throttling
+    /// this surface. Placing an already-placed popover costs one margin write.
+    fn replace_soon(self: &Rc<Self>) {
+        let host = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(host) = host.upgrade() {
+                host.replace_if_open();
+            }
+        });
+
+        let host = Rc::downgrade(self);
+        self.shell.add_tick_callback(move |_, _| {
+            if let Some(host) = host.upgrade() {
+                host.replace_if_open();
+            }
+            glib::ControlFlow::Break
+        });
+    }
+
+    /// Place the surface again, if there is still something on it.
+    fn replace_if_open(&self) {
+        if self.open.borrow().is_some() {
+            self.place();
         }
     }
 
