@@ -184,6 +184,13 @@
           # panel and the CLI at it. The developer's real PipeWire is on the
           # session they are logged into and must never hear from a test.
           pulseaudio
+          # Synthetic input. niri offers zwlr_virtual_pointer_manager_v1 and
+          # zwp_virtual_keyboard_manager_v1, so a nested session can be
+          # *clicked* rather than only driven through the panel's own IPC —
+          # which is how two dismissal bugs reached a real desktop with a
+          # green test suite behind them. See scripts/smoke-pointer.sh.
+          wlrctl
+          wtype
         ];
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         shellHook = pre-commit.shellHook;
