@@ -50,6 +50,22 @@
 #                         wants it.
 #   TOPBAR_SMOKE_TRAY     the same for `topbar-fake-sni`, handed over in
 #                         $SMOKE_FAKE_SNI. Only the tray driver wants it.
+#   TOPBAR_SMOKE_POWER    build `topbar-fake-power`, start it on the private
+#                         session bus, and point the panel's battery and
+#                         power-profiles clients at it. The real ones live on
+#                         the SYSTEM bus, which nothing here can box and which
+#                         a test must never write to: setting the developer's
+#                         charge limit or CPU governor to take a screenshot
+#                         would be unforgivable. A fake
+#                         /sys/class/power_supply tree is created alongside it
+#                         and handed to both the panel and the driver, so the
+#                         charge-limit write path lands in a temporary
+#                         directory. logind is deliberately NOT redirected —
+#                         the idle inhibitor keeps talking to the real one, as
+#                         it has since M8.
+#                         The value is passed to the fake as extra arguments,
+#                         so a scenario can choose which bus names it answers
+#                         to and what the battery reads.
 #   TOPBAR_SMOKE_STATE    a state.json copied into the sandboxed
 #                         $XDG_STATE_HOME/topbar before the panel starts, so a
 #                         run can begin from state a previous session
@@ -142,6 +158,12 @@ if [ -n "${TOPBAR_SMOKE_TRAY:-}" ]; then
   sni_abs=$(pwd)/target/debug/topbar-fake-sni
 fi
 
+power_abs=""
+if [ -n "${TOPBAR_SMOKE_POWER:-}" ]; then
+  cargo build -p topbar-services --features fake-power --bin topbar-fake-power
+  power_abs=$(pwd)/target/debug/topbar-fake-power
+fi
+
 artifact_dir_abs=$(cd "$artifact_dir" && pwd)
 config_abs=$(cd "$(dirname "$config")" && pwd)/$(basename "$config")
 binary_abs=$(pwd)/target/debug/topbar
@@ -181,6 +203,35 @@ if [ -n "$7" ]; then
   done
 fi
 
+power_pid=""
+if [ -n "$8" ]; then
+  # A power-supply tree of this run only. The panel reads its charge limit
+  # from here and writes it back here; /sys is never touched.
+  SMOKE_POWER_SYSFS="$XDG_RUNTIME_DIR/power_supply"
+  export SMOKE_POWER_SYSFS
+  mkdir -p "$SMOKE_POWER_SYSFS/BAT0" "$SMOKE_POWER_SYSFS/AC"
+  printf "Battery\n" >"$SMOKE_POWER_SYSFS/BAT0/type"
+  printf "Discharging\n" >"$SMOKE_POWER_SYSFS/BAT0/status"
+  printf "96\n" >"$SMOKE_POWER_SYSFS/BAT0/charge_control_start_threshold"
+  printf "100\n" >"$SMOKE_POWER_SYSFS/BAT0/charge_control_end_threshold"
+  printf "Mains\n" >"$SMOKE_POWER_SYSFS/AC/type"
+  printf "0\n" >"$SMOKE_POWER_SYSFS/AC/online"
+
+  # shellcheck disable=SC2086
+  "$8" --sysfs "$SMOKE_POWER_SYSFS" $9 >"$3/fake-power.log" 2>&1 &
+  power_pid=$!
+  # The panel finds both fakes on the session bus rather than on the system
+  # one. Debug builds only; the packaged binary ignores these entirely.
+  TOPBAR_SMOKE_POWER_BUS="$DBUS_SESSION_BUS_ADDRESS"
+  TOPBAR_SMOKE_POWER_SYSFS="$SMOKE_POWER_SYSFS"
+  export TOPBAR_SMOKE_POWER_BUS TOPBAR_SMOKE_POWER_SYSFS
+  waited=0
+  while ! grep -q "^ready$" "$3/fake-power.log" 2>/dev/null && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+fi
+
 "$1" --config "$2" -v >"$3/panel.log" 2>&1 &
 panel_pid=$!
 # The driver reads /proc/$SMOKE_PANEL_PID/status to watch the panel grow.
@@ -196,10 +247,11 @@ else
 fi
 kill "$panel_pid" 2>/dev/null || true
 wait "$panel_pid" 2>/dev/null || true
+[ -n "$power_pid" ] && kill "$power_pid" 2>/dev/null
 [ -n "$pulse_pid" ] && kill "$pulse_pid" 2>/dev/null
 niri msg action quit --skip-confirmation >/dev/null 2>&1 || true
 ' sh "$binary_abs" "$config_abs" "$artifact_dir_abs" "$driver_abs" "$player_abs" "$sni_abs" \
-  "${TOPBAR_SMOKE_PULSE:-}"
+  "${TOPBAR_SMOKE_PULSE:-}" "$power_abs" "${TOPBAR_SMOKE_POWER:-}"
 
 echo "--- panel log ---"
 cat "$artifact_dir_abs/panel.log" 2>/dev/null || true
