@@ -29,6 +29,8 @@ const FADE_OUT_MS: u64 = 200;
 
 /// The common structure behind every panel widget.
 pub struct WidgetShell {
+    /// The widget name, which the debug-only smoke hooks address it by.
+    #[cfg(debug_assertions)]
     name: String,
     wrapper: gtk4::Box,
     content: gtk4::Box,
@@ -84,6 +86,7 @@ impl WidgetShell {
 
         let fade = Animation::new(&fill);
         Self {
+            #[cfg(debug_assertions)]
             name: name.to_string(),
             wrapper,
             content,
