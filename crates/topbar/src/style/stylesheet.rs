@@ -1781,12 +1781,16 @@ osd-bar {
     margin-left: 6px;
 }
 
+/* 28 + 4px of padding on each side is 36 on screen, which is what the battery
+   pill beside it measures. GTK's `min-height` is the *content* box and padding
+   is added to it, so a round button asking for 32 was drawing 40 and standing
+   4px taller than the pill it shares a row with. */
 .qs-round-button {
     background-color: var(--color-card);
     border: none;
     border-radius: 9999px;
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 28px;
+    min-height: 28px;
     padding: 4px;
     color: var(--color-foreground);
     -gtk-icon-size: var(--icon-size);
@@ -1832,6 +1836,13 @@ osd-bar {
     color: var(--color-foreground-disabled);
 }
 
+/* The brightness icon is insensitive because there is nothing to press, not
+   because anything is unavailable. Dimming it made the one slider on the panel
+   that always works look like the one that had stopped. */
+.qs-slider-icon.qs-slider-static:disabled {
+    color: var(--color-foreground);
+}
+
 .qs-slider trough {
     background-color: var(--color-card);
     border-radius: 9999px;
@@ -1863,12 +1874,15 @@ osd-bar {
     background-color: var(--color-foreground-disabled);
 }
 
+/* 24 and 2px of padding is 28 on screen, which is what the chevron on a toggle
+   pill measures. The panel has two chevrons that mean the same thing and they
+   were four pixels apart in size. */
 .qs-chooser {
     background: transparent;
     border: none;
     border-radius: 9999px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 2px;
     color: var(--color-foreground-muted);
     -gtk-icon-size: var(--icon-size);
@@ -1883,11 +1897,17 @@ osd-bar {
     padding: 4px 0 4px 40px;
 }
 
+/* Every list row in the panel is the same row: 28 of content and 8px of
+   padding, which is 44 on screen. There are three of them — Bluetooth devices,
+   networks, output devices — and until this rule and the one below agreed, a
+   panel that had both open showed 44px rows under one pill and 52px rows under
+   the next, indented two pixels differently. */
 .qs-device-row {
     background: transparent;
     border: none;
     border-radius: var(--radius-card);
-    padding: 8px 10px;
+    min-height: 28px;
+    padding: 8px 12px;
     color: var(--color-foreground);
 }
 
@@ -1933,11 +1953,15 @@ osd-bar {
     color: var(--color-on-accent);
 }
 
+/* 40 plus 4px of padding top and bottom is the 48 the pill around it asks
+   for. GTK adds padding to `min-height` rather than taking it out of it, so a
+   body asking for 48 as well made every pill in the grid 56 — half a row
+   taller than GNOME's, eight pixels at a time, four times down the panel. */
 .qs-toggle {
     background-color: transparent;
     border: none;
     border-radius: 24px;
-    min-height: 48px;
+    min-height: 40px;
     padding: 4px 12px;
     color: inherit;
 }
@@ -2019,6 +2043,8 @@ osd-bar {
     font-size: 12px;
 }
 
+/* The same 44px row as `.qs-device-row`. A VPN row carries two lines and comes
+   out taller than that on its own, which is honest — it is a taller row. */
 .qs-network-row,
 .qs-vpn-row {
     background: transparent;
@@ -2026,7 +2052,7 @@ osd-bar {
     border-radius: var(--radius-card);
     padding: 8px 12px;
     color: var(--color-foreground);
-    min-height: 36px;
+    min-height: 28px;
 }
 
 .qs-network-row:hover,
@@ -2086,13 +2112,16 @@ osd-bar {
     color: var(--color-on-accent);
 }
 
-/* The wired row: a statement, not a control. No hover, no pointer. */
+/* The wired row: a statement, not a control. No hover, no pointer.
+   48 on screen — the same height as a pill in the grid above it, which is what
+   a row of that width should be. It was 60, and a statement standing taller
+   than every control in the panel read as the most important thing in it. */
 .qs-status-row {
     background-color: var(--color-card);
     border-radius: var(--radius-card);
-    padding: 10px 12px;
+    padding: 12px;
     color: var(--color-foreground);
-    min-height: 40px;
+    min-height: 24px;
 }
 
 /* --- Bluetooth --- */
@@ -2166,8 +2195,12 @@ osd-bar {
     font-weight: 700;
 }
 
+/* Tabular figures: every card line in the panel is mostly numbers that move —
+   "62% · Discharging", "2h 15m remaining", "Charging stops at 80%" — and with
+   proportional ones the whole line shuffles sideways once a minute. */
 .qs-card-line {
     color: var(--color-foreground-muted);
+    font-variant-numeric: tabular-nums;
 }
 
 .qs-limit-row {
@@ -2196,14 +2229,22 @@ osd-bar {
     color: var(--color-foreground-disabled);
 }
 
+/* Muted rather than disabled. This is the panel's secondary text — "No
+   networks found", "Bluetooth is off", "Enter the password for Cafe", the udev
+   rule that would make the charge-limit buttons work — and every one of those
+   is something the user is meant to read. At the disabled 40% they were the
+   faintest thing on the panel, which said "ignore me" about the one line that
+   explained what had happened. */
 .qs-hint {
-    color: var(--color-foreground-disabled);
+    color: var(--color-foreground-muted);
     font-size: 12px;
 }
 
-/* The updates card is one line and a subtitle: a statement, not a control. */
+/* The updates card is one line and a subtitle: a statement, not a control.
+   24 of content inside the card's own 12px padding is 48 with one line on it,
+   and grows by the second line rather than reserving room for one. */
 .qs-updates {
-    min-height: 48px;
+    min-height: 24px;
 }
 
 /* --- Resource overview --- */
@@ -2281,10 +2322,24 @@ osd-bar {
 
 /* --- Inline failures --- */
 
+/* Indented to where the text it is explaining starts. Every card, row and list
+   in the panel insets its text by 12px; a caption hanging at the panel's own
+   edge was the one line in it that started somewhere else. */
 .inline-error {
     color: var(--color-state-urgent);
     font-size: 12px;
     margin-top: 2px;
+    padding: 0 12px;
+}
+
+/* Except inside something that has already done the inset. The battery card
+   and the password box both pad themselves by 12, so a caption in one of them
+   takes the indent twice and hangs a step to the right of the lines it belongs
+   under — and the password prompt wears this class only on a retry, so it
+   would have jumped sideways at the moment it turned red. */
+.qs-card .inline-error,
+.qs-password-row .inline-error {
+    padding: 0;
 }
 "#;
 

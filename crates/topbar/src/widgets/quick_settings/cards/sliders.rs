@@ -64,8 +64,14 @@ impl Slider {
         ripple::install(&button);
         button.set_valign(Align::Center);
         // A static icon must not look like a button: no hover, no pointer.
+        // It must not look *disabled* either — the brightness slider beside it
+        // works, and an icon at 40% next to a working control says it does not.
+        // So the button is insensitive and the class puts the colour back.
         button.set_sensitive(interactive_icon);
         button.set_can_focus(interactive_icon);
+        if !interactive_icon {
+            button.add_css_class(classes::QS_SLIDER_STATIC);
+        }
         row.append(&button);
 
         let scale = Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
