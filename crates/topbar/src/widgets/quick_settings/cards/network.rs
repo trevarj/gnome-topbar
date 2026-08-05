@@ -162,7 +162,8 @@ impl WifiList {
         for (row, ap) in self.rows.borrow().iter().zip(&state.wifi.list) {
             set_icon(&row.icon, icons::wifi_signal(ap.bucket));
             row.mark.set_opacity(if ap.active { 1.0 } else { 0.0 });
-            row.spinner.set_visible(ap.connecting);
+            row.spinner
+                .set_opacity(if ap.connecting { 1.0 } else { 0.0 });
             if ap.connecting {
                 row.spinner.start();
             } else {
@@ -220,10 +221,13 @@ impl WifiList {
         }
 
         // The spinner and the checkmark both live in the row from the start and
-        // only their visibility moves, so joining a network does not make the
-        // name beside it shift sideways.
+        // only their *opacity* moves, so joining a network does not make the
+        // padlock beside them shift sideways. Visibility would: an invisible
+        // GTK widget is not measured, so a spinner that appeared on a press
+        // shoved the badge to its left by its own width and the row twitched at
+        // exactly the moment the user was watching it.
         let spinner = Spinner::new();
-        spinner.set_visible(false);
+        spinner.set_opacity(0.0);
         line.append(&spinner);
 
         let mark = Image::from_icon_name(icons::SELECTED);
@@ -523,7 +527,7 @@ impl VpnList {
         for ((uuid, mark, spinner), profile) in self.rows.borrow().iter().zip(&state.vpn) {
             debug_assert_eq!(uuid, &profile.uuid);
             mark.set_opacity(if profile.active { 1.0 } else { 0.0 });
-            spinner.set_visible(profile.pending);
+            spinner.set_opacity(if profile.pending { 1.0 } else { 0.0 });
             if profile.pending {
                 spinner.start();
             } else {
@@ -578,8 +582,11 @@ impl VpnList {
         text.append(&kind);
         line.append(&text);
 
+        // Measured whether or not it is spinning, like the checkmark beside it
+        // and the Wi-Fi row's: a tunnel that starts coming up must not shove
+        // the profile's name sideways at the moment it is being watched.
         let spinner = Spinner::new();
-        spinner.set_visible(false);
+        spinner.set_opacity(0.0);
         line.append(&spinner);
 
         let mark = Image::from_icon_name(icons::SELECTED);

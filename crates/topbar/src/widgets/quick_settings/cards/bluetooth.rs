@@ -148,7 +148,8 @@ impl BluetoothList {
         for (row, device) in self.rows.borrow().iter().zip(&state.devices) {
             debug_assert_eq!(row.path, device.path);
             render_battery(&row.battery, device);
-            row.spinner.set_visible(device.pending);
+            row.spinner
+                .set_opacity(if device.pending { 1.0 } else { 0.0 });
             if device.pending {
                 row.spinner.start();
             } else {
@@ -156,7 +157,6 @@ impl BluetoothList {
             }
             // The switch is only touched when it disagrees, and the guard stops
             // the write being read back as the user flipping it.
-            row.switch.set_visible(!device.pending);
             if row.switch.is_active() != device.connected {
                 row.updating.set(true);
                 row.switch.set_active(device.connected);
@@ -168,7 +168,10 @@ impl BluetoothList {
             // is told. Without it the two halves disagree for ever and the
             // switch draws in its in-between look.
             row.switch.set_state(device.connected);
-            row.switch.set_sensitive(state.powered);
+            // Insensitive rather than gone while BlueZ decides: the switch
+            // stays where it was, says it is not taking another press, and
+            // comes back the moment the answer lands.
+            row.switch.set_sensitive(state.powered && !device.pending);
         }
 
         self.list.set_visible(state.powered);
@@ -220,10 +223,15 @@ impl BluetoothList {
         battery.set_visible(false);
         line.append(&battery);
 
-        // The spinner and the switch share a slot: exactly one is visible, so
-        // a row that starts connecting does not change width.
+        // The spinner sits beside the switch and is always measured — only its
+        // opacity moves. It used to take the switch's place, and swapping a
+        // 44px switch for a 16px spinner shortened the row's right-hand side by
+        // the difference: the battery percentage jumped sideways, and the
+        // control the user had just flipped disappeared for as long as BlueZ
+        // took to answer, which for a headset that is out of range is ten
+        // seconds of a row with nothing on it.
         let spinner = Spinner::new();
-        spinner.set_visible(false);
+        spinner.set_opacity(0.0);
         spinner.set_valign(Align::Center);
         line.append(&spinner);
 
