@@ -330,8 +330,13 @@ pub fn emblem(entry: Entry, size: i32) -> gtk4::Widget {
 
     let coin = size * 5 / 8;
     let overlay = Overlay::new();
-    // The overlay takes the whole slot; the coins place themselves inside it.
+    // Exactly the slot, never more: the coins anchor to the overlay's own
+    // corners, so if a parent stretched it — the bar pill hands every child
+    // its full content height — the diagonal would stretch into a gap.
+    // Centering keeps the allocation at the requested square everywhere.
     overlay.set_size_request(size, size);
+    overlay.set_halign(Align::Center);
+    overlay.set_valign(Align::Center);
 
     let behind = icon(denominator, coin);
     behind.set_halign(Align::End);
