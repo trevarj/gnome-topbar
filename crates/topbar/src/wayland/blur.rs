@@ -84,6 +84,15 @@ const CORNER_INSET: i32 = 1;
 /// How often an idle panel empties its event queue. See [`BlurManager::watch`].
 const DRAIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Frames a surface is given to become measurable before blur gives up on it.
+///
+/// A surface that has just mapped has no size until the compositor configures
+/// it, and no layout until GTK has been round the loop, so the first attempt at
+/// a region routinely finds nothing to measure. Two seconds at sixty frames is
+/// far longer than either takes and still cannot become a surface that asks for
+/// a frame forever.
+const READY_FRAMES: u32 = 120;
+
 // ---------------------------------------------------------------------------
 // Region geometry — plain arithmetic, unit-tested without a compositor
 // ---------------------------------------------------------------------------
@@ -429,7 +438,9 @@ pub fn init(display: &gdk::Display, enabled: bool) {
         debug!("blur: disabled by `theme.blur`");
         return;
     }
-    if std::env::var_os(DISABLE_ENV).is_some() {
+    // Empty counts as unset, so a script may pass the variable through
+    // unconditionally and decide with its value.
+    if std::env::var_os(DISABLE_ENV).is_some_and(|value| !value.is_empty()) {
         info!("blur: {DISABLE_ENV} is set; running degraded, without blur");
         return;
     }
@@ -514,6 +525,10 @@ struct Attached {
     scale: Cell<f64>,
     /// Set by [`BlurAttachment::suspend`]; cleared by a resume or the next map.
     suspended: Cell<bool>,
+    /// Frames spent waiting for the surface to become measurable, and whether
+    /// one of those waits is in flight.
+    waited: Cell<u32>,
+    waiting: Cell<bool>,
     /// Signal handlers to disconnect when the guard is dropped.
     window_handlers: RefCell<Vec<glib::SignalHandlerId>>,
     surface_handlers: RefCell<Vec<(gdk::Surface, glib::SignalHandlerId)>>,
@@ -538,11 +553,16 @@ impl Attached {
         // real size until the compositor has configured it, and the first map
         // runs well before that.
         self.watch_surface(&window);
-        // 1×1 is the placeholder GTK maps with before the first configure.
+        // 1×1 is the placeholder GTK maps with before the first configure, and
+        // a tree that was parented this turn has no allocation to measure yet.
+        // Neither is an error and neither necessarily produces a resize to be
+        // woken by, so the next frame is asked instead.
         if info.width <= 1 || info.height <= 1 {
+            self.wait_a_frame(&window);
             return;
         }
         let Some(key) = self.geometry(&window, &content, &info) else {
+            self.wait_a_frame(&window);
             return;
         };
 
@@ -645,6 +665,29 @@ impl Attached {
             info.wl_surface.commit();
         }
         self.manager.flush();
+    }
+
+    /// Try again on the next frame, up to [`READY_FRAMES`] of them.
+    ///
+    /// The resize watcher covers a surface that changes size, which is most of
+    /// them; this covers the one that does not. A banner is given its size
+    /// before it is mapped, so the configure that follows changes nothing and
+    /// wakes nobody — and without this the banner would go its whole life
+    /// unblurred, waiting for a resize that is never coming.
+    fn wait_a_frame(self: &Rc<Self>, window: &gtk4::Widget) {
+        if self.waiting.get() || self.waited.get() >= READY_FRAMES {
+            return;
+        }
+        self.waiting.set(true);
+        let attached = Rc::downgrade(self);
+        window.add_tick_callback(move |_widget, _clock| {
+            if let Some(attached) = attached.upgrade() {
+                attached.waiting.set(false);
+                attached.waited.set(attached.waited.get() + 1);
+                attached.apply();
+            }
+            glib::ControlFlow::Break
+        });
     }
 
     /// Re-apply the region whenever the surface changes size.
@@ -780,6 +823,8 @@ pub fn attach(
         effect: RefCell::new(None),
         scale: Cell::new(1.0),
         suspended: Cell::new(false),
+        waited: Cell::new(0),
+        waiting: Cell::new(false),
         window_handlers: RefCell::new(Vec::new()),
         surface_handlers: RefCell::new(Vec::new()),
     });
@@ -787,8 +832,10 @@ pub fn attach(
     let handlers = vec![
         window.connect_map(handler(&attached, |attached| {
             // A surface that went away and came back starts unsuspended: the
-            // fade it was suspended for is long over.
+            // fade it was suspended for is long over, and it is owed a fresh
+            // budget of frames to become measurable in.
             attached.suspended.set(false);
+            attached.waited.set(0);
             attached.apply();
         })),
         // Unmap, then destroy as a safety net. Both run while the `wl_surface`
