@@ -409,10 +409,10 @@ impl Toggles {
             });
         }
 
-        // The VPN and Power Mode pills expand from either half: there is
-        // nothing else a click on them could sensibly mean, and a pill whose
-        // left half did nothing would read as broken. Wi-Fi's body is already
-        // spoken for, so only its chevron opens its list.
+        // Power Mode expands from either half: there is nothing else a click on
+        // it could sensibly mean, and a pill whose left half did nothing would
+        // read as broken. Wi-Fi's and VPN's bodies are already spoken for, so
+        // only their chevrons open their lists.
         for (pill, section, body_expands, scans) in [
             (&toggles.wifi, &toggles.wifi_section, false, true),
             (&toggles.vpn, &toggles.vpn_section, true, false),
@@ -525,6 +525,18 @@ impl Toggles {
             );
             pill.set_title(&network::vpn_title(state));
             pill.set_subtitle(Some(network::vpn_subtitle(state)));
+            // One tunnel needs no list, so it gets no chevron either: the pill
+            // is the switch.
+            let lone = network::lone_vpn(state);
+            if let Some(expand) = &pill.expand {
+                expand.set_visible(lone.is_none());
+            }
+            if lone.is_some()
+                && let Some(section) = &self.vpn_section
+            {
+                section.collapse_now();
+                pill.set_expanded(false);
+            }
         }
         self.vpn_list.render(state);
     }

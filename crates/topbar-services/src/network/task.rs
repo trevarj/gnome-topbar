@@ -254,11 +254,10 @@ pub(crate) async fn run(
     mut commands: mpsc::Receiver<Command>,
     publisher: watch::Sender<Arc<NetworkState>>,
     address: Option<String>,
-    packaged: bool,
+    access: Access,
     last_vpn_uuid: Option<String>,
     store: Option<StateStore>,
 ) {
-    let access = Access::decide(address.as_deref(), packaged);
     if access == Access::ReadOnly {
         info!(
             "network: read-only against this NetworkManager; no scan, no activation, no secret agent"

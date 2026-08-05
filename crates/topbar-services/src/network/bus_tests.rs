@@ -563,12 +563,85 @@ async fn the_machines_overall_state_is_what_the_weather_service_reads() {
 }
 
 #[tokio::test]
-async fn a_panel_with_no_bus_of_its_own_reads_and_changes_nothing() {
+async fn the_policy_is_decided_by_the_address_and_the_build() {
     // No address at all, and this is a debug build: the service decides it is
-    // looking at somebody's live network and keeps its hands off. Asserted as
-    // policy rather than against a live NetworkManager, because the whole point
-    // is that the test must not go near one.
+    // looking at somebody's live network and keeps its hands off.
     assert_eq!(Access::decide(None, false), Access::ReadOnly);
     assert!(!Access::ReadOnly.writable());
     assert_eq!(Access::decide(Some("unix:path=/x"), false), Access::Full);
+    assert_eq!(Access::decide(None, true), Access::Full);
+}
+
+#[tokio::test]
+async fn a_read_only_panel_lists_everything_and_touches_nothing() {
+    let bus = private_bus!();
+    let nm = furnished();
+    let _served = fake::serve(bus.address(), &nm)
+        .await
+        .expect("the fake starts");
+
+    // The policy is forced rather than inferred, because the only way to reach
+    // it honestly would be to point the test at the machine's real
+    // NetworkManager — which is precisely what it must never do.
+    let network = Network::with_access(
+        Some(bus.address().to_string()),
+        Access::ReadOnly,
+        PersistedNetwork::default(),
+        None,
+    );
+
+    let state = settle(&network, "the first full read", |state| {
+        state.available && state.wifi.list.len() == 3
+    })
+    .await;
+    assert_eq!(state.access, Access::ReadOnly);
+    assert_eq!(state.wifi.list[0].ssid, "Home", "reading is allowed");
+
+    // Nothing may go out that would change the machine, and above all no agent
+    // may be registered: a second one would sit in the queue for the prompts
+    // the session's own panel is waiting for.
+    network
+        .handle()
+        .scan()
+        .await
+        .expect("a refused scan is not an error");
+    let error = network
+        .handle()
+        .connect("Cafe".into())
+        .await
+        .expect_err("joining is refused");
+    assert_eq!(error.user_message(), "Could not change the network");
+    network
+        .handle()
+        .set_wifi_enabled(false)
+        .await
+        .expect_err("the radio is not ours to switch");
+    network
+        .handle()
+        .set_vpn("uuid-work".into(), true)
+        .await
+        .expect_err("nor is the tunnel");
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let calls = nm.calls();
+    assert!(
+        nm.agents().is_empty(),
+        "a read-only panel registers no secret agent: {:?}",
+        nm.agents()
+    );
+    for forbidden in [
+        "Register",
+        "RegisterWithCapabilities",
+        "RequestScan",
+        "ActivateConnection",
+        "AddAndActivateConnection",
+        "DeactivateConnection",
+        "SetWirelessEnabled",
+        "Delete",
+    ] {
+        assert!(
+            !calls.contains(&forbidden.to_string()),
+            "{forbidden} reached the bus: {calls:?}"
+        );
+    }
 }

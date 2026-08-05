@@ -103,16 +103,32 @@ impl Network {
         persisted: PersistedNetwork,
         store: Option<StateStore>,
     ) -> Self {
+        let access = Access::decide(address.as_deref(), packaged());
+        Self::with_access(address, access, persisted, store)
+    }
+
+    /// The same, with the policy decided by the caller.
+    ///
+    /// Only the bus tests use this, and only to force `ReadOnly` against a
+    /// NetworkManager they own — which is the one way to check that policy
+    /// without pointing a test at somebody's live network to see what it does
+    /// not do.
+    pub(crate) fn with_access(
+        address: Option<String>,
+        access: Access,
+        persisted: PersistedNetwork,
+        store: Option<StateStore>,
+    ) -> Self {
         let (commands, queue) = mpsc::channel(QUEUE);
         let (publisher, state) = watch::channel(Arc::new(NetworkState {
-            access: Access::decide(address.as_deref(), packaged()),
+            access,
             ..NetworkState::default()
         }));
         tokio::spawn(task::run(
             queue,
             publisher,
             address,
-            packaged(),
+            access,
             persisted.last_vpn_uuid,
             store,
         ));

@@ -717,6 +717,24 @@ pub fn radio_busy(state: &NetworkState) -> bool {
     matches!(state.pending, Some(Pending::Radio))
 }
 
+/// The one profile a click on the VPN pill's body should switch, if there is
+/// exactly one to switch.
+///
+/// A machine with a single tunnel does not need a list to open: the pill is the
+/// switch, which is what every other pill in the grid is. A machine with two
+/// does, because "on" would be ambiguous.
+pub fn lone_vpn(state: &NetworkState) -> Option<&VpnView> {
+    let switchable: Vec<&VpnView> = state
+        .vpn
+        .iter()
+        .filter(|profile| profile.switchable())
+        .collect();
+    match switchable.as_slice() {
+        [one] => Some(one),
+        _ => None,
+    }
+}
+
 /// What the collapsed VPN pill is titled.
 ///
 /// One profile is named; several are counted, because six names cannot fit in
@@ -832,6 +850,38 @@ mod tests {
             active,
             pending: false,
         }
+    }
+
+    #[test]
+    fn a_machine_with_one_tunnel_switches_it_from_the_pill() {
+        let one = NetworkState {
+            vpn: vec![vpn("Work", false)],
+            ..NetworkState::default()
+        };
+        assert_eq!(lone_vpn(&one).map(|p| p.id.as_str()), Some("Work"));
+
+        let two = NetworkState {
+            vpn: vec![vpn("Work", false), vpn("Home", false)],
+            ..NetworkState::default()
+        };
+        assert!(lone_vpn(&two).is_none(), "two is a list, not a switch");
+
+        // A tunnel the panel cannot switch does not count towards the one.
+        let mut external = VpnView {
+            kind: topbar_services::VpnKind::External,
+            ..vpn("tun0", true)
+        };
+        external.active = true;
+        let one_plus_external = NetworkState {
+            vpn: vec![vpn("Work", false), external],
+            ..NetworkState::default()
+        };
+        assert_eq!(
+            lone_vpn(&one_plus_external).map(|p| p.id.as_str()),
+            Some("Work")
+        );
+
+        assert!(lone_vpn(&NetworkState::default()).is_none());
     }
 
     #[test]
