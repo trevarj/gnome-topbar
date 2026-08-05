@@ -765,12 +765,17 @@ pub fn vpn_title(state: &NetworkState) -> String {
 }
 
 /// What it says underneath.
+///
+/// The subtitle says what kind of answer the title is — "Balanced / Power
+/// Mode", "Usadba / Connected" — so when the title is already the word "VPN"
+/// there is nothing left for it to add, and a pill reading "VPN" over
+/// "VPN · Off" said the same thing twice in the space of two lines.
 pub fn vpn_subtitle(state: &NetworkState) -> &'static str {
-    if state.vpn.iter().any(|profile| profile.active) {
-        "VPN · On"
-    } else {
-        "VPN · Off"
+    let on = state.vpn.iter().any(|profile| profile.active);
+    if vpn_title(state) == "VPN" {
+        return if on { "On" } else { "Off" };
     }
+    if on { "VPN · On" } else { "VPN · Off" }
 }
 
 #[cfg(test)]
@@ -913,6 +918,11 @@ mod tests {
             ..NetworkState::default()
         };
         assert_eq!(vpn_title(&several), "VPN");
+        assert_eq!(
+            vpn_subtitle(&several),
+            "Off",
+            "a pill titled VPN does not need a subtitle that says VPN"
+        );
 
         let up = NetworkState {
             vpn: vec![vpn("Work", true), vpn("Home", false)],
