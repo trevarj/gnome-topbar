@@ -20,7 +20,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Image, Orientation};
-use topbar_services::{AudioState, BatteryState, Services};
+use topbar_services::{AudioState, BatteryState, NetworkState, Services};
 
 use crate::anim::{Animation, AnimationParams, Easing, motion_enabled};
 use crate::bridge::{self, BindingGuard};
@@ -42,6 +42,7 @@ pub struct IndicatorRow {
     root: gtk4::Box,
     audio: Image,
     battery: Image,
+    network: Image,
     microphone: gtk4::Box,
     /// Each drawn indicator beside the slot it occupies, so visibility is
     /// applied from [`Indicators::visible`] rather than icon by icon.
@@ -69,6 +70,18 @@ impl IndicatorRow {
         battery.add_css_class(classes::QS_ICON);
         battery.set_visible(false);
 
+        let network = Image::new();
+        network.add_css_class(classes::QS_ICON);
+        network.set_visible(false);
+
+        // Tinted with the accent, because a tunnel is a *state the user chose*
+        // rather than a reading, and it is the one icon on the pill that says
+        // "your traffic is not going where it usually goes".
+        let vpn = Image::from_icon_name(icons::VPN);
+        vpn.add_css_class(classes::QS_ICON);
+        vpn.add_css_class(classes::QS_ICON_ACCENT);
+        vpn.set_visible(false);
+
         // A dot rather than a microphone icon: GNOME draws a dot, and at 18px
         // on a black bar an outlined microphone reads as a smudge.
         let microphone = gtk4::Box::new(Orientation::Horizontal, 0);
@@ -86,10 +99,9 @@ impl IndicatorRow {
                 Indicator::Audio => Some(audio.clone().upcast()),
                 Indicator::Battery => Some(battery.clone().upcast()),
                 Indicator::Microphone => Some(microphone.clone().upcast()),
-                Indicator::Network
-                | Indicator::Vpn
-                | Indicator::Bluetooth
-                | Indicator::ScreenShare => None,
+                Indicator::Network => Some(network.clone().upcast()),
+                Indicator::Vpn => Some(vpn.clone().upcast()),
+                Indicator::Bluetooth | Indicator::ScreenShare => None,
             };
             if let Some(widget) = widget {
                 root.append(&widget);
@@ -103,6 +115,7 @@ impl IndicatorRow {
             root,
             audio,
             battery,
+            network,
             microphone,
             slots,
             pulsing: std::cell::Cell::new(false),
@@ -127,10 +140,18 @@ impl IndicatorRow {
                 }
             }
         });
+        let network_binding = bridge::bind_state(&indicators.root, services.network.state(), {
+            let indicators = Rc::downgrade(&indicators);
+            move |_: &gtk4::Box, state: &NetworkState| {
+                if let Some(indicators) = indicators.upgrade() {
+                    indicators.render_network(state);
+                }
+            }
+        });
         indicators
             .bindings
             .borrow_mut()
-            .extend([audio_binding, battery_binding]);
+            .extend([audio_binding, battery_binding, network_binding]);
 
         indicators
     }
@@ -169,8 +190,24 @@ impl IndicatorRow {
             &self.audio,
             icons::volume(state.sink_volume_pct, state.sink_muted),
         );
-        self.apply_visibility(state, &self.services.battery.current());
+        self.apply_visibility(
+            state,
+            &self.services.battery.current(),
+            &self.services.network.current(),
+        );
         self.set_pulsing(state.source_in_use);
+    }
+
+    /// Draw the network icon and the VPN badge.
+    fn render_network(&self, state: &NetworkState) {
+        if let Some(name) = crate::widgets::quick_settings::model::network_icon(state) {
+            set_icon(&self.network, name);
+        }
+        self.apply_visibility(
+            &self.services.audio.current(),
+            &self.services.battery.current(),
+            state,
+        );
     }
 
     /// Draw the battery icon.
@@ -181,7 +218,11 @@ impl IndicatorRow {
         } else {
             self.battery.remove_css_class(classes::QS_ICON_URGENT);
         }
-        self.apply_visibility(&self.services.audio.current(), state);
+        self.apply_visibility(
+            &self.services.audio.current(),
+            state,
+            &self.services.network.current(),
+        );
     }
 
     /// Show exactly the indicators the state calls for.
@@ -189,8 +230,8 @@ impl IndicatorRow {
     /// One place rather than one per service, so the order and the rules stay
     /// in [`Indicators`] where they are tested, and two services publishing at
     /// once cannot leave the pill in a state neither of them intended.
-    fn apply_visibility(&self, audio: &AudioState, battery: &BatteryState) {
-        let indicators = Indicators::read(audio, battery, self.show_battery);
+    fn apply_visibility(&self, audio: &AudioState, battery: &BatteryState, network: &NetworkState) {
+        let indicators = Indicators::read(audio, battery, network, self.show_battery);
         let visible = indicators.visible();
         for (indicator, widget) in &self.slots {
             widget.set_visible(visible.contains(indicator));

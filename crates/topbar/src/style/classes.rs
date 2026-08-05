@@ -406,6 +406,8 @@ pub const QS_INDICATOR: &str = "qs-indicator";
 pub const QS_ICON: &str = "qs-icon";
 /// Set on the battery icon when it is low and nothing is charging it.
 pub const QS_ICON_URGENT: &str = "qs-icon-urgent";
+/// A status icon in the accent colour: something the user switched on.
+pub const QS_ICON_ACCENT: &str = "qs-icon-accent";
 /// The dot that says a microphone is live.
 pub const QS_PRIVACY_DOT: &str = "qs-privacy-dot";
 
@@ -464,6 +466,23 @@ pub const QS_TOGGLE_EXPAND: &str = "qs-toggle-expand";
 pub const QS_RADIO_ROW: &str = "qs-radio-row";
 /// Its mark.
 pub const QS_RADIO_MARK: &str = "qs-radio-mark";
+
+/// One network in the Wi-Fi list.
+pub const QS_NETWORK_ROW: &str = "qs-network-row";
+/// The padlock beside a network that wants a key.
+pub const QS_NETWORK_BADGE: &str = "qs-network-badge";
+/// A header above a list, with the scanning spinner in it.
+pub const QS_LIST_HEADER: &str = "qs-list-header";
+/// The password box that opens under a network row.
+pub const QS_PASSWORD_ROW: &str = "qs-password-row";
+/// The entry inside it.
+pub const QS_PASSWORD_ENTRY: &str = "qs-password-entry";
+/// A button inside it.
+pub const QS_PASSWORD_BUTTON: &str = "qs-password-button";
+/// A full-width row that states something rather than doing anything.
+pub const QS_STATUS_ROW: &str = "qs-status-row";
+/// The switch on one VPN row.
+pub const QS_VPN_ROW: &str = "qs-vpn-row";
 
 /// A card inside the panel, e.g. battery health.
 pub const QS_CARD: &str = "qs-card";
@@ -684,6 +703,7 @@ pub const ALL: &[&str] = &[
     QS_INDICATOR,
     QS_ICON,
     QS_ICON_URGENT,
+    QS_ICON_ACCENT,
     QS_PRIVACY_DOT,
     QS_PANEL,
     QS_SCROLL,
@@ -711,6 +731,14 @@ pub const ALL: &[&str] = &[
     QS_TOGGLE_EXPAND,
     QS_RADIO_ROW,
     QS_RADIO_MARK,
+    QS_NETWORK_ROW,
+    QS_NETWORK_BADGE,
+    QS_LIST_HEADER,
+    QS_PASSWORD_ROW,
+    QS_PASSWORD_ENTRY,
+    QS_PASSWORD_BUTTON,
+    QS_STATUS_ROW,
+    QS_VPN_ROW,
     QS_CARD,
     QS_CARD_TITLE,
     QS_CARD_LINE,

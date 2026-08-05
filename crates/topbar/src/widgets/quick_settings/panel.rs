@@ -30,12 +30,14 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Orientation, PolicyType, ScrolledWindow};
 use topbar_core::config::QuickSettingsConfig;
-use topbar_services::Services;
+use topbar_services::{NetworkState, Services};
 
+use crate::bridge::{self, BindingGuard};
 use crate::style::classes;
 use crate::surfaces::popovers::PopoverContent;
 use crate::widgets::quick_settings::cards::{
-    battery::BatteryCard, header::Header, power::PowerSection, sliders::Sliders, toggles::Toggles,
+    battery::BatteryCard, header::Header, network::WiredRow, power::PowerSection, sliders::Sliders,
+    toggles::Toggles,
 };
 use crate::widgets::quick_settings::expander::{Accordion, Section};
 
@@ -58,6 +60,10 @@ pub enum Block {
     Power,
     /// The Power Mode toggle's radio rows.
     PowerMode,
+    /// The Wi-Fi toggle's network list.
+    WiFi,
+    /// The VPN toggle's profile list.
+    Vpn,
 }
 
 /// The Quick Settings panel.
@@ -77,8 +83,11 @@ pub struct Panel {
     power_section: Rc<Section>,
     sliders: Rc<Sliders>,
     toggles: Rc<Toggles>,
+    /// Held so the binding that draws it has something to upgrade to.
+    _wired: Rc<WiredRow>,
     /// The monitor it is drawn on, for the height bound.
     monitor: gtk4::gdk::Monitor,
+    bindings: std::cell::RefCell<Vec<BindingGuard>>,
 }
 
 impl Panel {
@@ -124,8 +133,24 @@ impl Panel {
         let sliders = Sliders::new(services, config.audio, config.mic, config.brightness);
         content.append(sliders.root());
 
-        let toggles = Toggles::new(services, &accordion, config.idle_inhibitor);
+        let toggles = Toggles::new(
+            services,
+            &accordion,
+            config.idle_inhibitor,
+            config.network,
+            config.vpn,
+            config.vpn_close_on_connect,
+        );
         content.append(toggles.root());
+
+        // Under the grid rather than inside it: a cable is a statement, not a
+        // control, and a non-interactive pill sitting among four that respond
+        // to a click would read as one that had stopped working. v1 put the
+        // same information in a section header inside its network card.
+        let wired = WiredRow::new();
+        if config.network {
+            content.append(wired.root());
+        }
 
         // Vertical only: the panel is a fixed width and a horizontal scrollbar
         // would mean something in it had overflowed, which is a layout bug
@@ -139,7 +164,7 @@ impl Panel {
         scroll.add_css_class(classes::QS_SCROLL);
         root.append(&scroll);
 
-        Rc::new(Self {
+        let panel = Rc::new(Self {
             root,
             scroll,
             accordion,
@@ -152,8 +177,22 @@ impl Panel {
             power_section,
             sliders,
             toggles,
+            _wired: Rc::clone(&wired),
             monitor: monitor.clone(),
-        })
+            bindings: std::cell::RefCell::new(Vec::new()),
+        });
+
+        let binding = bridge::bind_state(&panel.root, services.network.state(), {
+            let wired = Rc::downgrade(&wired);
+            move |_: &gtk4::Box, state: &NetworkState| {
+                if let Some(wired) = wired.upgrade() {
+                    wired.render(state);
+                }
+            }
+        });
+        panel.bindings.borrow_mut().push(binding);
+
+        panel
     }
 
     /// Open one of the panel's expandable blocks, without a pointer.
@@ -166,6 +205,8 @@ impl Panel {
             Block::BatteryHealth => self.accordion.toggle(&self.battery_section),
             Block::Power => self.accordion.toggle(&self.power_section),
             Block::PowerMode => self.toggles.expand_power_mode(),
+            Block::WiFi => self.toggles.expand_wifi(),
+            Block::Vpn => self.toggles.expand_vpn(),
         }
     }
 

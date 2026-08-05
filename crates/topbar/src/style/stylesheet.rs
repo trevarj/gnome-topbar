@@ -1574,6 +1574,11 @@ osd-bar {
     color: var(--color-state-urgent);
 }
 
+/* A tunnel that is up, or any other state the user chose rather than read. */
+.qs-icon-accent {
+    color: var(--color-accent);
+}
+
 /* The microphone-in-use dot. Not an icon: a dot is what GNOME draws, and it
    has to read at a glance on a 36px bar. */
 .qs-privacy-dot {
@@ -1634,6 +1639,9 @@ osd-bar {
 .qs-toggle,
 .qs-toggle-expand,
 .qs-radio-row,
+.qs-network-row,
+.qs-password-button,
+.qs-vpn-row,
 .qs-limit-button {
     background-image: none;
     box-shadow: none;
@@ -1859,6 +1867,88 @@ osd-bar {
 .qs-radio-mark {
     color: var(--color-accent);
     -gtk-icon-size: var(--icon-size);
+}
+
+/* --- Network and VPN lists --- */
+
+/* A header rather than a title: the scanning spinner lives in it, and a
+   spinner that appeared beside the first row would push the list down. */
+.qs-list-header {
+    padding: 2px 12px 4px 12px;
+    color: var(--color-foreground-muted);
+    font-size: 12px;
+}
+
+.qs-network-row,
+.qs-vpn-row {
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-card);
+    padding: 8px 12px;
+    color: var(--color-foreground);
+    min-height: 36px;
+}
+
+.qs-network-row:hover,
+.qs-vpn-row:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-network-row:disabled,
+.qs-vpn-row:disabled {
+    color: var(--color-foreground-disabled);
+}
+
+/* The padlock is a hint, not a heading: it sits beside the name at the same
+   size as the signal icon and a step down in contrast. */
+.qs-network-badge {
+    color: var(--color-foreground-muted);
+    -gtk-icon-size: var(--icon-size);
+}
+
+/* The password box, opened under the row it belongs to. Indented to the same
+   place the row's text starts, so it reads as part of that row. */
+.qs-password-row {
+    padding: 4px 12px 8px 12px;
+}
+
+.qs-password-entry {
+    background-color: var(--color-card);
+    border: 1px solid var(--color-surface-border);
+    border-radius: var(--radius-card);
+    color: var(--color-foreground);
+    min-height: 32px;
+    padding: 2px 8px;
+}
+
+.qs-password-entry:focus-within {
+    border-color: var(--color-accent);
+}
+
+.qs-password-button {
+    background-color: var(--color-card);
+    border: none;
+    border-radius: var(--radius-card);
+    padding: 6px 14px;
+    color: var(--color-foreground);
+}
+
+.qs-password-button:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.qs-password-button.checked {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+}
+
+/* The wired row: a statement, not a control. No hover, no pointer. */
+.qs-status-row {
+    background-color: var(--color-card);
+    border-radius: var(--radius-card);
+    padding: 10px 12px;
+    color: var(--color-foreground);
+    min-height: 40px;
 }
 
 /* --- Cards --- */

@@ -7,7 +7,9 @@
 //! every one of them is a pure function here so it can be checked without a
 //! display.
 
-use topbar_services::{AudioState, BatteryState};
+use topbar_services::{AudioState, BatteryState, NetworkState};
+
+use crate::style::icons;
 
 /// One status icon on the Quick Settings button.
 ///
@@ -15,9 +17,9 @@ use topbar_services::{AudioState, BatteryState};
 /// which is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Indicator {
-    /// Wi-Fi or wired. Lands in M9b.
+    /// Wi-Fi or wired.
     Network,
-    /// A VPN badge. Lands in M9b.
+    /// A VPN badge.
     Vpn,
     /// The output device's volume level. Always drawn.
     Audio,
@@ -46,6 +48,33 @@ pub const ORDER: &[Indicator] = &[
     Indicator::ScreenShare,
 ];
 
+/// Which icon the network indicator is showing, if any.
+///
+/// Wired beats Wi-Fi, because a machine with a cable in it is using the cable
+/// whatever the radio is doing, and that is the fact the icon is there to
+/// state. `None` is a machine with no network hardware at all — a container, a
+/// virtual machine with its interfaces unmanaged — where an icon would be
+/// reporting an absence nobody asked about.
+pub fn network_icon(network: &NetworkState) -> Option<&'static str> {
+    if !network.has_device() {
+        return None;
+    }
+    if network.wired.connected {
+        return Some(icons::WIRED);
+    }
+    if let Some(active) = &network.wifi.active {
+        return Some(icons::wifi_signal(active.bucket));
+    }
+    if network.wifi.present {
+        return Some(if network.wifi.enabled {
+            icons::WIFI_OFFLINE
+        } else {
+            icons::WIFI_DISABLED
+        });
+    }
+    Some(icons::WIRED_DISCONNECTED)
+}
+
 /// What the button has to go on.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Indicators {
@@ -53,31 +82,41 @@ pub struct Indicators {
     pub microphone: bool,
     /// Whether there is a battery to draw.
     pub battery: bool,
+    /// The network icon, when there is any network hardware.
+    pub network: Option<&'static str>,
+    /// Whether a VPN is up.
+    pub vpn: bool,
 }
 
 impl Indicators {
     /// Read the services the button subscribes to.
-    pub fn read(audio: &AudioState, battery: &BatteryState, show_battery: bool) -> Self {
+    pub fn read(
+        audio: &AudioState,
+        battery: &BatteryState,
+        network: &NetworkState,
+        show_battery: bool,
+    ) -> Self {
         Self {
             microphone: audio.source_in_use,
             battery: show_battery && battery.available,
+            network: network_icon(network),
+            vpn: network.vpn_active(),
         }
     }
 
     /// Whether `indicator` is drawn right now.
     ///
-    /// The three M9b/M9c indicators answer `false` and will answer for
-    /// themselves when their services arrive; the audio icon is always there,
-    /// because a panel button with nothing on it is a panel button nobody
-    /// finds.
+    /// The two M9c indicators answer `false` and will answer for themselves
+    /// when their services arrive; the audio icon is always there, because a
+    /// panel button with nothing on it is a panel button nobody finds.
     pub fn shows(self, indicator: Indicator) -> bool {
         match indicator {
             Indicator::Audio => true,
             Indicator::Battery => self.battery,
             Indicator::Microphone => self.microphone,
-            Indicator::Network | Indicator::Vpn | Indicator::Bluetooth | Indicator::ScreenShare => {
-                false
-            }
+            Indicator::Network => self.network.is_some(),
+            Indicator::Vpn => self.vpn,
+            Indicator::Bluetooth | Indicator::ScreenShare => false,
         }
     }
 
@@ -94,11 +133,11 @@ impl Indicators {
 /// One pill in the toggle grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Toggle {
-    /// Wi-Fi. Lands in M9b.
+    /// Wi-Fi.
     WiFi,
     /// Bluetooth. Lands in M9c.
     Bluetooth,
-    /// VPN. Lands in M9b.
+    /// VPN.
     Vpn,
     /// The idle inhibitor.
     Caffeine,
@@ -221,12 +260,7 @@ mod tests {
     fn the_audio_icon_is_always_there_and_the_seams_never_are() {
         let nothing = Indicators::default();
         assert_eq!(nothing.visible(), vec![Indicator::Audio]);
-        for seam in [
-            Indicator::Network,
-            Indicator::Vpn,
-            Indicator::Bluetooth,
-            Indicator::ScreenShare,
-        ] {
+        for seam in [Indicator::Bluetooth, Indicator::ScreenShare] {
             assert!(
                 !nothing.shows(seam),
                 "{seam:?} belongs to a later milestone"
@@ -234,11 +268,113 @@ mod tests {
         }
     }
 
+    /// A network state with one wireless card and nothing else.
+    fn wifi_only(active: Option<u8>, enabled: bool) -> NetworkState {
+        NetworkState {
+            wifi: topbar_services::WifiState {
+                present: true,
+                enabled,
+                active: active.map(|bucket| topbar_services::ApView {
+                    ssid: "Home".into(),
+                    strength: bucket * 25,
+                    bucket,
+                    secured: true,
+                    known: true,
+                    active: true,
+                    connecting: false,
+                }),
+                ..topbar_services::WifiState::default()
+            },
+            ..NetworkState::default()
+        }
+    }
+
+    #[test]
+    fn the_network_icon_is_chosen_by_what_the_machine_is_actually_using() {
+        // No hardware at all: nothing to say, so nothing is drawn.
+        assert_eq!(network_icon(&NetworkState::default()), None);
+
+        // A cable beats the radio, whatever the radio is doing.
+        let both = NetworkState {
+            wired: topbar_services::WiredState {
+                present: true,
+                carrier: true,
+                connected: true,
+                ..topbar_services::WiredState::default()
+            },
+            ..wifi_only(Some(4), true)
+        };
+        assert_eq!(network_icon(&both), Some("network-wired-symbolic"));
+
+        // On a network: the strength bucket, which is where the icon comes from.
+        assert_eq!(
+            network_icon(&wifi_only(Some(4), true)),
+            Some("network-wireless-signal-excellent-symbolic")
+        );
+        assert_eq!(
+            network_icon(&wifi_only(Some(1), true)),
+            Some("network-wireless-signal-weak-symbolic")
+        );
+
+        // Radio on, joined nothing.
+        assert_eq!(
+            network_icon(&wifi_only(None, true)),
+            Some("network-wireless-offline-symbolic")
+        );
+        // Radio off — a different picture, because it is a different problem.
+        assert_eq!(
+            network_icon(&wifi_only(None, false)),
+            Some("network-wireless-disabled-symbolic")
+        );
+
+        // A desktop with an unplugged socket and no card.
+        let unplugged = NetworkState {
+            wired: topbar_services::WiredState {
+                present: true,
+                ..topbar_services::WiredState::default()
+            },
+            ..NetworkState::default()
+        };
+        assert_eq!(
+            network_icon(&unplugged),
+            Some("network-wired-disconnected-symbolic")
+        );
+    }
+
+    #[test]
+    fn a_tunnel_puts_its_badge_beside_the_network_icon() {
+        let audio = AudioState::default();
+        let battery = BatteryState::default();
+        let mut network = wifi_only(Some(4), true);
+        network.vpn = vec![topbar_services::VpnView {
+            id: "Work".into(),
+            uuid: "w".into(),
+            kind: topbar_services::VpnKind::WireGuard,
+            active: true,
+            pending: false,
+        }];
+
+        let indicators = Indicators::read(&audio, &battery, &network, true);
+        assert_eq!(
+            indicators.visible(),
+            vec![Indicator::Network, Indicator::Vpn, Indicator::Audio],
+            "the network leads the pill and the badge sits beside it"
+        );
+
+        network.vpn[0].active = false;
+        let down = Indicators::read(&audio, &battery, &network, true);
+        assert!(
+            !down.shows(Indicator::Vpn),
+            "a tunnel that is down is quiet"
+        );
+    }
+
     #[test]
     fn the_battery_comes_before_the_microphone_dot() {
         let both = Indicators {
             microphone: true,
             battery: true,
+            ..Indicators::default()
         };
         assert_eq!(
             both.visible(),
@@ -250,7 +386,7 @@ mod tests {
     fn a_desktop_draws_no_battery() {
         let audio = AudioState::default();
         let battery = BatteryState::default();
-        let indicators = Indicators::read(&audio, &battery, true);
+        let indicators = Indicators::read(&audio, &battery, &NetworkState::default(), true);
         assert!(!indicators.shows(Indicator::Battery));
     }
 
@@ -263,8 +399,9 @@ mod tests {
             status: BatteryStatus::Discharging,
             ..BatteryState::default()
         };
-        assert!(Indicators::read(&audio, &battery, true).shows(Indicator::Battery));
-        assert!(!Indicators::read(&audio, &battery, false).shows(Indicator::Battery));
+        let none = NetworkState::default();
+        assert!(Indicators::read(&audio, &battery, &none, true).shows(Indicator::Battery));
+        assert!(!Indicators::read(&audio, &battery, &none, false).shows(Indicator::Battery));
     }
 
     #[test]
@@ -273,7 +410,12 @@ mod tests {
             source_in_use: true,
             ..AudioState::default()
         };
-        let indicators = Indicators::read(&audio, &BatteryState::default(), true);
+        let indicators = Indicators::read(
+            &audio,
+            &BatteryState::default(),
+            &NetworkState::default(),
+            true,
+        );
         assert!(indicators.shows(Indicator::Microphone));
     }
 

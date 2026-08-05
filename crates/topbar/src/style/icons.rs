@@ -60,6 +60,39 @@ pub const CAFFEINE: &[&str] = &[
     "preferences-desktop-screensaver-symbolic",
 ];
 
+/// An Ethernet cable with something on the other end.
+pub const WIRED: &str = "network-wired-symbolic";
+/// A socket with nothing in it.
+pub const WIRED_DISCONNECTED: &str = "network-wired-disconnected-symbolic";
+/// A radio that is on but has joined nothing.
+pub const WIFI_OFFLINE: &str = "network-wireless-offline-symbolic";
+/// A radio that is switched off.
+pub const WIFI_DISABLED: &str = "network-wireless-disabled-symbolic";
+/// The padlock beside a network that wants a key.
+pub const WIFI_LOCKED: &str = "network-wireless-encrypted-symbolic";
+/// A tunnel that is up.
+pub const VPN: &str = "network-vpn-symbolic";
+/// One that is not.
+pub const VPN_DISCONNECTED: &str = "network-vpn-disconnected-symbolic";
+
+/// The five signal icons, weakest first.
+///
+/// Indexed by the bucket the network service computes, so the thresholds live
+/// in one place — beside the rest of NetworkManager's constants — and the panel
+/// only decides what to draw.
+const WIFI_SIGNAL: [&str; 5] = [
+    "network-wireless-signal-none-symbolic",
+    "network-wireless-signal-weak-symbolic",
+    "network-wireless-signal-ok-symbolic",
+    "network-wireless-signal-good-symbolic",
+    "network-wireless-signal-excellent-symbolic",
+];
+
+/// The signal icon for a strength bucket.
+pub fn wifi_signal(bucket: u8) -> &'static str {
+    WIFI_SIGNAL[(bucket as usize).min(WIFI_SIGNAL.len() - 1)]
+}
+
 /// The chevron that opens an expandable row.
 pub const EXPAND: &str = "pan-down-symbolic";
 /// The mark against the item in force — a checkmark, and also what a radio
@@ -154,12 +187,35 @@ mod tests {
             SHUT_DOWN,
             RESTART,
             LOG_OUT,
+            WIRED,
+            WIRED_DISCONNECTED,
+            WIFI_OFFLINE,
+            WIFI_DISABLED,
+            WIFI_LOCKED,
+            VPN,
+            VPN_DISCONNECTED,
             EXPAND,
             SELECTED,
         ];
-        for name in names.iter().chain(SUSPEND).chain(CAFFEINE) {
+        for name in names
+            .iter()
+            .chain(SUSPEND)
+            .chain(CAFFEINE)
+            .chain(&WIFI_SIGNAL)
+        {
             assert!(name.ends_with("-symbolic"), "{name} is not symbolic");
         }
+    }
+
+    #[test]
+    fn the_five_signal_icons_run_weakest_to_strongest() {
+        assert_eq!(wifi_signal(0), "network-wireless-signal-none-symbolic");
+        assert_eq!(wifi_signal(1), "network-wireless-signal-weak-symbolic");
+        assert_eq!(wifi_signal(2), "network-wireless-signal-ok-symbolic");
+        assert_eq!(wifi_signal(3), "network-wireless-signal-good-symbolic");
+        assert_eq!(wifi_signal(4), "network-wireless-signal-excellent-symbolic");
+        // A bucket from a future service is clamped rather than a panic.
+        assert_eq!(wifi_signal(9), wifi_signal(4));
     }
 
     #[test]

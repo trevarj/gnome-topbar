@@ -23,11 +23,12 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Align, Button, Image, Label, Orientation};
-use topbar_services::{InhibitorState, PowerProfilesState, Services};
+use topbar_services::{InhibitorState, NetworkState, PowerProfilesState, Services};
 
 use crate::bridge::{self, BindingGuard};
 use crate::style::{classes, icons};
 use crate::surfaces::inline::{self, names};
+use crate::widgets::quick_settings::cards::network::{self, VpnList, WifiList};
 use crate::widgets::quick_settings::expander::{Accordion, Section};
 use crate::widgets::quick_settings::model::{self, Toggle};
 use crate::widgets::quick_settings::{attempt, set_icon, set_text};
@@ -150,6 +151,12 @@ impl Pill {
 /// The grid, and everything keeping it alive.
 pub struct Toggles {
     root: gtk4::Box,
+    wifi: Option<Rc<Pill>>,
+    wifi_section: Option<Rc<Section>>,
+    wifi_list: Rc<WifiList>,
+    vpn: Option<Rc<Pill>>,
+    vpn_section: Option<Rc<Section>>,
+    vpn_list: Rc<VpnList>,
     caffeine: Option<Rc<Pill>>,
     power_mode: Option<Rc<Pill>>,
     power_mode_section: Option<Rc<Section>>,
@@ -170,9 +177,30 @@ impl Toggles {
     /// `show_caffeine` is `[widgets.quick_settings] idle_inhibitor`; Power
     /// Mode has no switch of its own because it is hidden exactly when the
     /// daemon is absent, which is a fact rather than a preference.
-    pub fn new(services: &Services, accordion: &Rc<Accordion>, show_caffeine: bool) -> Rc<Self> {
+    pub fn new(
+        services: &Services,
+        accordion: &Rc<Accordion>,
+        show_caffeine: bool,
+        show_network: bool,
+        show_vpn: bool,
+        vpn_close_on_connect: bool,
+    ) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Vertical, GAP);
         root.add_css_class(classes::QS_GRID);
+
+        // Wi-Fi and VPN are built whenever the configuration asks for them and
+        // *hidden* when the machine turns out to have no card or no profiles.
+        // Rebuilding the grid from state instead would move every pill under
+        // the pointer the first time NetworkManager answered.
+        let wifi = show_network.then(|| Pill::new(icons::WIFI_OFFLINE, "Wi-Fi", true));
+        let wifi_list = WifiList::new(services);
+        let wifi_section = Section::new(wifi_list.root());
+        accordion.add(&wifi_section);
+
+        let vpn = show_vpn.then(|| Pill::new(icons::VPN_DISCONNECTED, "VPN", true));
+        let vpn_list = VpnList::new(services, vpn_close_on_connect);
+        let vpn_section = Section::new(vpn_list.root());
+        accordion.add(&vpn_section);
 
         let caffeine = show_caffeine
             .then(|| Pill::new(icons::first_available(icons::CAFFEINE), "Caffeine", false));
@@ -185,10 +213,14 @@ impl Toggles {
         let power_mode_section = Section::new(&power_mode_list);
         accordion.add(&power_mode_section);
 
+        let (wifi_error, wifi_slot) = inline::slot(names::WIFI);
+        let (vpn_error, vpn_slot) = inline::slot(names::VPN);
         let (caffeine_error, caffeine_slot) = inline::slot(names::CAFFEINE);
         let (power_error, power_slot) = inline::slot(names::POWER_MODE);
 
         let present: Vec<Toggle> = [
+            wifi.as_ref().map(|_| Toggle::WiFi),
+            vpn.as_ref().map(|_| Toggle::Vpn),
             caffeine.as_ref().map(|_| Toggle::Caffeine),
             Some(Toggle::PowerMode),
         ]
@@ -201,22 +233,40 @@ impl Toggles {
             line.add_css_class(classes::QS_GRID_ROW);
             line.set_homogeneous(true);
 
-            let mut carries_power_mode = false;
+            // A section belongs under the *row* its pill is in rather than
+            // inside the grid, so a list of networks spans the panel instead of
+            // being squeezed into half its width.
+            let mut below: Vec<(&gtk4::Label, Option<&Rc<Section>>)> = Vec::new();
             for toggle in &row {
                 match toggle {
+                    Toggle::WiFi => {
+                        if let Some(pill) = &wifi {
+                            line.append(&pill.root);
+                            below.push((&wifi_error, Some(&wifi_section)));
+                        }
+                    }
+                    Toggle::Vpn => {
+                        if let Some(pill) = &vpn {
+                            line.append(&pill.root);
+                            below.push((&vpn_error, Some(&vpn_section)));
+                        }
+                    }
+                    // Caffeine is a plain switch: it has a caption for failures
+                    // and nothing to expand.
                     Toggle::Caffeine => {
                         if let Some(pill) = &caffeine {
                             line.append(&pill.root);
+                            below.push((&caffeine_error, None));
                         }
                     }
                     Toggle::PowerMode => {
                         if let Some(pill) = &power_mode {
                             line.append(&pill.root);
-                            carries_power_mode = true;
+                            below.push((&power_error, Some(&power_mode_section)));
                         }
                     }
-                    // M9b and M9c: the ordering already has a place for them.
-                    Toggle::WiFi | Toggle::Bluetooth | Toggle::Vpn => {}
+                    // M9c: the ordering already has a place for it.
+                    Toggle::Bluetooth => {}
                 }
             }
             // A lone pill on the last row keeps its column width rather than
@@ -228,17 +278,22 @@ impl Toggles {
             }
 
             root.append(&line);
-            if carries_power_mode {
-                root.append(&power_error);
-                root.append(power_mode_section.root());
+            for (error, section) in below {
+                root.append(error);
+                if let Some(section) = section {
+                    root.append(section.root());
+                }
             }
-        }
-        if caffeine.is_some() {
-            root.append(&caffeine_error);
         }
 
         let toggles = Rc::new(Self {
             root,
+            wifi,
+            wifi_section: Some(wifi_section),
+            wifi_list,
+            vpn,
+            vpn_section: Some(vpn_section),
+            vpn_list,
             caffeine,
             power_mode,
             power_mode_section: Some(power_mode_section),
@@ -246,7 +301,7 @@ impl Toggles {
             built_profiles: RefCell::new(Vec::new()),
             profile_marks: RefCell::new(Vec::new()),
             services: services.clone(),
-            _slots: vec![caffeine_slot, power_slot],
+            _slots: vec![wifi_slot, vpn_slot, caffeine_slot, power_slot],
             bindings: RefCell::new(Vec::new()),
         });
 
@@ -260,9 +315,38 @@ impl Toggles {
     }
 
     /// Re-render from current state.
-    pub fn refresh(&self) {
+    ///
+    /// Opening the panel also asks the card to look around. The service
+    /// rate-limits that to one scan every ten seconds, so opening Quick
+    /// Settings four times in a row does not make the radio transmit four
+    /// times — and a build with no bus of its own does not scan at all.
+    pub fn refresh(self: &Rc<Self>) {
         self.render_inhibitor(&self.services.inhibitor.current());
         self.render_profiles(&self.services.power_profiles.current());
+        self.render_network(&self.services.network.current());
+
+        if self.wifi.is_some() {
+            let network = self.services.network.handle().clone();
+            attempt(names::WIFI, async move { network.scan().await });
+        }
+    }
+
+    /// Open the Wi-Fi list, without a pointer. Debug builds only.
+    #[cfg(debug_assertions)]
+    pub fn expand_wifi(self: &Rc<Self>) {
+        if let Some(section) = &self.wifi_section {
+            section.set_expanded(true);
+            self.sync_chevrons();
+        }
+    }
+
+    /// Open the VPN list, without a pointer. Debug builds only.
+    #[cfg(debug_assertions)]
+    pub fn expand_vpn(self: &Rc<Self>) {
+        if let Some(section) = &self.vpn_section {
+            section.set_expanded(true);
+            self.sync_chevrons();
+        }
     }
 
     /// Open the Power Mode radio list, without a pointer.
@@ -277,10 +361,16 @@ impl Toggles {
         }
     }
 
-    /// Put the chevron back when the section is closed from outside.
+    /// Put the chevrons back when a section is closed from outside.
     pub fn sync_chevrons(&self) {
-        if let (Some(pill), Some(section)) = (&self.power_mode, &self.power_mode_section) {
-            pill.set_expanded(section.is_expanded());
+        for (pill, section) in [
+            (&self.wifi, &self.wifi_section),
+            (&self.vpn, &self.vpn_section),
+            (&self.power_mode, &self.power_mode_section),
+        ] {
+            if let (Some(pill), Some(section)) = (pill, section) {
+                pill.set_expanded(section.is_expanded());
+            }
         }
     }
 
@@ -296,22 +386,67 @@ impl Toggles {
             });
         }
 
-        if let (Some(pill), Some(section)) = (&toggles.power_mode, &toggles.power_mode_section) {
-            // The pill's body and its chevron both expand it: there is nothing
-            // else a click on Power Mode could sensibly mean, and a pill whose
-            // left half did nothing would read as broken.
-            for button in [Some(&pill.button), pill.expand.as_ref()]
-                .into_iter()
-                .flatten()
-            {
+        // Wi-Fi is the one pill whose two halves mean different things, and
+        // GNOME's does the same: the body switches the radio, the chevron opens
+        // the list. Anything else would make "turn Wi-Fi off" a two-step.
+        if let Some(pill) = &toggles.wifi {
+            pill.button.connect_clicked({
+                let toggles = Rc::downgrade(toggles);
+                move |_| {
+                    let Some(toggles) = toggles.upgrade() else {
+                        return;
+                    };
+                    let state = toggles.services.network.current();
+                    if network::radio_busy(&state) {
+                        return;
+                    }
+                    let network = toggles.services.network.handle().clone();
+                    let wanted = !state.wifi.enabled;
+                    attempt(names::WIFI, async move {
+                        network.set_wifi_enabled(wanted).await
+                    });
+                }
+            });
+        }
+
+        // The VPN and Power Mode pills expand from either half: there is
+        // nothing else a click on them could sensibly mean, and a pill whose
+        // left half did nothing would read as broken. Wi-Fi's body is already
+        // spoken for, so only its chevron opens its list.
+        for (pill, section, body_expands, scans) in [
+            (&toggles.wifi, &toggles.wifi_section, false, true),
+            (&toggles.vpn, &toggles.vpn_section, true, false),
+            (
+                &toggles.power_mode,
+                &toggles.power_mode_section,
+                true,
+                false,
+            ),
+        ] {
+            let (Some(pill), Some(section)) = (pill, section) else {
+                continue;
+            };
+            let expanders: Vec<&Button> =
+                [body_expands.then_some(&pill.button), pill.expand.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+            for button in expanders {
                 button.connect_clicked({
                     let toggles = Rc::downgrade(toggles);
                     let accordion = Rc::clone(accordion);
                     let section = Rc::clone(section);
                     move |_| {
                         accordion.toggle(&section);
-                        if let Some(toggles) = toggles.upgrade() {
-                            toggles.sync_chevrons();
+                        let Some(toggles) = toggles.upgrade() else {
+                            return;
+                        };
+                        toggles.sync_chevrons();
+                        // Opening the list is the moment the user wants it to
+                        // be current. The service rate-limits the scan itself.
+                        if scans && section.is_expanded() {
+                            let network = toggles.services.network.handle().clone();
+                            attempt(names::WIFI, async move { network.scan().await });
                         }
                     }
                 });
@@ -337,10 +472,61 @@ impl Toggles {
                 }
             });
 
-        toggles
-            .bindings
-            .borrow_mut()
-            .extend([inhibitor_binding, profiles_binding]);
+        let network_binding =
+            bridge::bind_state(&toggles.root, toggles.services.network.state(), {
+                let toggles = Rc::downgrade(toggles);
+                move |_: &gtk4::Box, state: &NetworkState| {
+                    if let Some(toggles) = toggles.upgrade() {
+                        toggles.render_network(state);
+                    }
+                }
+            });
+
+        toggles.bindings.borrow_mut().extend([
+            inhibitor_binding,
+            profiles_binding,
+            network_binding,
+        ]);
+    }
+
+    /// Draw the Wi-Fi and VPN pills, and the lists under them.
+    fn render_network(self: &Rc<Self>, state: &NetworkState) {
+        if let Some(pill) = &self.wifi {
+            // No wireless card means no Wi-Fi pill at all. A greyed-out one on
+            // a desktop would be a row of dead space explaining an absence
+            // nobody asked about.
+            pill.root.set_visible(state.wifi.present);
+            pill.set_checked(network::wifi_checked(state));
+            set_icon(&pill.icon, network::wifi_icon(state));
+            pill.set_title(&network::wifi_title(state));
+            pill.set_subtitle(Some(network::wifi_subtitle(state)));
+            pill.button.set_sensitive(!network::radio_busy(state));
+            // A list of networks nobody can join is a list nobody wants.
+            if !state.wifi.enabled
+                && let Some(section) = &self.wifi_section
+            {
+                section.collapse_now();
+                pill.set_expanded(false);
+            }
+        }
+        self.wifi_list.render(state);
+
+        if let Some(pill) = &self.vpn {
+            pill.root.set_visible(!state.vpn.is_empty());
+            let active = state.vpn_active();
+            pill.set_checked(active);
+            set_icon(
+                &pill.icon,
+                if active {
+                    icons::VPN
+                } else {
+                    icons::VPN_DISCONNECTED
+                },
+            );
+            pill.set_title(&network::vpn_title(state));
+            pill.set_subtitle(Some(network::vpn_subtitle(state)));
+        }
+        self.vpn_list.render(state);
     }
 
     /// Draw the idle inhibitor.

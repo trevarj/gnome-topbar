@@ -198,6 +198,14 @@ const SMOKE_FILL: f64 = 0.55;
 #[cfg(debug_assertions)]
 const SMOKE_VOLUME: u32 = 70;
 
+/// The password the smoke hook answers a Wi-Fi prompt with.
+///
+/// Distinctive on purpose: the run greps `panel.log` and every process's
+/// command line for it afterwards, and a string like "test" would match
+/// something by accident.
+#[cfg(debug_assertions)]
+const SMOKE_PASSWORD: &str = "topbar-smoke-psk-9f3a";
+
 /// Ways for the smoke run to open things a pointer would.
 ///
 /// `TOPBAR_SMOKE_OPEN=quick_settings` already opens the panel through the
@@ -259,10 +267,31 @@ fn install_smoke_actions(
         }
     });
 
+    // The password row cannot be typed into without a keyboard, so the answer
+    // goes in the way the row's own Connect button would send it — through the
+    // service handle, wrapped, never through a command line. The fake
+    // NetworkManager records what came back out of its `GetSecrets` call, which
+    // is how the run proves the key travelled on the bus and nowhere else.
+    popovers::register_smoke_action("quick-settings-wifi-password", {
+        let network = services.network.handle().clone();
+        move || {
+            let network = network.clone();
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                attempt(inline::names::WIFI, async move {
+                    network
+                        .submit_secret(topbar_services::Secret::new(SMOKE_PASSWORD.to_string()))
+                        .await
+                });
+            });
+        }
+    });
+
     for (suffix, block) in [
         ("battery", Block::BatteryHealth),
         ("power", Block::Power),
         ("mode", Block::PowerMode),
+        ("wifi", Block::WiFi),
+        ("vpn", Block::Vpn),
     ] {
         popovers::register_smoke_action(&format!("quick-settings-{suffix}"), {
             let built = Rc::clone(built);
@@ -326,6 +355,20 @@ where
 {
     inline::clear(slot);
     bridge::act(ActionScope::Inline { widget: slot }, future);
+}
+
+/// The same, with something to do once it has worked.
+///
+/// One caller: the VPN row, which closes the panel on a successful connect when
+/// `vpn_close_on_connect` asks it to. The follow-up runs on the main thread and
+/// only on success — a tunnel that failed leaves the panel open with the error
+/// under the row that raised it, which is the whole point of the inline scope.
+pub(crate) fn attempt_then<F>(slot: &'static str, future: F, then: impl FnOnce() + 'static)
+where
+    F: Future<Output = Result<(), SvcError>> + Send + 'static,
+{
+    inline::clear(slot);
+    bridge::request(ActionScope::Inline { widget: slot }, future, |()| then());
 }
 
 /// Set an icon only when it changed.
