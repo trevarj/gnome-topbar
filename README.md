@@ -191,6 +191,7 @@ accept the keys but act only on the buttons they have free.
 | `interval` | `1800` | Seconds between refreshes. Minimum 60. |
 | `tooltip` | `"Weather"` | Static tooltip prefix. |
 | `max_chars` | unset | Ellipsize the panel label past this many characters. |
+| `show_description` | `true` | Name the condition on the bar (`21° Partly cloudy`), not just `21°`. |
 | `forecast_days` | `5` | Forecast rows in the control panel, `3`–`5`. |
 
 ### `[widgets.crypto]`

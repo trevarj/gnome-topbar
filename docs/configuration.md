@@ -249,6 +249,7 @@ widget is placed.
 | `interval` | integer | `1800` | Seconds between refreshes. Minimum 60. |
 | `tooltip` | string | `"Weather"` | Static tooltip prefix. |
 | `max_chars` | integer | unset | Ellipsize the panel label past this many characters. |
+| `show_description` | bool | `true` | Name the condition on the bar, not just the temperature. |
 | `forecast_days` | integer | `5` | Forecast rows in the control panel, `3`–`5`. |
 
 Coordinates are usually not written here. The widget's popover has a location
@@ -261,6 +262,10 @@ machine whose configuration is managed.
 `interval` below 60 seconds is a hard error rather than a silent clamp: it is
 somebody else's public API being polled, and quietly ignoring the number is
 worse than saying no.
+
+`show_description = false` cuts the bar down to `☁ 21°`. It is the bar's line
+only: the tooltip, the popover and the control panel's forecast card all go on
+naming the condition in full.
 
 ## `[widgets.crypto]`
 

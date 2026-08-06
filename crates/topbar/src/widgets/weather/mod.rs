@@ -2,6 +2,7 @@
 //!
 //! ```text
 //!  ☁  21° Partly cloudy          click → the forecast popover
+//!  ☁  21°                        show_description = false
 //!     Configure…                 click → the location dialog
 //! ```
 //!
@@ -71,6 +72,7 @@ impl WeatherWidget {
             label,
             tooltip: shell.set_tooltip(&config.tooltip),
             max_chars: config.max_chars.map(|max| max as usize),
+            show_description: config.show_description,
             fallback_tooltip: config.tooltip.clone(),
             needs_location: std::cell::Cell::new(true),
         });
@@ -151,6 +153,8 @@ struct Inner {
     tooltip: TooltipHandle,
     /// `widgets.weather.max_chars`, the width the label is cut to.
     max_chars: Option<usize>,
+    /// `widgets.weather.show_description`, whether the condition is named.
+    show_description: bool,
     /// `widgets.weather.tooltip`, shown until there is something better.
     fallback_tooltip: String,
     /// Whether a click should open the dialog rather than the popover.
@@ -172,10 +176,10 @@ impl Inner {
         set_text(
             &self.label,
             &ellipsize(
-                &format!(
-                    "{} {}",
-                    degrees(data.current.temperature),
-                    condition(data.current.code)
+                &panel_label(
+                    data.current.temperature,
+                    data.current.code,
+                    self.show_description,
                 ),
                 self.max_chars,
             ),
@@ -273,6 +277,21 @@ impl PopoverContent for Popover {
     }
 }
 
+/// The bar's own line: a temperature, and the condition when it is wanted.
+///
+/// `show_description = false` is for a centre section that has run out of room.
+/// Nothing is lost by turning it off — the icon beside it already says what the
+/// sky is doing, and the tooltip, the popover and the control panel's forecast
+/// card all still name the condition in full.
+fn panel_label(temperature: f64, code: u16, show_description: bool) -> String {
+    let temperature = degrees(temperature);
+    if show_description {
+        format!("{temperature} {}", condition(code))
+    } else {
+        temperature
+    }
+}
+
 /// Set an icon only when it changed.
 fn set_icon(image: &Image, name: &str) {
     if image.icon_name().as_deref() != Some(name) {
@@ -306,6 +325,15 @@ mod tests {
             ellipsize("-11° Thunderstorm with hail", Some(24)),
             "-11° Thunderstorm with …"
         );
+    }
+
+    #[test]
+    fn the_condition_can_be_left_off_the_bar() {
+        // 2 is "Partly cloudy", the longest thing a mild day produces.
+        assert_eq!(panel_label(21.4, 2, true), "21° Partly cloudy");
+        assert_eq!(panel_label(21.4, 2, false), "21°");
+        // Still no unit symbol either way: the tooltip is where °C appears.
+        assert_eq!(panel_label(-0.4, 0, false), "0°");
     }
 
     #[test]

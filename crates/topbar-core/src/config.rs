@@ -1204,6 +1204,7 @@ const WEATHER_KEYS: &[&str] = &[
     "interval",
     "tooltip",
     "max_chars",
+    "show_description",
     "forecast_days",
     "on_click",
     "on_click_right",
@@ -1226,6 +1227,12 @@ pub struct WeatherConfig {
     pub tooltip: String,
     /// Ellipsize the panel label past this many characters.
     pub max_chars: Option<u32>,
+    /// Whether the panel label says the condition as well as the temperature.
+    ///
+    /// False leaves `21°` alone, which is what a narrow centre section has room
+    /// for. The popover and the control panel's forecast card still name the
+    /// condition: this is the bar's line, not the reading.
+    pub show_description: bool,
     /// Forecast rows in the control panel, 3..=5.
     pub forecast_days: u32,
     /// Shell command run on left-click.
@@ -1245,6 +1252,7 @@ impl Default for WeatherConfig {
             interval: 1800,
             tooltip: "Weather".to_string(),
             max_chars: None,
+            show_description: true,
             forecast_days: 5,
             on_click: None,
             on_click_right: None,
@@ -2484,6 +2492,17 @@ disk_threshold = 100
         assert_eq!(errors.len(), 2);
         assert!(errors.iter().any(|e| e.contains("cpu_threshold")));
         assert!(errors.iter().any(|e| e.contains("memory_threshold")));
+    }
+
+    #[test]
+    fn the_weather_description_can_be_turned_off() {
+        let source =
+            "[widgets]\ncenter = [\"weather\"]\n\n[widgets.weather]\nshow_description = false\n";
+        let (config, warnings) = parse_ok(source);
+        assert!(warnings.is_empty(), "{warnings:#?}");
+        assert!(!config.widgets.weather.show_description);
+        // A file that says nothing keeps the condition, which is what v1 drew.
+        assert!(WeatherConfig::default().show_description);
     }
 
     #[test]

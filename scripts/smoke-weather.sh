@@ -10,12 +10,14 @@
 # TOPBAR_SMOKE_OPEN can only open one surface per start:
 #
 #   1  ready        bar label and the weather popover, five days of forecast
-#   2  panel        the control panel, forecast card filled, no media card
-#   3  configure    cold start with no location: the "Configure…" label
-#   4  setup        the location dialog, with results from a seeded search
-#   5  saved        the same config as (3), but with a location in state.json,
+#   2  bare         show_description = false: the icon and the temperature and
+#                   nothing else, which is a run about the bar by itself
+#   3  panel        the control panel, forecast card filled, no media card
+#   4  configure    cold start with no location: the "Configure…" label
+#   5  setup        the location dialog, with results from a seeded search
+#   6  saved        the same config as (4), but with a location in state.json,
 #                   which is what a panel started after a Save sees
-#   6  unavailable  the stub answering 429, so the empty state is drawn
+#   7  unavailable  the stub answering 429, so the empty state is drawn
 #
 # Screenshots land in target/visual-smoke/weather/<state>/.
 set -eu
@@ -43,6 +45,17 @@ sed 's/^\[widgets.weather\]$/[widgets.weather]\nlatitude = 55.75204\nlongitude =
   "$live_config" >"$located_config"
 grep -q '^latitude' "$located_config" || {
   echo "could not add coordinates to the config" >&2
+  exit 1
+}
+
+# And a third with the condition taken off the bar. The reading behind it is
+# identical, so the only difference between this run's screenshot and (1)'s bar
+# is the words — which is the whole claim `show_description` makes.
+bare_config="$artifact_root/bare-config.toml"
+sed 's/^\[widgets.weather\]$/[widgets.weather]\nshow_description = false/' \
+  "$located_config" >"$bare_config"
+grep -q '^show_description = false' "$bare_config" || {
+  echo "could not turn the weather description off in the config" >&2
   exit 1
 }
 
@@ -156,6 +169,7 @@ run() {
 
 start_stub 200
 run ready "$located_config" weather
+run bare "$bare_config" ""
 run panel "$located_config" clock
 run configure "$live_config" ""
 run setup "$live_config" weather-setup moscow

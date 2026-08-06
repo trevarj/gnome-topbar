@@ -65,6 +65,7 @@ show_week_numbers = true
 # interval = 1800        # Seconds between refreshes (minimum 60)
 # tooltip = "Weather"
 # max_chars = 24
+# show_description = true # false leaves the bar reading just "21°"
 # forecast_days = 5      # Control-panel forecast rows, 3 to 5
 
 # [widgets.crypto]

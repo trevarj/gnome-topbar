@@ -104,6 +104,7 @@ fn live_config_widget_options_survive() {
     assert_eq!(weather.unit, "celsius");
     assert_eq!(weather.interval, 1800);
     assert_eq!(weather.max_chars, Some(24));
+    assert!(weather.show_description, "new key keeps its default");
     assert_eq!(weather.forecast_days, 5);
 
     let headset = &config.widgets.headset;
