@@ -18,7 +18,7 @@ use tracing::warn;
 
 use crate::bar::BarContext;
 use crate::bridge::{self, BindingGuard};
-use crate::style::classes;
+use crate::style::{classes, icons};
 use crate::surfaces::popovers::{self, PopoverContent, PopoverHandle};
 use crate::surfaces::tooltip::TooltipHandle;
 use crate::widgets::control_panel::ControlPanel;
@@ -51,8 +51,8 @@ pub struct ClockWidget {
     _inner: Rc<ClockInner>,
     /// The control panel's claim on the popover host, when it has one.
     _popover: Option<PopoverHandle>,
-    /// Keeps the Do Not Disturb indicator subscribed.
-    _dnd: BindingGuard,
+    /// Keeps the two notification indicators subscribed.
+    _indicators: BindingGuard,
 }
 
 impl ClockWidget {
@@ -75,15 +75,31 @@ impl ClockWidget {
         dnd.set_visible(false);
         shell.content().append(&dnd);
 
-        let dnd_binding = bridge::bind_state(
-            &dnd,
-            context.services.notifications.state(),
-            |dnd: &Image, state| {
-                if dnd.is_visible() != state.dnd {
-                    dnd.set_visible(state.dnd);
+        // And beside it, GNOME's messages indicator: the panel is behind this
+        // button and nothing else on the bar says there is anything in it, so
+        // without the dot a notification that arrives while the user is looking
+        // elsewhere leaves no trace at all. It trails the bell rather than
+        // splitting the time from it, so switching Do Not Disturb on does not
+        // shift the dot sideways.
+        //
+        // The two are deliberately independent: Do Not Disturb silences the
+        // banner, it does not throw the notification away, and "quiet on
+        // purpose, and three things arrived" is a state worth being able to see.
+        let unseen = Image::from_icon_name(icons::UNSEEN_NOTIFICATIONS);
+        unseen.add_css_class(classes::CLOCK_UNSEEN);
+        unseen.set_visible(false);
+        shell.content().append(&unseen);
+
+        let indicators =
+            bridge::bind_state(shell.content(), context.services.notifications.state(), {
+                let dnd = dnd.clone();
+                let unseen = unseen.clone();
+                let control_panel = config.control_panel;
+                move |_: &gtk4::Box, state| {
+                    set_visible(&dnd, state.dnd);
+                    set_visible(&unseen, shows_unseen(control_panel, state.unseen_count));
                 }
-            },
-        );
+            });
 
         let inner = Rc::new(ClockInner {
             label,
@@ -118,7 +134,7 @@ impl ClockWidget {
             shell,
             _inner: inner,
             _popover: popover,
-            _dnd: dnd_binding,
+            _indicators: indicators,
         }
     }
 
@@ -216,6 +232,23 @@ impl Drop for ClockInner {
     }
 }
 
+/// Whether the unread dot belongs on the bar.
+///
+/// A clock with no control panel is a label: it opens nothing, so it also never
+/// marks anything as seen, and a dot there would light up on the first
+/// notification of the session and stay lit for the rest of it. Free function
+/// so the rule can be read — and tested — without a display.
+fn shows_unseen(control_panel: bool, unseen: usize) -> bool {
+    control_panel && unseen > 0
+}
+
+/// Show or hide an indicator, without a needless property notification.
+fn set_visible(indicator: &Image, visible: bool) {
+    if indicator.is_visible() != visible {
+        indicator.set_visible(visible);
+    }
+}
+
 /// Format `now`, or `None` when the format string is invalid.
 ///
 /// `DelayedFormat::to_string` panics on a bad format; writing through
@@ -290,6 +323,15 @@ mod tests {
         ] {
             assert!(!needs_seconds(format), "{format} does not show seconds");
         }
+    }
+
+    #[test]
+    fn the_unread_dot_needs_something_unread_and_somewhere_to_read_it() {
+        assert!(shows_unseen(true, 1));
+        assert!(shows_unseen(true, 12));
+        assert!(!shows_unseen(true, 0), "nothing new, no dot");
+        // Nothing here opens, so nothing here would ever clear the dot again.
+        assert!(!shows_unseen(false, 3), "no control panel, no dot");
     }
 
     #[test]

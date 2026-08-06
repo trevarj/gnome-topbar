@@ -73,6 +73,8 @@ pub struct Column {
     /// Set while the switch is being driven from a snapshot, so echoing the
     /// service's own state back at it does not look like a user toggle.
     syncing: Rc<Cell<bool>>,
+    /// Whether the column is on screen, which is what makes a render a read.
+    on_screen: Cell<bool>,
     /// Every age label on screen, with the moment it is counting from.
     ///
     /// Retained rather than searched for: the minute tick has to be cheap, and
@@ -162,6 +164,7 @@ impl Column {
             empty,
             dnd,
             syncing: Rc::new(Cell::new(false)),
+            on_screen: Cell::new(false),
             ages: RefCell::new(Vec::new()),
             expanded: Rc::new(RefCell::new(HashSet::new())),
             services: services.clone(),
@@ -217,13 +220,18 @@ impl Column {
         // session is the user's own doing.
         self.expanded.borrow_mut().clear();
 
+        // Opening the panel is what "seen" means, and it goes on meaning it
+        // until the panel closes again; `render` is where the mark is made.
+        self.on_screen.set(true);
+
         let receiver = self.services.notifications.state();
         let state = receiver.borrow().clone();
         self.render(&state);
+    }
 
-        // Opening the panel is what "seen" means.
-        let handle = self.services.notifications.handle().clone();
-        bridge::act(SCOPE, async move { handle.mark_seen().await });
+    /// The panel has left the screen, so a render is no longer a read.
+    pub fn closed(&self) {
+        self.on_screen.set(false);
     }
 
     /// Re-time every row, on the clock's minute tick.
@@ -262,6 +270,11 @@ impl Column {
         // A Clear button over an empty list is a button that does nothing.
         self.header.set_visible(!empty);
         self.empty.set_visible(empty);
+
+        if counts_as_read(self.on_screen.get(), state.unseen_count) {
+            let handle = self.services.notifications.handle().clone();
+            bridge::act(SCOPE, async move { handle.mark_seen().await });
+        }
     }
 
     /// One application's notifications, as a collapsible card.
@@ -475,6 +488,18 @@ impl Column {
     }
 }
 
+/// Whether drawing this state into the column counts as reading it.
+///
+/// Anything drawn into an *open* column has been seen: it is in the list under
+/// the reader's eyes. Without that, a notification arriving while the panel is
+/// open lights the unread dot on the very button the panel is hanging off — and
+/// leaves it lit after the panel is closed on a list that was read as it
+/// arrived. The mark clears `unseen_count`, so the render it causes finds
+/// nothing left to do and the loop ends after one pass.
+fn counts_as_read(on_screen: bool, unseen: usize) -> bool {
+    on_screen && unseen > 0
+}
+
 /// Show a row's close button under the pointer, and nowhere else.
 ///
 /// What GNOME's message list does, and a history of sixty rows is why: sixty
@@ -539,4 +564,20 @@ fn turn(chevron: &RotateBox, rotation: &Animation, expanded: bool) {
         Box::new(move |progress| chevron.set_angle(start + (target - start) * progress as f32)),
         None,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_column_on_screen_reads_what_it_draws() {
+        // The panel is open and something has just landed in the list.
+        assert!(counts_as_read(true, 1));
+        // Nothing new: no call, and so no render loop.
+        assert!(!counts_as_read(true, 0));
+        // The panel is shut. The whole point of the count is that this is the
+        // case that leaves the dot on the bar lit.
+        assert!(!counts_as_read(false, 3));
+    }
 }

@@ -60,6 +60,8 @@ pub const STATE_URGENT: &str = "state-urgent";
 pub const CLOCK: &str = "clock";
 /// The bell-with-slash beside the time while Do Not Disturb is on.
 pub const CLOCK_DND: &str = "clock-dnd";
+/// The dot beside the time while the panel holds something unread.
+pub const CLOCK_UNSEEN: &str = "clock-unseen";
 
 /// The workspaces widget.
 pub const WORKSPACES: &str = "workspaces";
@@ -621,6 +623,7 @@ pub const ALL: &[&str] = &[
     STATE_URGENT,
     CLOCK,
     CLOCK_DND,
+    CLOCK_UNSEEN,
     WORKSPACES,
     WORKSPACE_STRIP,
     WEATHER,

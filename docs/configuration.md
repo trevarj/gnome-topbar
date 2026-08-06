@@ -239,6 +239,12 @@ is also what asks for the weather and media services — the panel's forecast
 card and media controls are the only things that use them when no `weather`
 widget is placed.
 
+It is also what puts the two indicators beside the time: a bell-with-slash
+while Do Not Disturb is on, and an accent-coloured dot while the history holds
+something that arrived since the panel was last opened. The dot clears on the
+next open, which is what "seen" means; a clock with `control_panel = false`
+opens nothing, so it never draws the dot at all.
+
 ## `[widgets.weather]`
 
 | Key | Type | Default | Meaning |

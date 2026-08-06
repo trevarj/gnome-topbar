@@ -147,6 +147,13 @@ pub fn wifi_signal(bucket: u8) -> &'static str {
 /// There is something to install.
 pub const UPDATES: &str = "software-update-available-symbolic";
 
+/// Something has arrived that has not been looked at yet.
+///
+/// A filled circle rather than a bell, which is what GNOME Shell's own date
+/// menu draws for this and the only Adwaita name that is simply a dot. A second
+/// bell beside the Do Not Disturb one would read as a second setting.
+pub const UNSEEN_NOTIFICATIONS: &str = "media-record-symbolic";
+
 /// A processor working hard, preferring the gauge GNOME extensions ship.
 ///
 /// Adwaita has never carried a CPU icon. `speedometer-symbolic` comes with
@@ -276,6 +283,7 @@ mod tests {
             EXPAND,
             SELECTED,
             UPDATES,
+            UNSEEN_NOTIFICATIONS,
         ];
         for name in names
             .iter()

@@ -16,7 +16,8 @@
 # ones and the resampling averages away precisely the fringing, the half-pixel
 # baselines and the icon misalignment a refinement pass exists to find.
 #
-#   1  history   the column: empty, grouped, expanded, closed, cleared, DND
+#   1  history   the column: empty, grouped, expanded, closed, cleared, DND,
+#                and the unread dot the bar wears until the column is opened
 #   2  banners   arrival, hover-pause, an action pill, close, the stack,
 #                critical
 #   3  edges     long names, huge bodies, markup, sixty entries, a replacement

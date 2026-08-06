@@ -165,6 +165,8 @@ impl PopoverContent for ControlPanel {
         // Nothing is looking at the playback position any more, so nothing
         // should be asking a player for it.
         self.media.closed();
+        // And nothing arriving from here on has been read.
+        self.notifications.closed();
     }
 }
 

@@ -27,6 +27,12 @@ use crate::surfaces::{layer_popover, popovers};
 /// hovers to stall the timer, a history row it hovers to reveal the close
 /// button, the empty state it measures the centring of. The power rows are here
 /// because they are overlays with a gesture on them rather than buttons.
+///
+/// The unread dot is here for a different reason again: it is not a control at
+/// all, but it is the one thing on the bar that answers "is there anything in
+/// the panel", and it is only answerable *before* the panel is opened, because
+/// opening it is what clears the dot. [`tree`] skips invisible widgets, so a
+/// line for it in a dump is the assertion.
 const LOCATABLE: &[&str] = &[
     classes::WIDGET,
     classes::QS_POWER_ROW,
@@ -34,6 +40,7 @@ const LOCATABLE: &[&str] = &[
     classes::NOTIFICATION_ROW,
     classes::NOTIFICATION_GROUP,
     classes::EMPTY_STATE,
+    classes::CLOCK_UNSEEN,
 ];
 
 /// Register `topbar popover show surface-dump`.

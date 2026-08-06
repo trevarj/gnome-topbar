@@ -223,9 +223,34 @@ case "$scenario" in
     echo "--- five notifications from three applications"
     populate
     sleep 6
+
+    # The banners expire and the panel is shut: without the dot beside the time
+    # there is nothing left on screen saying five things arrived, and the whole
+    # history is invisible until somebody happens to click the clock. This is
+    # the only step that can ask, because opening the panel is what clears it.
+    echo "--- and a dot on the bar saying so"
+    check dump
+    dots=$(count_of clock-unseen)
+    echo "smoke-notifications: unseen dots beside the time: $dots"
+    [ "$dots" -eq 1 ] || {
+      echo "smoke-notifications: five notifications and no dot beside the time" >&2
+      fail=1
+    }
+    pointer_park
+    check shot 01b-unseen
+
     open_panel
     pointer_park
     check shot 02-history topbar-popover
+
+    echo "--- which opening the panel takes away again"
+    check dump
+    dots=$(count_of clock-unseen)
+    echo "smoke-notifications: unseen dots after the open: $dots"
+    [ "$dots" -eq 0 ] || {
+      echo "smoke-notifications: the dot outlived the panel being opened" >&2
+      fail=1
+    }
 
     # One Tab into a panel that has just taken the keyboard. Whatever it lands
     # on has to say so: the column clears Adwaita's focus ring along with its

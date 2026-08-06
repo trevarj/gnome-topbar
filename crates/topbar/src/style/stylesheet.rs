@@ -403,6 +403,15 @@ sectioned-bar.bar {
     color: var(--color-foreground-muted);
 }
 
+/* The unread dot: the one thing on the bar drawn in the accent colour on its
+   own account, because it is the one thing on the bar asking to be clicked.
+   Smaller than the Do Not Disturb bell beside it — a mark, not an icon — and
+   it goes the moment the panel is opened. */
+.clock-unseen {
+    -gtk-icon-size: 10px;
+    color: var(--color-accent);
+}
+
 /* ===== Workspaces ===== */
 
 /* The strip paints its own indicators in snapshot(); the only thing it takes
