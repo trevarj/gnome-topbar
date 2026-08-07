@@ -215,6 +215,11 @@ them:
 monitor it was built on, so the same configuration draws different dots on
 different screens.
 
+`show_unoccupied` governs niri's *dynamic* workspaces. A workspace named in the
+compositor's configuration — `workspace "chat"` — always exists whether or not
+anything is open on it, so it always gets a dot, as do the active workspace and
+any workspace asking for attention.
+
 ## `[widgets.clock]`
 
 | Key | Type | Default | Meaning |

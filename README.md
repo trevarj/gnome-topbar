@@ -172,7 +172,7 @@ accept the keys but act only on the buttons they have free.
 | `label_type` | `"none"` | `"none"` (dots), `"index"`, or `"name"`. |
 | `animate` | unset | Animate dot/pill transitions. Unset follows `theme.animations`. |
 | `filter_by_output` | `true` | Show only this monitor's workspaces. |
-| `show_unoccupied` | `false` | Show workspaces that hold no windows. |
+| `show_unoccupied` | `false` | Show empty dynamic workspaces. Named ones always show. |
 
 ### `[widgets.clock]`
 

@@ -46,7 +46,7 @@ background_opacity = 0.0 # Panel buttons are transparent until hovered
 [widgets.workspaces]
 label_type = "none"     # "none" (dots), "index", or "name"
 filter_by_output = true # Show only this monitor's workspaces
-show_unoccupied = false # Hide workspaces with no windows
+show_unoccupied = false # Hide empty workspaces; named ones always show
 # animate = true        # Defaults to theme.animations
 
 [widgets.clock]

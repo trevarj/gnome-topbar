@@ -91,6 +91,12 @@ pub struct SlotOptions<'a> {
 /// An empty workspace is hidden unless it is the active one — hiding the
 /// workspace you are looking at would be absurd — or it is asking for
 /// attention, which is the whole point of urgency.
+///
+/// A *named* workspace is never hidden. niri's named workspaces are declared in
+/// the compositor's configuration and exist whether or not anything is open on
+/// them, so they are part of the layout the user arranged rather than something
+/// that comes and goes with its windows: a "chat" dot that vanishes the moment
+/// the chat window closes is a row that renumbers itself under the pointer.
 pub fn visible_slots(snapshot: &WorkspacesSnapshot, options: SlotOptions) -> Vec<Slot> {
     let views: Vec<&WorkspaceView> = if options.filter_by_output {
         snapshot.for_output(options.connector).iter().collect()
@@ -108,7 +114,11 @@ pub fn visible_slots(snapshot: &WorkspacesSnapshot, options: SlotOptions) -> Vec
             } else {
                 view.is_focused
             };
-            let keep = options.show_unoccupied || view.has_windows || is_active || view.is_urgent;
+            let keep = options.show_unoccupied
+                || view.name.is_some()
+                || view.has_windows
+                || is_active
+                || view.is_urgent;
             keep.then(|| Slot {
                 id: view.id,
                 label: options.label_type.label(view),
@@ -333,6 +343,19 @@ mod tests {
         let slots = visible_slots(&snapshot(&[("eDP-1", views)]), options("eDP-1"));
         assert_eq!(slots.len(), 2);
         assert!(slots[1].is_urgent);
+    }
+
+    #[test]
+    fn a_named_workspace_is_shown_while_it_is_empty() {
+        let mut views = vec![view(1, 1, true), view(2, 2, false), view(3, 3, false)];
+        views[1].name = Some("chat".into());
+
+        let slots = visible_slots(&snapshot(&[("eDP-1", views)]), options("eDP-1"));
+        assert_eq!(
+            slots.iter().map(|slot| slot.id).collect::<Vec<_>>(),
+            vec![1, 2],
+            "the empty named workspace stays; the empty nameless one goes"
+        );
     }
 
     #[test]
