@@ -170,6 +170,15 @@ mod tests {
         assert!(permits("maybe"));
     }
 
+    /// Debug builds only, and the guard it checks is the reason why: with
+    /// `debug_assertions` off there is nothing to stop `act` from connecting,
+    /// so a release test binary would ask the developer's own logind to shut
+    /// the machine down and polkit would be the only thing in the way. `nix
+    /// flake check` compiles the tests in release, which is where that showed
+    /// up — as this test failing in the sandbox for the wrong reason, on the
+    /// words of an error that only happens because there is no bus there to
+    /// reach.
+    #[cfg(debug_assertions)]
     #[tokio::test]
     async fn a_development_build_never_reaches_the_real_logind() {
         // No address means the *system* bus, and there is no way to put a
