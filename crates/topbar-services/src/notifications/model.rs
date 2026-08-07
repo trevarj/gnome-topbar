@@ -185,6 +185,21 @@ impl NotificationView {
     pub fn buttons(&self) -> impl Iterator<Item = &Action> {
         self.actions.iter().filter(|action| !action.is_default())
     }
+
+    /// The names the compositor might know the sending application by.
+    ///
+    /// The `desktop-entry` hint first: it is the application id, which is what
+    /// a Wayland window reports as its own. The display name is the fallback,
+    /// because plenty of senders give nothing else — and for a good few of them
+    /// ("Slack", "Telegram") it *is* the window's app id.
+    pub fn app_identities(&self) -> Vec<&str> {
+        [self.icon.desktop_entry.as_deref(), Some(&self.app_name)]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|identity| !identity.is_empty())
+            .collect()
+    }
 }
 
 /// A notification currently shown as a toast.
@@ -388,6 +403,23 @@ mod tests {
         );
         assert!(Urgency::Critical.is_critical());
         assert!(!Urgency::Normal.is_critical());
+    }
+
+    #[test]
+    fn the_desktop_entry_leads_the_names_the_sender_is_known_by() {
+        assert_eq!(
+            view().app_identities(),
+            vec!["org.telegram.desktop", "Telegram"]
+        );
+
+        let mut nameless = view();
+        nameless.icon.desktop_entry = None;
+        assert_eq!(nameless.app_identities(), vec!["Telegram"]);
+
+        let mut blank = view();
+        blank.icon.desktop_entry = Some("   ".into());
+        blank.app_name = String::new();
+        assert!(blank.app_identities().is_empty());
     }
 
     #[test]

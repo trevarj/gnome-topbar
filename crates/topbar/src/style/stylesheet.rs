@@ -1420,6 +1420,13 @@ button.notification-group-header.notification-group-single:hover {
    lands exactly under the group's clear button. */
 .notification-row {
     padding: 6px 0 6px 8px;
+    border-radius: var(--radius-card);
+}
+
+/* A row is a way back to the application that sent it, so it answers the
+   pointer the same way the group header above it does. */
+.notification-row:hover {
+    background-color: var(--color-widget-hover);
 }
 
 .notification-summary {

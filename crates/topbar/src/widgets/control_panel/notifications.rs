@@ -24,8 +24,8 @@ use std::rc::Rc;
 use chrono::{DateTime, Local};
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Button, EventControllerMotion, Image, Label, Orientation, PolicyType, ScrolledWindow,
-    Switch, pango,
+    Align, Button, EventControllerMotion, GestureClick, Image, Label, Orientation, PolicyType,
+    ScrolledWindow, Switch, gdk, pango,
 };
 use topbar_services::{CloseReason, GroupView, NotifState, NotificationView, Services};
 
@@ -33,7 +33,9 @@ use crate::anim::{Animation, AnimationParams, Easing, RotateBox, ripple};
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::{classes, icons};
 use crate::widgets::expander::{REVEAL_MS, Section};
-use crate::widgets::notifications::{ROW_ICON, absolute_time, icon, markup, relative_time};
+use crate::widgets::notifications::{
+    self as notifications, ROW_ICON, absolute_time, icon, markup, relative_time,
+};
 
 /// Adwaita's bell. There is no plain `notifications-symbolic` in Adwaita 50,
 /// and `notifications-disabled-symbolic` would read as "DND is on" rather than
@@ -483,6 +485,32 @@ impl Column {
         });
         row.append(&close);
         reveal_on_hover(&row, &close);
+
+        // Clicking the row is the way back to whatever sent it: the sender's
+        // default action if it offered one, its window either way, and the
+        // notification off the list — a message the user has followed is a
+        // message they have read. The panel goes with it, because it is now
+        // standing in front of the window it just raised.
+        let activate = GestureClick::new();
+        activate.set_button(gdk::BUTTON_PRIMARY);
+        activate.connect_released({
+            let services = self.services.clone();
+            let notification = notification.clone();
+            move |gesture, _, _, _| {
+                let surface = gesture
+                    .widget()
+                    .and_then(|widget| widget.root().and_then(|root| root.surface()));
+                if !notifications::activate(&services, &notification, surface, SCOPE) {
+                    let handle = services.notifications.handle().clone();
+                    let id = notification.id;
+                    bridge::act(SCOPE, async move {
+                        handle.dismiss(id, CloseReason::Dismissed).await
+                    });
+                }
+                crate::surfaces::popovers::close_all();
+            }
+        });
+        row.add_controller(activate);
 
         row
     }

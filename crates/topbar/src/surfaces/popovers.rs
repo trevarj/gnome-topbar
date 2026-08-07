@@ -248,15 +248,22 @@ pub fn dispatch(action: &PopoverAction, connector: Option<&str>) -> bool {
         PopoverAction::Show(widget) => with_entry(widget, connector, Entry::open),
         PopoverAction::Toggle(widget) => with_entry(widget, connector, Entry::toggle),
         PopoverAction::Hide(Some(widget)) => with_entry(widget, connector, Entry::close),
-        PopoverAction::Hide(None) => {
-            let mut closed = false;
-            for entry in live_entries() {
-                entry.close();
-                closed = true;
-            }
-            closed
-        }
+        PopoverAction::Hide(None) => close_all(),
     }
+}
+
+/// Close whatever popover is on screen, returning whether there was one.
+///
+/// Used by anything that sends the user somewhere else: activating a
+/// notification in the control panel raises another application's window, and a
+/// panel left open over it is standing in front of what was just asked for.
+pub fn close_all() -> bool {
+    let mut closed = false;
+    for entry in live_entries() {
+        entry.close();
+        closed = true;
+    }
+    closed
 }
 
 /// Run `action` on the named widget's popover.

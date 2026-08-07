@@ -10,11 +10,68 @@ pub mod icon;
 pub mod markup;
 
 use chrono::{DateTime, Local, TimeZone};
+use gtk4::gdk;
+use topbar_services::{NotificationView, Services};
+
+use crate::bridge::{self, ActionScope};
+use crate::wayland::activation;
 
 /// Pixel size of the icon on a toast.
 pub const TOAST_ICON: i32 = 32;
 /// Pixel size of the icon on a history group row.
 pub const ROW_ICON: i32 = 24;
+
+/// What a click on a notification does, wherever it is drawn.
+///
+/// A notification is a way back to whatever raised it, so a click takes the
+/// user there. The sender's default action gets first refusal — only it knows
+/// which conversation or which tab the click meant — and the application's
+/// window is raised either way, because a sender that offered no action still
+/// has the window the user just asked for. The activation token is what lets
+/// the application raise *itself*; `focus_app` is the fallback for the many
+/// senders that ignore it, and for the ones that offer no action at all.
+///
+/// Returns whether a default action was invoked. Invoking one closes the
+/// notification behind it, so the caller only has to take it off screen itself
+/// when this says `false`.
+pub fn activate(
+    services: &Services,
+    notification: &NotificationView,
+    surface: Option<gdk::Surface>,
+    scope: ActionScope,
+) -> bool {
+    let identities: Vec<String> = notification
+        .app_identities()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let niri = services.niri.handle().clone();
+
+    // The token has to be asked for here: it needs the surface the click landed
+    // on, and surfaces belong to the main thread.
+    let action = notification.default_action().map(|action| {
+        (
+            notification.id,
+            action.key.clone(),
+            activation::token(None, surface.as_ref()),
+        )
+    });
+    let invoked = action.is_some();
+    let notifications = services.notifications.handle().clone();
+
+    bridge::act(scope, async move {
+        if let Some((id, key, token)) = action {
+            notifications.invoke_action(id, key, token).await?;
+        }
+        // After the action, not before: an application asked to open a
+        // conversation should pick which window that is before we raise one.
+        let identities: Vec<&str> = identities.iter().map(String::as_str).collect();
+        niri.focus_app(&identities).await?;
+        Ok(())
+    });
+
+    invoked
+}
 
 /// How old a notification reads as, in words.
 ///

@@ -15,7 +15,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use niri_ipc::{Action, LayoutSwitchTarget, Reply, Request, Response, WorkspaceReferenceArg};
+use niri_ipc::{
+    Action, LayoutSwitchTarget, Reply, Request, Response, Window, WorkspaceReferenceArg,
+};
 use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
@@ -66,6 +68,35 @@ impl NiriHandle {
             reference: WorkspaceReferenceArg::Id(id),
         })
         .await
+    }
+
+    /// Raise the window belonging to one of `identities`, if there is one.
+    ///
+    /// This is what makes clicking a notification focus the application that
+    /// sent it. A notification names its sender more than one way — the
+    /// `desktop-entry` hint, the display name — and either may be what the
+    /// window calls itself, so every candidate is offered and the first that
+    /// matches wins.
+    ///
+    /// Returns whether a window matched: an application can perfectly well
+    /// notify with no window open, and that is not a failure to report.
+    pub async fn focus_app(&self, identities: &[&str]) -> Result<bool, SvcError> {
+        let windows = match self.request(Request::Windows).await? {
+            Response::Windows(windows) => windows,
+            other => {
+                return Err(SvcError::Protocol(format!(
+                    "expected Windows, got {other:?}"
+                )));
+            }
+        };
+
+        let Some(id) = pick_window(&windows, identities) else {
+            debug!("no window matches {identities:?}; nothing to raise");
+            return Ok(false);
+        };
+
+        self.act(Action::FocusWindow { id }).await?;
+        Ok(true)
     }
 
     /// Switch to the next configured keyboard layout.
@@ -148,6 +179,42 @@ impl NiriHandle {
     }
 }
 
+/// The window to raise for an application named by `identities`.
+///
+/// Candidates are tried in order, so the `desktop-entry` hint beats the display
+/// name rather than merely tying with it. Within one candidate the window
+/// asking for attention wins — it is the one that sent the notification — and
+/// otherwise the most recently focused one does, which is where the user last
+/// left that application.
+fn pick_window(windows: &[Window], identities: &[&str]) -> Option<u64> {
+    identities.iter().find_map(|identity| {
+        windows
+            .iter()
+            .filter(|window| {
+                window
+                    .app_id
+                    .as_deref()
+                    .is_some_and(|app_id| same_app(app_id, identity))
+            })
+            // Through `Duration`: niri's own `Timestamp` is not orderable.
+            .max_by_key(|window| (window.is_urgent, window.focus_timestamp.map(Duration::from)))
+            .map(|window| window.id)
+    })
+}
+
+/// Whether a window's app id and a notification's idea of its sender are the
+/// same application.
+///
+/// Case-insensitive, and a leading `@` — which some senders put on the display
+/// name — is not part of the name.
+fn same_app(app_id: &str, identity: &str) -> bool {
+    fn normalise(value: &str) -> String {
+        value.trim().trim_start_matches('@').to_lowercase()
+    }
+
+    normalise(app_id) == normalise(identity)
+}
+
 /// Write one request and read exactly one reply line.
 async fn round_trip(connection: &mut Connection, payload: &str) -> Result<Reply, SvcError> {
     connection
@@ -199,6 +266,79 @@ mod tests {
         let error = reply.map_err(SvcError::Rejected).unwrap_err();
         assert!(error.to_string().contains("no workspace with id 999"));
         assert_eq!(error.user_message(), "The compositor refused the request");
+    }
+
+    fn window(id: u64, app_id: &str) -> Window {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "title": "a window",
+            "app_id": app_id,
+            "pid": null,
+            "workspace_id": 1,
+            "is_focused": false,
+            "is_floating": false,
+            "is_urgent": false,
+            "layout": {
+                "pos_in_scrolling_layout": [1, 1],
+                "tile_size": [100.0, 100.0],
+                "window_size": [100, 100],
+                "tile_pos_in_workspace_view": null,
+                "window_offset_in_tile": [0.0, 0.0],
+            },
+            "focus_timestamp": null,
+        }))
+        .expect("a window niri could have sent")
+    }
+
+    fn focused_at(mut window: Window, secs: u64) -> Window {
+        window.focus_timestamp = Some(Duration::from_secs(secs).into());
+        window
+    }
+
+    #[test]
+    fn the_desktop_entry_is_preferred_over_the_display_name() {
+        let windows = [
+            window(1, "Telegram Desktop"),
+            window(2, "org.telegram.desktop"),
+        ];
+
+        assert_eq!(
+            pick_window(&windows, &["org.telegram.desktop", "Telegram Desktop"]),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn an_app_id_matches_however_the_sender_capitalised_it() {
+        let windows = [window(1, "org.telegram.desktop")];
+
+        assert_eq!(pick_window(&windows, &["@Org.Telegram.Desktop"]), Some(1));
+        assert_eq!(pick_window(&windows, &["Telegram"]), None);
+    }
+
+    #[test]
+    fn the_urgent_window_wins_over_the_recent_one() {
+        let mut urgent = focused_at(window(1, "chat"), 10);
+        urgent.is_urgent = true;
+        let windows = [focused_at(window(2, "chat"), 500), urgent];
+
+        assert_eq!(pick_window(&windows, &["chat"]), Some(1));
+    }
+
+    #[test]
+    fn otherwise_the_most_recently_focused_window_is_raised() {
+        let windows = [
+            focused_at(window(1, "chat"), 10),
+            focused_at(window(2, "chat"), 500),
+        ];
+
+        assert_eq!(pick_window(&windows, &["chat"]), Some(2));
+    }
+
+    #[test]
+    fn a_sender_with_nothing_open_matches_no_window() {
+        assert_eq!(pick_window(&[window(1, "chat")], &["mail"]), None);
+        assert_eq!(pick_window(&[], &["chat"]), None);
     }
 
     #[tokio::test]

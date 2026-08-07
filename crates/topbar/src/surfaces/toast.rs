@@ -26,6 +26,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk4::prelude::*;
 use gtk4::{Align, Button, Label, Orientation, Window, gdk, pango};
@@ -40,7 +41,7 @@ use crate::style::{self, classes};
 use crate::surfaces::layer_popover;
 use crate::wayland::activation;
 use crate::wayland::blur::{self, BlurAttachment};
-use crate::widgets::notifications::{TOAST_ICON, icon, markup};
+use crate::widgets::notifications::{self as notifications, TOAST_ICON, icon, markup};
 
 /// Width of a banner, in pixels.
 const WIDTH: i32 = 380;
@@ -534,9 +535,11 @@ impl Card {
             }
         });
 
-        // A click anywhere else on the banner runs the default action when the
-        // sender offered one, and otherwise means "I have read it": the
-        // notification stays in the history, the banner does not.
+        // A click anywhere else on the banner takes the user to the application
+        // that sent it: its default action when there is one, its window either
+        // way. With no action to close the notification, the click also means
+        // "I have read it" — the notification stays in the history, the banner
+        // does not.
         let click = gtk4::GestureClick::new();
         click.set_button(gdk::BUTTON_PRIMARY);
         click.connect_released({
@@ -544,25 +547,23 @@ impl Card {
             let this = self.clone();
             move |gesture, _, _, _| {
                 let receiver = services.notifications.state();
-                let default = receiver
+                let notification = receiver
                     .borrow()
                     .toasts
                     .iter()
                     .find(|toast| toast.notification.id == this.id)
-                    .and_then(|toast| toast.notification.default_action().cloned());
+                    .map(|toast| Arc::clone(&toast.notification));
+                let Some(notification) = notification else {
+                    return;
+                };
 
-                match default {
-                    Some(action) => {
-                        let surface = gesture
-                            .widget()
-                            .and_then(|widget| widget.root().and_then(|root| root.surface()));
-                        invoke(this.id, &action.key, surface);
-                    }
-                    None => {
-                        let handle = services.notifications.handle().clone();
-                        let id = this.id;
-                        bridge::act(SCOPE, async move { handle.dismiss_toast(id).await });
-                    }
+                let surface = gesture
+                    .widget()
+                    .and_then(|widget| widget.root().and_then(|root| root.surface()));
+                if !notifications::activate(&services, &notification, surface, SCOPE) {
+                    let handle = services.notifications.handle().clone();
+                    let id = this.id;
+                    bridge::act(SCOPE, async move { handle.dismiss_toast(id).await });
                 }
             }
         });
