@@ -230,6 +230,15 @@ impl NetworkHandle {
         .await
     }
 
+    /// Read the whole of NetworkManager again.
+    ///
+    /// [`crate::lifecycle`] calls this on resume: a panel that slept through
+    /// the radio going down and coming back up has a picture of the network
+    /// from before the lid closed, and no signal is coming to correct it.
+    pub async fn refresh_now(&self) -> Result<(), SvcError> {
+        self.send(|reply| task::Command::Refresh { reply }).await
+    }
+
     /// Send one command and wait for its answer.
     async fn send(
         &self,

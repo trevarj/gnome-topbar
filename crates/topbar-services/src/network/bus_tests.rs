@@ -433,6 +433,108 @@ async fn an_access_point_coming_and_going_moves_the_list() {
     .await;
 }
 
+/// How many access points the storm test puts in range.
+const STORM_APS: usize = 24;
+/// How many property changes it fires at the panel without pausing.
+///
+/// Comfortably more than the sum of the two queues a signal crosses on its way
+/// into the service — the zbus match-rule channel and the service's own — so a
+/// service that lets either of them apply backpressure to the bus reader is
+/// wedged by the time this is over.
+const STORM_SIGNALS: usize = 400;
+
+#[tokio::test]
+async fn a_storm_of_signals_leaves_the_service_answering() {
+    let bus = private_bus!();
+    let nm = Nm::new();
+    for index in 0..STORM_APS {
+        nm.seed_ap(&index.to_string(), Ap::open(&format!("Net-{index}"), 40));
+    }
+    let _served = fake::serve(bus.address(), &nm)
+        .await
+        .expect("the fake starts");
+
+    let network = panel(&bus);
+    settle(&network, "the first list", |state| {
+        state.wifi.list.len() == STORM_APS
+    })
+    .await;
+
+    // What coming back from sleep looks like from the bus: every access point
+    // the card can hear says something at once, faster than any client can
+    // answer a property read. NetworkManager does not wait for the panel to
+    // catch up, and neither does this.
+    let control = bus.connect().await;
+    for signal in 0..STORM_SIGNALS {
+        let ap = (signal % STORM_APS).to_string();
+        let strength = u8::try_from(signal % 90).expect("under 90");
+        control
+            .call_method(
+                Some(fake::NM_NAME),
+                fake::CONTROL_PATH,
+                Some(CONTROL),
+                "SetStrength",
+                &(ap.as_str(), strength),
+            )
+            .await
+            .expect("the control call goes through");
+    }
+
+    // The panel has to still be there afterwards: following the network, and
+    // answering the menu. Before the queues were unbounded this deadlocked —
+    // the bus reader waited on the service, the service waited on a property
+    // reply, and the reply could only come from the bus reader.
+    drive(&bus, "AddAp", &("beacon", "Beacon", 99_u8, false)).await;
+    let state = settle(&network, "the panel to catch up", |state| {
+        state
+            .wifi
+            .list
+            .first()
+            .is_some_and(|ap| ap.ssid == "Beacon")
+    })
+    .await;
+    assert_eq!(state.wifi.list.len(), STORM_APS + 1);
+
+    tokio::time::timeout(PATIENCE, network.handle().scan())
+        .await
+        .expect("the service still answers commands")
+        .expect("scanning is allowed on our own bus");
+}
+
+#[tokio::test]
+async fn a_resume_refresh_reads_what_the_panel_slept_through() {
+    let bus = private_bus!();
+    let nm = Nm::new();
+    nm.set_has_wifi(false);
+    let _served = fake::serve(bus.address(), &nm)
+        .await
+        .expect("the fake starts");
+
+    let network = panel(&bus);
+    settle(&network, "the first read", |state| state.available).await;
+    assert!(!network.current().wired.connected);
+
+    // A change with no signal behind it, which is what every change made while
+    // the machine was asleep amounts to: the socket had nobody reading it.
+    nm.set_carrier(true, 1000);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !network.current().wired.connected,
+        "nothing told the panel, so nothing moved"
+    );
+
+    network
+        .handle()
+        .refresh_now()
+        .await
+        .expect("the service is up");
+    let state = settle(&network, "the cable to appear", |state| {
+        state.wired.connected
+    })
+    .await;
+    assert_eq!(state.wired.speed_mbps, 1000);
+}
+
 #[tokio::test]
 async fn a_cable_going_in_shows_up_as_a_wired_connection() {
     let bus = private_bus!();

@@ -13,6 +13,27 @@
 //! stream per access point — fifty subscriptions in a coffee shop, each set up
 //! and torn down as the radio comes and goes. One rule and one decoder is the
 //! same information at a fixed cost.
+//!
+//! ## Why the event queue is unbounded
+//!
+//! Because a bounded one deadlocks the whole service, and did.
+//!
+//! zbus reads the connection's socket in a task of its own and *awaits*
+//! handing each message to the streams that match it. A stream whose queue is
+//! full stops that task — and with it every method reply on the connection,
+//! because a reply is just another message that has to be read off the same
+//! socket. So a queue between the signal stream and this task closes a circle:
+//! the reader waits for the forwarder, the forwarder waits for this task, and
+//! this task waits for a property reply that only the reader can deliver.
+//! Nothing times out, and the panel shows the network as it was at the moment
+//! it stopped until it is restarted.
+//!
+//! Coming back from sleep is what fills the queue. NetworkManager takes the
+//! devices down, drops every access point, brings it all back, and the burst
+//! arrives faster than any client can answer a property read. So the forwarder
+//! never blocks, and this task collapses the backlog instead — see
+//! [`coalesce`], which turns a few hundred queued signals into the handful of
+//! re-reads they amount to.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -56,8 +77,8 @@ const SCAN_INTERVAL: Duration = Duration::from_secs(10);
 /// as well, because one that never stops is a panel that looks stuck.
 const SCAN_SETTLE: Duration = Duration::from_secs(6);
 
-/// How many events may be queued before a forwarder waits.
-const EVENTS: usize = 64;
+/// How many secret-agent messages may be queued before the agent waits.
+const AGENT_QUEUE: usize = 64;
 
 /// The object namespace every NetworkManager signal is emitted under.
 const NM_NAMESPACE: &str = "/org/freedesktop/NetworkManager";
@@ -112,6 +133,11 @@ pub(crate) enum Command {
         /// Up or down.
         active: bool,
         /// Answered when NetworkManager has finished.
+        reply: oneshot::Sender<Result<(), SvcError>>,
+    },
+    /// Read everything again, whatever the signals said.
+    Refresh {
+        /// Where to answer.
         reply: oneshot::Sender<Result<(), SvcError>>,
     },
 }
@@ -201,8 +227,8 @@ struct World {
     access: Access,
     publisher: watch::Sender<Arc<NetworkState>>,
     store: Option<StateStore>,
-    /// Where the signal forwarders — and the scan timer — put their events.
-    events: mpsc::Sender<Event>,
+    /// Where the signal forwarder — and the scan timer — put their events.
+    events: mpsc::UnboundedSender<Event>,
 
     /// Whether NetworkManager answered at all.
     available: bool,
@@ -306,8 +332,8 @@ pub(crate) async fn run(
         }
     };
 
-    let (events, mut queue) = mpsc::channel(EVENTS);
-    let (agent_out, mut agent_in) = mpsc::channel(EVENTS);
+    let (events, mut queue) = mpsc::unbounded_channel();
+    let (agent_out, mut agent_in) = mpsc::channel(AGENT_QUEUE);
 
     // Subscribed before the first read, so a change that lands between the two
     // is queued rather than lost.
@@ -357,7 +383,12 @@ pub(crate) async fn run(
                 let Some(command) = command else { break };
                 world.command(command).await;
             }
-            Some(event) = queue.recv() => world.event(event).await,
+            Some(event) = queue.recv() => {
+                for event in coalesce(event, &mut queue) {
+                    world.event(event).await;
+                }
+                world.publish();
+            }
             Some(message) = agent_in.recv() => world.agent(message).await,
             () = wait_until(deadline) => {
                 info!("network: nobody answered the password prompt");
@@ -411,12 +442,81 @@ fn reply_of(command: Command) -> oneshot::Sender<Result<(), SvcError>> {
         | Command::Scan { reply }
         | Command::SubmitSecret { reply, .. }
         | Command::CancelPrompt { reply }
-        | Command::SetVpn { reply, .. } => reply,
+        | Command::SetVpn { reply, .. }
+        | Command::Refresh { reply } => reply,
     }
 }
 
+/// Everything queued right now, with the re-reads collapsed into one each.
+///
+/// All but one kind of event here is an instruction to *go and look again*, and
+/// looking again is idempotent: a hundred queued `AccessPoint` changes and one
+/// are the same list at the end of it, for a hundredth of the round trips. That
+/// is what makes the unbounded queue safe — the backlog is bounded work even
+/// when it is unbounded messages, and a resume storm costs one full read rather
+/// than one read per signal.
+///
+/// The exception is an active connection changing state, and every one of those
+/// is kept. They drive the connect state machine, where the difference between
+/// `NEED_AUTH` and a deactivation with reason 9 is the difference between
+/// asking for the password again and giving up.
+///
+/// **Arrival order is kept**, which is not a nicety. A VPN going down arrives
+/// as the connection saying `DEACTIVATED` and then the manager's list dropping
+/// it; read the list first and the object is gone before the state change is
+/// looked at, so the switch the user is watching never finishes. Nothing here
+/// moves an event past another one — a repeat is dropped, and the first of its
+/// kind keeps its place.
+fn coalesce(first: Event, queue: &mut mpsc::UnboundedReceiver<Event>) -> Vec<Event> {
+    let mut queued = vec![first];
+    while let Ok(event) = queue.try_recv() {
+        queued.push(event);
+    }
+
+    // A full device read finds the card and the port again *and* reads every
+    // access point with them; a list read covers every access point in it. One
+    // anywhere in the batch is the whole of what the finer events would say.
+    let all_devices = queued.iter().any(|event| matches!(event, Event::Devices));
+    let all_aps = all_devices
+        || queued
+            .iter()
+            .any(|event| matches!(event, Event::AccessPoints));
+
+    let mut seen: HashSet<&'static str> = HashSet::new();
+    let mut device_paths: Vec<OwnedObjectPath> = Vec::new();
+    let mut ap_paths: Vec<OwnedObjectPath> = Vec::new();
+    let mut batch = Vec::new();
+
+    for event in queued {
+        let keep = match &event {
+            Event::Manager => seen.insert("manager"),
+            Event::Devices => seen.insert("devices"),
+            Event::Profiles => seen.insert("profiles"),
+            Event::Actives => seen.insert("actives"),
+            Event::ScanSettled => seen.insert("settled"),
+            Event::AccessPoints => !all_devices && seen.insert("access-points"),
+            Event::Device(path) => !all_devices && once(&mut device_paths, path),
+            Event::AccessPoint(path) => !all_aps && once(&mut ap_paths, path),
+            Event::Active { .. } => true,
+        };
+        if keep {
+            batch.push(event);
+        }
+    }
+    batch
+}
+
+/// Whether this object path is being seen for the first time.
+fn once(paths: &mut Vec<OwnedObjectPath>, path: &OwnedObjectPath) -> bool {
+    if paths.contains(path) {
+        return false;
+    }
+    paths.push(path.clone());
+    true
+}
+
 /// Follow every signal NetworkManager emits, through one match rule.
-fn spawn_signals(connection: &zbus::Connection, events: mpsc::Sender<Event>) {
+fn spawn_signals(connection: &zbus::Connection, events: mpsc::UnboundedSender<Event>) {
     let connection = connection.clone();
     tokio::spawn(async move {
         let rule = match zbus::MatchRule::builder()
@@ -432,15 +532,30 @@ fn spawn_signals(connection: &zbus::Connection, events: mpsc::Sender<Event>) {
             Err(error) => return warn!("cannot follow NetworkManager's signals: {error}"),
         };
 
-        while let Some(Ok(message)) = stream.next().await {
+        while let Some(message) = stream.next().await {
+            // An error here is the connection itself, not one bad message:
+            // zbus only ever puts one on this stream when the socket has
+            // failed, and it puts nothing on it afterwards.
+            let message = match message {
+                Ok(message) => message,
+                Err(error) => {
+                    warn!("NetworkManager's signal stream failed: {error}");
+                    break;
+                }
+            };
             let Some(event) = decode(&message) else {
                 continue;
             };
-            if events.send(event).await.is_err() {
-                break;
+            // Never `await` here. See the module comment: a forwarder that can
+            // be made to wait is a bus reader that can be made to wait, and a
+            // bus reader that waits never delivers the reply this service is
+            // blocked on.
+            if events.send(event).is_err() {
+                debug!("the network service has stopped; nothing to forward to");
+                return;
             }
         }
-        debug!("NetworkManager's signal stream ended");
+        warn!("NetworkManager's signals have stopped; the panel will not see further changes");
     });
 }
 
@@ -774,7 +889,7 @@ impl World {
         }
     }
 
-    /// React to one signal.
+    /// React to one signal. The caller publishes once the batch is done.
     async fn event(&mut self, event: Event) {
         match event {
             Event::Devices => {
@@ -805,7 +920,6 @@ impl World {
             } => self.active_changed(&path, state, reason).await,
             Event::ScanSettled => self.scanning = false,
         }
-        self.publish();
     }
 
     /// Re-read one device that said something changed.
@@ -1101,8 +1215,26 @@ impl World {
                 active,
                 reply,
             } => self.set_vpn(uuid, active, reply).await,
+            Command::Refresh { reply } => {
+                self.refresh().await;
+                let _ = reply.send(Ok(()));
+            }
         }
         self.publish();
+    }
+
+    /// Read the whole of NetworkManager again.
+    ///
+    /// What a resume asks for. A signal is only ever seen by a process that was
+    /// running when it was emitted, and for the length of a sleep this one was
+    /// not: the radio went down, the card came back on a different access point
+    /// and every announcement of it went to a socket nobody was reading. The
+    /// panel cannot know what it missed, so it stops believing what it has.
+    async fn refresh(&mut self) {
+        self.read_manager().await;
+        self.read_devices().await;
+        self.read_profiles().await;
+        self.read_actives().await;
     }
 
     /// Refuse a change this panel is not allowed to make.
@@ -1162,7 +1294,7 @@ impl World {
         let events = self.events.clone();
         tokio::spawn(async move {
             tokio::time::sleep(SCAN_SETTLE).await;
-            let _ = events.send(Event::ScanSettled).await;
+            let _ = events.send(Event::ScanSettled);
         });
         match wireless.request_scan(HashMap::new()).await {
             Ok(()) => Ok(()),
@@ -1611,5 +1743,135 @@ mod tests {
     #[test]
     fn a_scan_interval_of_ten_seconds_is_what_the_plan_asks_for() {
         assert_eq!(SCAN_INTERVAL, Duration::from_secs(10));
+    }
+
+    /// One object path, for a test that only cares that they differ.
+    fn path(name: &str) -> OwnedObjectPath {
+        OwnedObjectPath::try_from(format!("/org/freedesktop/NetworkManager/{name}"))
+            .expect("a well-formed path")
+    }
+
+    /// Feed a queue and take the batch back out.
+    fn batch(events: Vec<Event>) -> Vec<Event> {
+        let (sender, mut queue) = mpsc::unbounded_channel();
+        let mut events = events.into_iter();
+        let first = events.next().expect("at least one event");
+        for event in events {
+            sender.send(event).expect("the queue is open");
+        }
+        coalesce(first, &mut queue)
+    }
+
+    /// What one event is, ignoring which object it was about.
+    fn kinds(batch: &[Event]) -> Vec<&'static str> {
+        batch
+            .iter()
+            .map(|event| match event {
+                Event::Devices => "devices",
+                Event::Manager => "manager",
+                Event::Profiles => "profiles",
+                Event::Actives => "actives",
+                Event::AccessPoint(_) => "ap",
+                Event::AccessPoints => "aps",
+                Event::Device(_) => "device",
+                Event::Active { .. } => "active",
+                Event::ScanSettled => "settled",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_backlog_of_re_reads_is_one_re_read_each() {
+        // What a coffee shop looks like: the same four objects saying
+        // something over and over.
+        let mut events = Vec::new();
+        for _ in 0..50 {
+            events.push(Event::AccessPoint(path("AccessPoint/1")));
+            events.push(Event::AccessPoint(path("AccessPoint/2")));
+            events.push(Event::Manager);
+            events.push(Event::Device(path("Devices/1")));
+        }
+        assert_eq!(
+            kinds(&batch(events)),
+            ["ap", "ap", "manager", "device"],
+            "two hundred signals are four reads, in the order they arrived"
+        );
+    }
+
+    #[test]
+    fn a_re_read_never_overtakes_a_state_change_that_came_first() {
+        // What a VPN going down looks like on the wire: the connection says it
+        // deactivated, and only then does the manager's list drop it. Reading
+        // the list first takes the object out from under the state change, and
+        // the switch the user is watching never finishes — which is a service
+        // that hangs, not a panel that redraws late.
+        let batch = batch(vec![
+            Event::Active {
+                path: path("ActiveConnection/1"),
+                state: ACTIVE_DEACTIVATED,
+                reason: 2,
+            },
+            Event::Actives,
+        ]);
+        assert_eq!(kinds(&batch), ["active", "actives"]);
+    }
+
+    #[test]
+    fn a_full_device_read_subsumes_everything_finer() {
+        let batch = batch(vec![
+            Event::AccessPoint(path("AccessPoint/1")),
+            Event::Device(path("Devices/1")),
+            Event::AccessPoints,
+            Event::Devices,
+        ]);
+        assert_eq!(
+            kinds(&batch),
+            ["devices"],
+            "reading the devices reads the access points with them"
+        );
+    }
+
+    #[test]
+    fn a_list_read_subsumes_the_access_points_in_it() {
+        let batch = batch(vec![
+            Event::AccessPoint(path("AccessPoint/1")),
+            Event::AccessPoints,
+            Event::AccessPoint(path("AccessPoint/2")),
+        ]);
+        assert_eq!(kinds(&batch), ["aps"]);
+    }
+
+    #[test]
+    fn every_state_change_survives_the_batch_in_order() {
+        // These are not re-reads: the connect state machine is fed each one,
+        // and a collapsed pair is a password prompt that never appears.
+        let batch = batch(vec![
+            Event::Manager,
+            Event::Active {
+                path: path("ActiveConnection/1"),
+                state: ACTIVE_ACTIVATING,
+                reason: 0,
+            },
+            Event::Manager,
+            Event::Active {
+                path: path("ActiveConnection/1"),
+                state: ACTIVE_DEACTIVATED,
+                reason: 9,
+            },
+        ]);
+        assert_eq!(kinds(&batch), ["manager", "active", "active"]);
+        let states: Vec<u32> = batch
+            .iter()
+            .filter_map(|event| match event {
+                Event::Active { state, .. } => Some(*state),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(states, [ACTIVE_ACTIVATING, ACTIVE_DEACTIVATED]);
+    }
+
+    #[test]
+    fn a_single_event_comes_back_on_its_own() {
+        assert_eq!(kinds(&batch(vec![Event::ScanSettled])), ["settled"]);
     }
 }

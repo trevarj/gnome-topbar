@@ -321,6 +321,12 @@ impl Services {
         self.headset.poll_now().await;
         self.battery.handle().refresh().await.ok();
         self.updates.recheck().await;
+        // The network before the two things that go out over it. The radio was
+        // down for the length of the sleep and everything NetworkManager said
+        // about it was said to a socket nobody was reading, so the panel reads
+        // the lot again — and connectivity, which is projected from it, is
+        // right by the time the weather asks.
+        self.network.handle().refresh_now().await.ok();
         // The two that reach the network. Failures are the services' own
         // business — both keep what they had and back off.
         self.weather.handle().refresh_now().await.ok();
