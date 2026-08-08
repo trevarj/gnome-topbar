@@ -1,4 +1,5 @@
-//! The Bluetooth device list, and the pairing row that opens inside it.
+//! The Bluetooth device list, the devices a scan found, and the pairing row
+//! that opens inside either of them.
 //!
 //! ```text
 //! ┌───────────────────┬───────────────────┐
@@ -7,11 +8,20 @@
 //!   🎧 WH-1000XM4        85%    [ ●──]     ← connected, with its battery
 //!   🖱 MX Master                 [──○]
 //!   ⌨  Magic Keyboard           [ ◜◝ ]     ← connecting
+//!   Available devices                ◜◝    ← header, with the scan spinner
+//!   📱 Pixel 8                             ← the whole row pairs
 //!     Confirm this code matches on Pixel 8
 //!     ┌────────┐
-//!     │ 000042 │   Cancel   Confirm       ← a pairing the panel did not start
+//!     │ 000042 │   Cancel   Confirm       ← the same row either way
 //!     └────────┘
 //! ```
+//!
+//! **Two kinds of row, each with one meaning.** A paired device is a box with a
+//! switch in it: the switch is the control and the row itself does nothing. A
+//! device a scan found is a *button* with no switch: the whole row is the
+//! control, and clicking it pairs. Neither line is ever two things at once —
+//! that was the reason the paired row is not a button, and it is the reason the
+//! found row is nothing but one.
 //!
 //! Rows are **rebuilt only when the list changes shape**. A snapshot arrives
 //! whenever a battery level moves, which for a connected headset is every
@@ -39,20 +49,40 @@ use crate::widgets::quick_settings::{attempt, set_text};
 /// Gap between the parts of a row.
 const GAP: i32 = 10;
 
+/// Whether the "Available devices" group is drawn at all.
+///
+/// While the list is open, always — a header with a spinner and nothing under
+/// it is how a scan says it is still looking. And afterwards for as long as
+/// something unpaired is still in the list, which is what a pairing that
+/// outlived the scan that found it looks like.
+fn shows_found(state: &BtState) -> bool {
+    state.browsing || state.devices.iter().any(|device| !device.paired)
+}
+
 /// What the list looks like right now, as one comparable string.
 ///
 /// The battery percentage is deliberately **not** in it: it is drawn into a
 /// label the render pass already updates, and putting it here would rebuild
-/// every row each time a headset reported one point less.
+/// every row each time a headset reported one point less. Neither is
+/// [`BtState::scanning`], which only turns a spinner that is already there.
 fn signature(state: &BtState) -> String {
-    let mut signature = format!("{}:{}:{}", state.available, state.powered, state.powering);
+    let mut signature = format!(
+        "{}:{}:{}:{}",
+        state.available,
+        state.powered,
+        state.powering,
+        shows_found(state)
+    );
     for device in &state.devices {
         signature.push('\u{1}');
         signature.push_str(&format!(
-            "{}\u{2}{}\u{2}{}\u{2}{}\u{2}{}",
+            "{}\u{2}{}\u{2}{}\u{2}{}\u{2}{}\u{2}{}",
             device.path,
             device.alias,
             icons::bluetooth_device(device.icon),
+            // A device that has just been paired stops being a button and
+            // becomes a row with a switch, which is a change of shape.
+            device.paired,
             device.connected,
             device.pending
         ));
@@ -71,18 +101,29 @@ fn signature(state: &BtState) -> String {
 /// The parts of one row that change without the list changing shape.
 struct Row {
     path: String,
-    battery: Label,
-    switch: Switch,
+    /// The row itself, so the pairing box can be moved underneath it.
+    line: gtk4::Widget,
+    /// The battery level, on a paired row.
+    battery: Option<Label>,
+    /// The connect switch — `None` on a row that is something to pair rather
+    /// than something to switch, where the whole line is the control.
+    switch: Option<Switch>,
     spinner: Spinner,
     /// Raised while the render path is writing into the switch, so the
     /// `state-set` it causes is not mistaken for the user flipping it.
     updating: std::cell::Cell<bool>,
 }
 
-/// The list of paired devices.
+/// The device list: what is paired, and what a scan turned up.
 pub struct BluetoothList {
     root: gtk4::Box,
     list: gtk4::Box,
+    /// "Available devices", with the scan spinner in it. Re-parented into the
+    /// list on a rebuild, between the paired rows and the found ones.
+    header: gtk4::Box,
+    scanning: Spinner,
+    /// "Looking for devices…", under a header with nothing beneath it yet.
+    searching: Label,
     /// "Bluetooth is off", where the rows would be.
     off: Label,
     /// "No devices are paired", likewise.
@@ -104,6 +145,25 @@ impl BluetoothList {
         let list = gtk4::Box::new(Orientation::Vertical, 2);
         root.append(&list);
 
+        // Built once and moved about, the same way the pairing box is: the
+        // header belongs *between* two groups of rows the list rebuilds, and
+        // rebuilding it alongside them would throw away a turning spinner.
+        let header = gtk4::Box::new(Orientation::Horizontal, GAP);
+        header.add_css_class(classes::QS_LIST_HEADER);
+        let title = Label::new(Some("Available devices"));
+        title.set_xalign(0.0);
+        title.set_hexpand(true);
+        header.append(&title);
+        let scanning = Spinner::new();
+        scanning.set_visible(false);
+        header.append(&scanning);
+
+        // Its text is written on every render: a burst that ran out having
+        // found nothing has to stop saying it is still looking.
+        let searching = Label::new(None);
+        searching.add_css_class(classes::QS_HINT);
+        searching.set_xalign(0.0);
+
         // A radio that is off has no rows to show, and says why rather than
         // being a gap the user has to work out the meaning of.
         let off = Label::new(Some("Bluetooth is off"));
@@ -123,6 +183,9 @@ impl BluetoothList {
         Rc::new(Self {
             root,
             list,
+            header,
+            scanning,
+            searching,
             off,
             empty,
             rows: RefCell::new(Vec::new()),
@@ -147,7 +210,9 @@ impl BluetoothList {
 
         for (row, device) in self.rows.borrow().iter().zip(&state.devices) {
             debug_assert_eq!(row.path, device.path);
-            render_battery(&row.battery, device);
+            if let Some(battery) = &row.battery {
+                render_battery(battery, device);
+            }
             row.spinner
                 .set_opacity(if device.pending { 1.0 } else { 0.0 });
             if device.pending {
@@ -155,11 +220,20 @@ impl BluetoothList {
             } else {
                 row.spinner.stop();
             }
+            // Insensitive rather than gone while BlueZ decides: the control
+            // stays where it was, says it is not taking another press, and
+            // comes back the moment the answer lands. On a found row the
+            // *whole row* is the control, so that is what goes quiet.
+            let live = state.powered && !device.pending;
+            let Some(switch) = &row.switch else {
+                row.line.set_sensitive(live);
+                continue;
+            };
             // The switch is only touched when it disagrees, and the guard stops
             // the write being read back as the user flipping it.
-            if row.switch.is_active() != device.connected {
+            if switch.is_active() != device.connected {
                 row.updating.set(true);
-                row.switch.set_active(device.connected);
+                switch.set_active(device.connected);
                 row.updating.set(false);
             }
             // `state` is the *confirmed* half of a GtkSwitch, and the handler
@@ -167,40 +241,141 @@ impl BluetoothList {
             // that contract: BlueZ said what the device is doing, so the switch
             // is told. Without it the two halves disagree for ever and the
             // switch draws in its in-between look.
-            row.switch.set_state(device.connected);
-            // Insensitive rather than gone while BlueZ decides: the switch
-            // stays where it was, says it is not taking another press, and
-            // comes back the moment the answer lands.
-            row.switch.set_sensitive(state.powered && !device.pending);
+            switch.set_state(device.connected);
+            switch.set_sensitive(live);
         }
+
+        self.scanning.set_visible(state.scanning);
+        if state.scanning {
+            self.scanning.start();
+        } else {
+            self.scanning.stop();
+        }
+        // The burst is bounded, so "looking" is a thing the list stops being.
+        set_text(
+            &self.searching,
+            if state.scanning {
+                "Looking for devices…"
+            } else {
+                "No devices found"
+            },
+        );
 
         self.list.set_visible(state.powered);
         self.off.set_visible(!state.powered);
-        self.empty
-            .set_visible(state.powered && state.devices.is_empty());
+        // Only about the *paired* group: a scan's own emptiness is said under
+        // its own header, and two "there is nothing here" lines one above the
+        // other would be the panel saying it twice.
+        self.empty.set_visible(
+            state.powered
+                && state.devices.iter().all(|device| !device.paired)
+                && !shows_found(state),
+        );
         self.pairing.render(state, self);
     }
 
     /// Rebuild every row.
     fn rebuild(self: &Rc<Self>, state: &BtState) {
-        // The pairing box is re-parented into the list, so it has to come out
-        // before the rows around it are dropped — GTK asserts otherwise.
+        // Both of these are re-parented into the list, so they have to come out
+        // before the rows around them are dropped — GTK asserts otherwise.
         self.pairing.detach();
+        detach(&self.header);
+        detach(&self.searching);
 
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
+
         let mut rows = Vec::new();
+        let found = shows_found(state);
+        let mut headed = false;
         for device in &state.devices {
+            // The header goes in front of the first unpaired row, which is why
+            // `order` guarantees the unpaired ones are a contiguous run at the
+            // end rather than a flag scattered through the list.
+            if found && !headed && !device.paired {
+                self.list.append(&self.header);
+                headed = true;
+            }
             let (widget, row) = self.row(device);
             self.list.append(&widget);
             rows.push(row);
         }
+        if found && !headed {
+            // Nothing turned up yet. The header and the line under it are what
+            // say the scan is running rather than finished.
+            self.list.append(&self.header);
+            self.list.append(&self.searching);
+        }
         *self.rows.borrow_mut() = rows;
     }
 
-    /// One device's row.
-    fn row(self: &Rc<Self>, device: &BtDevice) -> (gtk4::Box, Rc<Row>) {
+    /// One device's row: a switch for what is paired, a button for what is not.
+    fn row(self: &Rc<Self>, device: &BtDevice) -> (gtk4::Widget, Rc<Row>) {
+        if device.paired {
+            self.paired_row(device)
+        } else {
+            self.found_row(device)
+        }
+    }
+
+    /// A device a scan found: the whole row pairs with it.
+    fn found_row(self: &Rc<Self>, device: &BtDevice) -> (gtk4::Widget, Rc<Row>) {
+        let button = Button::new();
+        button.add_css_class(classes::QS_PAIR_ROW);
+
+        let line = gtk4::Box::new(Orientation::Horizontal, GAP);
+        line.set_valign(Align::Center);
+
+        let icon = Image::from_icon_name(icons::bluetooth_device(device.icon));
+        icon.add_css_class(classes::QS_ICON);
+        line.append(&icon);
+
+        let name = Label::new(Some(&device.alias));
+        name.add_css_class(classes::QS_DEVICE_NAME);
+        name.set_xalign(0.0);
+        name.set_hexpand(true);
+        name.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        line.append(&name);
+
+        // Always measured, only its opacity moves — the same rule the paired
+        // row's spinner follows, and for the same reason: a pairing takes as
+        // long as the user takes to look at the other screen, and a row that
+        // changed width when it started would twitch under the pointer.
+        let spinner = Spinner::new();
+        spinner.set_opacity(0.0);
+        line.append(&spinner);
+
+        button.set_child(Some(&line));
+        ripple::install(&button);
+        button.connect_clicked({
+            let list = Rc::downgrade(self);
+            let path = device.path.clone();
+            move |_| {
+                let Some(list) = list.upgrade() else { return };
+                let bluetooth = list.services.bluetooth.handle().clone();
+                let path = path.clone();
+                // Answers when the pair, the trust and the connect have all
+                // finished, which for a device that wants a code confirmed is
+                // however long the user takes — the row spins throughout, and
+                // the confirmation opens underneath it.
+                attempt(names::BLUETOOTH, async move { bluetooth.pair(path).await });
+            }
+        });
+
+        let row = Rc::new(Row {
+            path: device.path.clone(),
+            line: button.clone().upcast(),
+            battery: None,
+            switch: None,
+            spinner,
+            updating: std::cell::Cell::new(false),
+        });
+        (button.upcast(), row)
+    }
+
+    /// A paired device's row.
+    fn paired_row(self: &Rc<Self>, device: &BtDevice) -> (gtk4::Widget, Rc<Row>) {
         // A box rather than a button: the switch is the control, and a row that
         // was *also* clickable would give one line two different meanings.
         let line = gtk4::Box::new(Orientation::Horizontal, GAP);
@@ -242,14 +417,17 @@ impl BluetoothList {
 
         let row = Rc::new(Row {
             path: device.path.clone(),
-            battery,
-            switch,
+            line: line.clone().upcast(),
+            battery: Some(battery),
+            switch: Some(switch.clone()),
             spinner,
             updating: std::cell::Cell::new(false),
         });
-        render_battery(&row.battery, device);
+        if let Some(battery) = &row.battery {
+            render_battery(battery, device);
+        }
 
-        row.switch.connect_state_set({
+        switch.connect_state_set({
             let list = Rc::downgrade(self);
             let row = Rc::downgrade(&row);
             move |_, wanted| {
@@ -277,7 +455,7 @@ impl BluetoothList {
             }
         });
 
-        (line, row)
+        (line.upcast(), row)
     }
 
     /// Put the pairing box under the row for `path`, or at the end.
@@ -286,13 +464,22 @@ impl BluetoothList {
             self.pairing.detach();
             return;
         };
-        let position = self
+        let after = self
             .rows
             .borrow()
             .iter()
-            .position(|row| row.path == path)
-            .map(|index| index + 1);
-        self.pairing.attach(&self.list, position);
+            .find(|row| row.path == path)
+            .map(|row| row.line.clone());
+        self.pairing.attach(&self.list, after.as_ref());
+    }
+}
+
+/// Take a widget out of whatever box it is in.
+fn detach(child: &impl IsA<gtk4::Widget>) {
+    if let Some(parent) = child.as_ref().parent()
+        && let Some(parent) = parent.downcast_ref::<gtk4::Box>()
+    {
+        parent.remove(child);
     }
 }
 
@@ -410,43 +597,29 @@ impl PairingBox {
         list.place_pairing(Some(&prompt.path));
     }
 
-    /// Put it into `list` at `position`, or at the end.
-    fn attach(&self, list: &gtk4::Box, position: Option<usize>) {
-        if let Some(parent) = self.root.parent()
-            && let Some(parent) = parent.downcast_ref::<gtk4::Box>()
-        {
-            if parent == list {
-                reorder(list, &self.root, position);
-                return;
+    /// Put it into `list` directly after `after`, or at the end of the list.
+    ///
+    /// The sibling is named by *widget* rather than by index. The list has a
+    /// header in the middle of it, so a row's position in `rows` and its
+    /// position among the box's children are two different numbers — and
+    /// counting one as if it were the other put the confirmation under the
+    /// wrong device.
+    fn attach(&self, list: &gtk4::Box, after: Option<&gtk4::Widget>) {
+        match self.root.parent() {
+            Some(parent) if parent.downcast_ref::<gtk4::Box>() == Some(list) => {}
+            _ => {
+                detach(&self.root);
+                list.append(&self.root);
             }
-            parent.remove(&self.root);
         }
-        list.append(&self.root);
-        reorder(list, &self.root, position);
+        if let Some(sibling) = after {
+            list.reorder_child_after(&self.root, Some(sibling));
+        }
     }
 
     /// Take it out of whatever it is in.
     fn detach(&self) {
-        if let Some(parent) = self.root.parent()
-            && let Some(parent) = parent.downcast_ref::<gtk4::Box>()
-        {
-            parent.remove(&self.root);
-        }
-    }
-}
-
-/// Move `child` to `position` inside `list`.
-fn reorder(list: &gtk4::Box, child: &gtk4::Box, position: Option<usize>) {
-    let Some(position) = position else { return };
-    let mut sibling = list.first_child();
-    let mut index = 0;
-    while let Some(current) = sibling {
-        if index + 1 == position {
-            list.reorder_child_after(child, Some(&current));
-            return;
-        }
-        sibling = current.next_sibling();
-        index += 1;
+        detach(&self.root);
     }
 }
 
@@ -503,6 +676,53 @@ mod tests {
         let mut off = on.clone();
         off.powered = false;
         assert_ne!(signature(&on), signature(&off));
+    }
+
+    #[test]
+    fn opening_the_scan_puts_a_header_in_the_list_before_it_has_found_anything() {
+        let closed = powered(vec![device("Buds", true)]);
+        let open = BtState {
+            browsing: true,
+            ..closed.clone()
+        };
+        assert!(!shows_found(&closed));
+        assert!(
+            shows_found(&open),
+            "a scan says so before it finds anything"
+        );
+        assert_ne!(signature(&closed), signature(&open));
+
+        // The spinner is not a rebuild: it is already in the header, and only
+        // its own visibility moves.
+        let looking = BtState {
+            scanning: true,
+            ..open.clone()
+        };
+        assert_eq!(signature(&looking), signature(&open));
+    }
+
+    #[test]
+    fn a_device_that_finished_pairing_is_a_different_row() {
+        let mut found = device("Pixel", false);
+        found.paired = false;
+        let scanning = BtState {
+            browsing: true,
+            ..powered(vec![device("Buds", true), found.clone()])
+        };
+
+        // A button with no switch becomes a box with one, so the list has to
+        // be rebuilt rather than have its labels updated.
+        let mut paired = scanning.clone();
+        paired.devices[1].paired = true;
+        assert_ne!(signature(&scanning), signature(&paired));
+
+        // And the group survives the scan that found it, so a pairing still in
+        // flight does not lose the row it is happening under.
+        let settled = BtState {
+            browsing: false,
+            ..scanning.clone()
+        };
+        assert!(shows_found(&settled));
     }
 
     #[test]

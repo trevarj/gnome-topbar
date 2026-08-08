@@ -359,6 +359,10 @@ impl PopoverContent for Panel {
         self.sliders.collapse();
         self.accordion.collapse_all();
         self.toggles.sync_chevrons();
+        // The device list has gone with the accordion, so the radio stops
+        // looking for things to put in it. This is the path that covers a panel
+        // somebody opened and walked away from.
+        self.toggles.sync_discovery();
         // And so does everything that went wrong. A caption is cleared when the
         // action it explains is tried again, which for an action nobody tries
         // again is never: the panel is retained, so a failed lock command was

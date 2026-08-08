@@ -398,6 +398,37 @@ fn install_smoke_actions(
         }
     });
 
+    // Pairing with something the scan turned up. Opening the block is what
+    // starts the scan, so the wait between the two is not padding: it is the
+    // discovery session finding the device this is about to click.
+    popovers::register_smoke_action("quick-settings-bluetooth-pair", {
+        let bluetooth = services.bluetooth.handle().clone();
+        let built = Rc::clone(built);
+        move || {
+            let Some(path) = smoke_env("TOPBAR_SMOKE_BT_DEVICE") else {
+                return;
+            };
+            popovers::dispatch(
+                &topbar_core::ipc::PopoverAction::Show(WIDGET_NAME.to_string()),
+                None,
+            );
+            let bluetooth = bluetooth.clone();
+            let built = Rc::clone(&built);
+            gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                if let Some(panel) = built.borrow().clone() {
+                    panel.expand(Block::Bluetooth);
+                }
+                let bluetooth = bluetooth.clone();
+                gtk4::glib::timeout_add_local_once(SMOKE_SETTLE, move || {
+                    tracing::info!("smoke: pairing {path}");
+                    attempt(inline::names::BLUETOOTH, async move {
+                        bluetooth.pair(path).await
+                    });
+                });
+            });
+        }
+    });
+
     // The radio switch, likewise: the pill's body is what a pointer would
     // press, and the screenshot that matters is the one *after* it.
     popovers::register_smoke_action("quick-settings-bluetooth-off", {

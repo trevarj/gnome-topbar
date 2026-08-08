@@ -1817,6 +1817,7 @@ osd-bar {
 .qs-toggle-expand,
 .qs-radio-row,
 .qs-network-row,
+.qs-pair-row,
 .qs-password-entry,
 .qs-password-button,
 .qs-vpn-row,
@@ -1854,6 +1855,7 @@ osd-bar {
 .keyboard .qs-toggle-expand:focus,
 .keyboard .qs-radio-row:focus,
 .keyboard .qs-network-row:focus,
+.keyboard .qs-pair-row:focus,
 .keyboard .qs-password-button:focus,
 .keyboard .qs-vpn-row:focus,
 .keyboard .qs-limit-button:focus,
@@ -2170,6 +2172,7 @@ osd-bar {
 /* The same 44px row as `.qs-device-row`. A VPN row carries two lines and comes
    out taller than that on its own, which is honest — it is a taller row. */
 .qs-network-row,
+.qs-pair-row,
 .qs-vpn-row {
     background: transparent;
     border: none;
@@ -2180,11 +2183,13 @@ osd-bar {
 }
 
 .qs-network-row:hover,
+.qs-pair-row:hover,
 .qs-vpn-row:hover {
     background-color: var(--color-widget-hover);
 }
 
 .qs-network-row:disabled,
+.qs-pair-row:disabled,
 .qs-vpn-row:disabled {
     color: var(--color-foreground-disabled);
 }

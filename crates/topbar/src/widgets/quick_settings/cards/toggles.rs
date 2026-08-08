@@ -240,6 +240,13 @@ pub struct Toggles {
     built_profiles: RefCell<Vec<String>>,
     /// Each radio row's checkmark, beside the profile it belongs to.
     profile_marks: RefCell<Vec<(String, Image)>>,
+    /// Whether the Bluetooth service has been asked to look for devices.
+    ///
+    /// Held here rather than read back out of the snapshot so the session is
+    /// opened and closed exactly once per transition: every call goes through
+    /// [`attempt`], which clears the inline caption first, and a repeat would
+    /// wipe the error explaining why the last one failed.
+    discovering: std::cell::Cell<bool>,
     services: Services,
     _slots: Vec<inline::InlineSlot>,
     bindings: RefCell<Vec<BindingGuard>>,
@@ -389,6 +396,7 @@ impl Toggles {
             power_mode_list,
             built_profiles: RefCell::new(Vec::new()),
             profile_marks: RefCell::new(Vec::new()),
+            discovering: std::cell::Cell::new(false),
             services: services.clone(),
             _slots: vec![
                 wifi_slot,
@@ -442,6 +450,7 @@ impl Toggles {
         if let Some(section) = &self.bluetooth_section {
             section.set_expanded(true);
             self.sync_chevrons();
+            self.sync_discovery();
         }
     }
 
@@ -464,6 +473,40 @@ impl Toggles {
             section.set_expanded(true);
             self.sync_chevrons();
         }
+    }
+
+    /// Match the Bluetooth discovery session to whether its list is open.
+    ///
+    /// Called after **every** accordion change and on every Bluetooth snapshot,
+    /// never from the chevron alone. Two things would otherwise leave a radio
+    /// transmitting at nobody:
+    ///
+    /// - The accordion closes one section when another opens, so the device
+    ///   list can leave the screen without its own handler ever running.
+    /// - A radio switched off underneath an open list ends the session at
+    ///   BlueZ's end; when it comes back on, this is what asks again.
+    ///
+    /// The panel closing collapses the accordion and then calls this, which is
+    /// the path that covers "the user walked away with it open".
+    pub fn sync_discovery(self: &Rc<Self>) {
+        let Some(section) = &self.bluetooth_section else {
+            return;
+        };
+        let wanted = self.bluetooth.is_some()
+            && section.is_expanded()
+            && self.services.bluetooth.current().powered;
+        if self.discovering.get() == wanted {
+            return;
+        }
+        self.discovering.set(wanted);
+        let bluetooth = self.services.bluetooth.handle().clone();
+        attempt(names::BLUETOOTH, async move {
+            if wanted {
+                bluetooth.start_discovery().await
+            } else {
+                bluetooth.stop_discovery().await
+            }
+        });
     }
 
     /// Put the chevrons back when a section is closed from outside.
@@ -577,6 +620,10 @@ impl Toggles {
                             let network = toggles.services.network.handle().clone();
                             attempt(names::WIFI, async move { network.scan().await });
                         }
+                        // Unconditional, and not only on the Bluetooth
+                        // chevron: this click may have closed the device list
+                        // by opening something else.
+                        toggles.sync_discovery();
                     }
                 });
             }
@@ -646,6 +693,8 @@ impl Toggles {
             pill.button.set_sensitive(!state.powering);
         }
         self.bluetooth_list.render(state);
+        // A radio that came back on under an open list starts looking again.
+        self.sync_discovery();
     }
 
     /// Draw the Wi-Fi and VPN pills, and the lists under them.

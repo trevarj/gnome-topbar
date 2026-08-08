@@ -511,6 +511,8 @@ pub const QS_DEVICE_MARK: &str = "qs-device-mark";
 pub const QS_DEVICE_BATTERY: &str = "qs-device-battery";
 /// The switch that connects or disconnects one.
 pub const QS_DEVICE_SWITCH: &str = "qs-device-switch";
+/// A device a scan found, which the whole row pairs with when it is clicked.
+pub const QS_PAIR_ROW: &str = "qs-pair-row";
 
 /// The grid of toggle pills.
 pub const QS_GRID: &str = "qs-grid";
@@ -827,6 +829,7 @@ pub const ALL: &[&str] = &[
     QS_DEVICE_MARK,
     QS_DEVICE_BATTERY,
     QS_DEVICE_SWITCH,
+    QS_PAIR_ROW,
     QS_GRID,
     QS_GRID_ROW,
     QS_TOGGLE_PILL,
