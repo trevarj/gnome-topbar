@@ -41,8 +41,8 @@ use crate::network::Access;
 /// the burst is one round trip; one per signal is six.
 const COALESCE: Duration = Duration::from_millis(80);
 
-/// How many commands may be in flight before a sender waits.
-const EVENTS: usize = 32;
+/// How many pairing-agent messages may be queued before the agent waits.
+const AGENT_QUEUE: usize = 32;
 
 /// The well-known name.
 ///
@@ -161,8 +161,8 @@ pub(crate) async fn run(
         }
     };
 
-    let (events, mut queue) = mpsc::channel(EVENTS);
-    let (agent_out, mut agent_in) = mpsc::channel(EVENTS);
+    let (events, mut queue) = mpsc::unbounded_channel();
+    let (agent_out, mut agent_in) = mpsc::channel(AGENT_QUEUE);
 
     // Subscribed before the first read, so a change that lands between the two
     // is queued rather than lost.
@@ -250,7 +250,14 @@ async fn drain(mut commands: mpsc::Receiver<Command>) {
 ///
 /// The payloads are not decoded. All three signals mean the same thing to this
 /// task — "the tree moved" — and the tree is the thing that gets read.
-fn spawn_signals(connection: &zbus::Connection, events: mpsc::Sender<()>) {
+///
+/// The queue is unbounded for the reason [`crate::network::task`] spells out:
+/// zbus reads the socket in one task and waits to hand each message to the
+/// streams that match it, so a forwarder that can be made to wait stops every
+/// method reply on the connection — including the ones the read below is
+/// blocked on. Unbounded is safe here because the events are collapsed rather
+/// than answered: a burst is drained and costs one read of the tree.
+fn spawn_signals(connection: &zbus::Connection, events: mpsc::UnboundedSender<()>) {
     let connection = connection.clone();
     tokio::spawn(async move {
         let rule = match zbus::MatchRule::builder()
@@ -265,15 +272,25 @@ fn spawn_signals(connection: &zbus::Connection, events: mpsc::Sender<()>) {
             Err(error) => return warn!("cannot follow BlueZ's signals: {error}"),
         };
 
-        while let Some(Ok(message)) = stream.next().await {
+        while let Some(message) = stream.next().await {
+            // An error is the connection itself: zbus only puts one on this
+            // stream when the socket has failed, and nothing after it.
+            let message = match message {
+                Ok(message) => message,
+                Err(error) => {
+                    warn!("BlueZ's signal stream failed: {error}");
+                    break;
+                }
+            };
             if !interesting(&message) {
                 continue;
             }
-            if events.send(()).await.is_err() {
-                break;
+            if events.send(()).is_err() {
+                debug!("the Bluetooth service has stopped; nothing to forward to");
+                return;
             }
         }
-        debug!("BlueZ's signal stream ended");
+        warn!("BlueZ's signals have stopped; the panel will not see further changes");
     });
 }
 
