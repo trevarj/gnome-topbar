@@ -40,7 +40,7 @@ pub(crate) trait ObjectManager {
 
 /// One Bluetooth adapter — the radio in the machine.
 ///
-/// Only the write is here. Every *reading* — `Powered`, and every device
+/// Only the writes are here. Every *reading* — `Powered`, and every device
 /// property below it — comes out of the object tree, which the task already
 /// has to fetch to know what devices exist; asking for the same values a
 /// second time, one property per round trip, would be the N+1 the plan names
@@ -50,15 +50,21 @@ pub(crate) trait Adapter {
     /// Switch the radio. This is the toggle.
     #[zbus(property)]
     fn set_powered(&self, powered: bool) -> zbus::Result<()>;
+
+    /// Start looking for devices in range.
+    ///
+    /// Scoped to the *session*, not to the adapter: BlueZ counts discovery
+    /// clients, so this only makes the radio transmit for as long as the panel
+    /// keeps its own session open, and stopping it does not stop somebody
+    /// else's. See [`super::task::World::set_discovery`] for what bounds the
+    /// panel's.
+    fn start_discovery(&self) -> zbus::Result<()>;
+
+    /// Stop looking.
+    fn stop_discovery(&self) -> zbus::Result<()>;
 }
 
-/// One remote device: the two things the panel does to one.
-///
-/// `Discovering` and `StartDiscovery` are deliberately absent. The panel lists
-/// *paired* devices, the way GNOME's own Quick Settings does, so it never has
-/// a reason to make the radio transmit — which is the one thing about
-/// Bluetooth that costs battery whether or not anybody is looking at the
-/// panel. v1 scanned for ten seconds every time its card was opened.
+/// One remote device: the four things the panel does to one.
 #[zbus::proxy(interface = "org.bluez.Device1", default_service = "org.bluez")]
 pub(crate) trait Device {
     /// Connect every profile this device supports.
@@ -66,6 +72,23 @@ pub(crate) trait Device {
 
     /// Disconnect it.
     fn disconnect(&self) -> zbus::Result<()>;
+
+    /// Pair with it.
+    ///
+    /// The call BlueZ answers the *agent* through: it stays outstanding for as
+    /// long as the pairing takes, and somewhere in the middle of it BlueZ calls
+    /// back into [`super::agent`] with the question the panel puts on screen.
+    /// That is why the task never awaits this on its own loop — see
+    /// [`super::task::World::begin_pair`].
+    fn pair(&self) -> zbus::Result<()>;
+
+    /// Let it connect itself from now on, without asking again.
+    ///
+    /// What GNOME's own pairing does at the end, and what makes a headset that
+    /// was just paired reconnect when it comes out of its case rather than
+    /// putting an authorization prompt up every time.
+    #[zbus(property)]
+    fn set_trusted(&self, trusted: bool) -> zbus::Result<()>;
 }
 
 /// Where a pairing agent signs up.

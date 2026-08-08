@@ -53,6 +53,8 @@ pub struct FakeDevice {
     pub icon: String,
     /// Whether it is paired.
     pub paired: bool,
+    /// Whether it may connect itself without asking again.
+    pub trusted: bool,
     /// Whether it is connected.
     pub connected: bool,
     /// Its battery, when it publishes one.
@@ -67,6 +69,7 @@ impl FakeDevice {
             address: address.to_string(),
             icon: icon.to_string(),
             paired: true,
+            trusted: true,
             connected: false,
             battery: None,
         }
@@ -86,10 +89,21 @@ impl FakeDevice {
         self
     }
 
-    /// The same, never paired — so the panel must not list it.
+    /// The same, never paired — so the panel lists it only while it is looking.
     #[must_use]
     pub fn unpaired(mut self) -> Self {
         self.paired = false;
+        self.trusted = false;
+        self
+    }
+
+    /// The same, with nothing but its address to call itself.
+    ///
+    /// What BlueZ publishes for a device that has not answered a name request:
+    /// an alias built out of the address, with dashes.
+    #[must_use]
+    pub fn nameless(mut self) -> Self {
+        self.alias = self.address.replace(':', "-");
         self
     }
 }
@@ -122,6 +136,8 @@ impl Outcome {
 struct Inner {
     has_adapter: bool,
     powered: bool,
+    /// Whether a discovery session is open.
+    discovering: bool,
     /// Devices by object path.
     devices: BTreeMap<String, FakeDevice>,
     /// Every method the panel called, in order.
@@ -172,6 +188,27 @@ impl Bluez {
     /// Whether the radio is on.
     pub fn powered(&self) -> bool {
         lock(self).powered
+    }
+
+    /// Whether a discovery session is open right now.
+    pub fn discovering(&self) -> bool {
+        lock(self).discovering
+    }
+
+    /// Whether a device is paired, as the fake sees it.
+    pub fn is_paired(&self, name: &str) -> bool {
+        lock(self)
+            .devices
+            .get(&device_path(name))
+            .is_some_and(|device| device.paired)
+    }
+
+    /// Whether a device is trusted.
+    pub fn is_trusted(&self, name: &str) -> bool {
+        lock(self)
+            .devices
+            .get(&device_path(name))
+            .is_some_and(|device| device.trusted)
     }
 
     /// Put a device in the tree before anything is serving it.
@@ -243,7 +280,7 @@ fn device_interfaces(device: &FakeDevice) -> Interfaces {
         ("Icon", Value::from(device.icon.clone())),
         ("Paired", Value::from(device.paired)),
         ("Connected", Value::from(device.connected)),
-        ("Trusted", Value::from(device.paired)),
+        ("Trusted", Value::from(device.trusted)),
     ] {
         if let Some(value) = own(value) {
             properties.insert(key.to_string(), value);
@@ -283,7 +320,7 @@ impl Manager {
         if let Some(value) = own(Value::from(inner.powered)) {
             adapter.insert("Powered".to_string(), value);
         }
-        if let Some(value) = own(Value::from(false)) {
+        if let Some(value) = own(Value::from(inner.discovering)) {
             adapter.insert("Discovering".to_string(), value);
         }
         if let Ok(path) = OwnedObjectPath::try_from(ADAPTER_PATH) {
@@ -320,10 +357,37 @@ impl Adapter {
         lock(&self.bluez).powered = powered;
     }
 
-    /// Whether a scan is running. Always false: the panel never starts one.
+    /// Whether a scan is running.
     #[zbus(property)]
     fn discovering(&self) -> bool {
-        false
+        lock(&self.bluez).discovering
+    }
+
+    /// Start looking. Recorded, because "a read-only panel did not make this
+    /// adapter transmit" is an assertion the policy test makes.
+    async fn start_discovery(&self, #[zbus(connection)] bus: &zbus::Connection) {
+        self.bluez.record("StartDiscovery");
+        lock(&self.bluez).discovering = true;
+        changed(
+            bus,
+            ADAPTER_PATH,
+            ADAPTER_IFACE,
+            [("Discovering", Value::from(true))],
+        )
+        .await;
+    }
+
+    /// Stop looking.
+    async fn stop_discovery(&self, #[zbus(connection)] bus: &zbus::Connection) {
+        self.bluez.record("StopDiscovery");
+        lock(&self.bluez).discovering = false;
+        changed(
+            bus,
+            ADAPTER_PATH,
+            ADAPTER_IFACE,
+            [("Discovering", Value::from(false))],
+        )
+        .await;
     }
 }
 
@@ -400,6 +464,86 @@ impl Device {
             .get(&self.path)
             .is_some_and(|device| device.paired)
     }
+
+    /// Pair with it, asking the registered agent first.
+    ///
+    /// This is the shape that matters, and the reason it is worth a fake at
+    /// all: BlueZ calls *back* into the panel's own agent while `Pair` is
+    /// outstanding. A panel that awaited `Pair` on the task loop that has to
+    /// deliver that question would deadlock, and only a fake that makes the
+    /// call can show it does not.
+    async fn pair(&self, #[zbus(connection)] bus: &zbus::Connection) -> zbus::fdo::Result<()> {
+        self.bluez.record(&format!("Pair {}", self.path));
+        let agent = lock(&self.bluez).agent_owner.clone();
+        if let Some((owner, agent_path)) = agent {
+            ask_agent(bus, &owner, &agent_path, &self.path, PAIR_PASSKEY)
+                .await
+                .map_err(|error| {
+                    zbus::fdo::Error::Failed(format!(
+                        "org.bluez.Error.AuthenticationCanceled: {error}"
+                    ))
+                })?;
+        }
+        if let Some(device) = lock(&self.bluez).devices.get_mut(&self.path) {
+            device.paired = true;
+        }
+        changed(
+            bus,
+            &self.path,
+            DEVICE_IFACE,
+            [("Paired", Value::from(true))],
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Whether it may connect itself without asking again.
+    #[zbus(property)]
+    fn trusted(&self) -> bool {
+        lock(&self.bluez)
+            .devices
+            .get(&self.path)
+            .is_some_and(|device| device.trusted)
+    }
+
+    /// Trust it. Recorded, so a test can say the pairing finished the job.
+    #[zbus(property)]
+    fn set_trusted(&self, trusted: bool) {
+        self.bluez
+            .record(&format!("Device1.Trusted={trusted} {}", self.path));
+        if let Some(device) = lock(&self.bluez).devices.get_mut(&self.path) {
+            device.trusted = trusted;
+        }
+    }
+}
+
+/// The passkey the fake's own pairings show.
+///
+/// Distinctive rather than round: a test asserting on "000000" would pass
+/// against a default nobody set.
+pub const PAIR_PASSKEY: u32 = 731_509;
+
+/// Ask an agent to confirm a passkey, and wait for the answer.
+async fn ask_agent(
+    bus: &zbus::Connection,
+    owner: &str,
+    agent_path: &str,
+    device: &str,
+    passkey: u32,
+) -> zbus::Result<()> {
+    let object = OwnedObjectPath::try_from(device)?;
+    let agent = OwnedObjectPath::try_from(agent_path)?;
+    let proxy = zbus::Proxy::new(
+        bus,
+        zbus::names::BusName::try_from(owner.to_string())?,
+        agent,
+        AGENT_IFACE,
+    )
+    .await?;
+    proxy
+        .call_method("RequestConfirmation", &(&object, passkey))
+        .await?;
+    Ok(())
 }
 
 /// Where agents sign up.
@@ -526,6 +670,27 @@ impl Control {
         #[zbus(connection)] bus: &zbus::Connection,
     ) {
         let device = FakeDevice::paired(&alias, &address, &icon);
+        let path = device_path(&name);
+        let interfaces = device_interfaces(&device);
+        lock(&self.bluez).devices.insert(path.clone(), device);
+        serve_device(bus, &self.bluez, &path).await;
+        interfaces_added(bus, &path, interfaces).await;
+    }
+
+    /// Put a device in range that nobody has paired, as a scan would find it.
+    ///
+    /// Announced through `InterfacesAdded` exactly like a paired one: from
+    /// BlueZ's side a discovered device *is* a new object in the tree, and
+    /// whether the panel draws it is the panel's own filter to apply.
+    async fn add_nearby_device(
+        &self,
+        name: String,
+        alias: String,
+        address: String,
+        icon: String,
+        #[zbus(connection)] bus: &zbus::Connection,
+    ) {
+        let device = FakeDevice::paired(&alias, &address, &icon).unpaired();
         let path = device_path(&name);
         let interfaces = device_interfaces(&device);
         lock(&self.bluez).devices.insert(path.clone(), device);
@@ -771,6 +936,12 @@ mod tests {
         // A path may not have a colon or a dash in it, so an address-shaped
         // name is flattened rather than rejected.
         assert_eq!(device_path("AA:BB:CC"), "/org/bluez/hci0/dev_AA_BB_CC");
+    }
+
+    #[test]
+    fn a_device_with_no_name_calls_itself_by_its_address_the_way_bluez_does() {
+        let bare = FakeDevice::paired("Ignored", "AA:BB:CC:DD:EE:FF", "").nameless();
+        assert_eq!(bare.alias, "AA-BB-CC-DD-EE-FF");
     }
 
     #[test]

@@ -88,14 +88,20 @@ pub struct BtDevice {
 
 /// Put the device list in the order GNOME puts it in.
 ///
-/// What is connected first, then everything else by name. Case-insensitive,
-/// with the object path breaking a tie — two identical earbuds are two
-/// identical strings, and a list that reordered itself between two readings
-/// would move a row out from under the pointer.
+/// What is connected first, then the rest of what is paired, then whatever a
+/// scan turned up — and inside each group by name. Case-insensitive, with the
+/// object path breaking a tie: two identical earbuds are two identical
+/// strings, and a list that reordered itself between two readings would move a
+/// row out from under the pointer.
+///
+/// The paired/unpaired split is what the card draws its "Available devices"
+/// header between, so it has to be a *contiguous* run rather than a flag the
+/// list is filtered by twice.
 pub fn order(devices: &mut [BtDevice]) {
     devices.sort_by(|a, b| {
         b.connected
             .cmp(&a.connected)
+            .then_with(|| b.paired.cmp(&a.paired))
             .then_with(|| a.alias.to_lowercase().cmp(&b.alias.to_lowercase()))
             .then_with(|| a.path.cmp(&b.path))
     });
@@ -103,13 +109,18 @@ pub fn order(devices: &mut [BtDevice]) {
 
 /// Whether a device belongs in the list at all.
 ///
-/// Paired only, which is what GNOME's own Quick Settings shows. The panel is
-/// not a pairing dialog — GNOME pairs in Settings and so does this desktop —
-/// and a list that filled up with every phone in the building the moment the
-/// adapter started scanning would be a list nobody could find their headphones
-/// in.
-pub fn listed(paired: bool) -> bool {
-    paired
+/// Paired devices, always. Everything else only while the user has the device
+/// list open and the panel is therefore scanning — and then only if it has told
+/// BlueZ a name. Both halves matter:
+///
+/// - Without `browsing`, a phone walking past the window would be a row in a
+///   list somebody opened to find their headphones in.
+/// - Without `named`, so would every fitness tracker on the bus, under its own
+///   MAC address. BlueZ hands out an address-shaped alias for a device that has
+///   not answered a name request yet, and an address is not something anybody
+///   can pick their own headset out of.
+pub fn listed(paired: bool, named: bool, browsing: bool) -> bool {
+    paired || (browsing && named)
 }
 
 /// A passkey, written the way BlueZ's own documentation writes it.
@@ -173,7 +184,21 @@ pub struct BtState {
     pub powered: bool,
     /// Whether the panel is waiting on the radio switch.
     pub powering: bool,
-    /// The paired devices, in order.
+    /// Whether the device list is open, and unpaired devices are therefore
+    /// listed under it.
+    ///
+    /// Separate from [`BtState::scanning`] on purpose. Starting a pairing stops
+    /// the radio looking around — BlueZ pairs a great deal more reliably when
+    /// it is not also scanning — but the device being paired has to stay in the
+    /// list while it happens, so the group outlives the scan.
+    pub browsing: bool,
+    /// Whether the radio is looking for devices right now.
+    ///
+    /// The spinner in the list header, and nothing else. `true` only once
+    /// `StartDiscovery` has actually answered: a spinner turning next to a
+    /// discovery BlueZ refused would be the control lying.
+    pub scanning: bool,
+    /// The devices, in order: connected, then paired, then found.
     pub devices: Vec<BtDevice>,
     /// The pairing question on screen, if any.
     pub prompt: Option<PairingPrompt>,
@@ -314,11 +339,35 @@ mod tests {
     }
 
     #[test]
-    fn only_paired_devices_are_listed() {
-        assert!(listed(true));
+    fn what_is_paired_is_always_listed_and_what_is_not_only_while_looking() {
+        // named, browsing
+        assert!(listed(true, false, false), "paired, whatever else is true");
+        assert!(listed(true, true, true));
+
         assert!(
-            !listed(false),
-            "the panel is not a pairing dialog; a phone walking past is not a row"
+            !listed(false, true, false),
+            "a phone walking past a closed list is not a row"
+        );
+        assert!(
+            !listed(false, false, true),
+            "and a device with only a MAC address is not one anybody could pick"
+        );
+        assert!(listed(false, true, true), "this is what a scan is for");
+    }
+
+    #[test]
+    fn a_scan_puts_what_it_found_under_what_is_already_paired() {
+        let mut found = device("Pixel 8", false);
+        found.paired = false;
+        // Sorts before every paired name, so name order alone would float it to
+        // the top of the list and the header would have nothing under it.
+        let mut devices = vec![found, device("Mouse", false), device("Buds", true)];
+        order(&mut devices);
+        let names: Vec<&str> = devices.iter().map(|d| d.alias.as_str()).collect();
+        assert_eq!(names, ["Buds", "Mouse", "Pixel 8"]);
+        assert!(
+            !devices[2].paired && devices[..2].iter().all(|d| d.paired),
+            "the unpaired run has to be contiguous; the header is drawn between them"
         );
     }
 

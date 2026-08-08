@@ -49,9 +49,12 @@ impl Default for Options {
 /// colon-separated bytes and splitting on colons turned `AA:BB:CC:DD:EE:FF`
 /// into six fields.
 ///
-/// The trailing two are order-free so the common cases stay short: a device
+/// The trailing fields are order-free so the common cases stay short: a device
 /// that is connected and reports a battery ends `|connected|85`, and one that
-/// is neither is just the first four fields.
+/// is neither is just the first four. `unpaired` is something a scan would
+/// find; `nameless` replaces the alias with the address, which is what BlueZ
+/// publishes for a device that has not answered a name request and what the
+/// panel refuses to put in a list.
 ///
 /// An underscore in the alias becomes a space. The smoke harness word-splits
 /// the arguments it forwards, so `MX_Master_3S` is how a two-word name gets
@@ -68,6 +71,7 @@ fn device(value: &str) -> Option<(String, FakeDevice)> {
         match extra {
             "connected" => device = device.connected(),
             "unpaired" => device = device.unpaired(),
+            "nameless" => device = device.nameless(),
             percent => device = device.with_battery(percent.parse().ok()?),
         }
     }

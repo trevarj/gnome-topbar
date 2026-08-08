@@ -44,6 +44,19 @@ const COALESCE: Duration = Duration::from_millis(80);
 /// How many pairing-agent messages may be queued before the agent waits.
 const AGENT_QUEUE: usize = 32;
 
+/// How long one discovery burst runs before the radio stops looking.
+///
+/// A scan that ran for as long as the list was open would be a radio
+/// transmitting at a popover somebody walked away from, which is the thing this
+/// feature was not allowed to become. It would also never let the list settle:
+/// devices come and go while a scan is running, and rows that reorder
+/// themselves under the pointer are the one thing this panel refuses to do.
+///
+/// Twenty seconds is several times what a device in pairing mode needs to
+/// announce itself. When it runs out the list keeps everything it found and
+/// only the spinner goes; closing and reopening the list looks again.
+const DISCOVERY_LIMIT: Duration = Duration::from_secs(20);
+
 /// The well-known name.
 ///
 /// The rule filters on the *sender* and nothing else. A path namespace would
@@ -78,6 +91,22 @@ pub(crate) enum Command {
         /// Where to answer.
         reply: oneshot::Sender<Result<(), SvcError>>,
     },
+    /// Open or close the discovery session behind the device list.
+    SetDiscovery {
+        /// Whether the list is open.
+        on: bool,
+        /// Where to answer.
+        reply: oneshot::Sender<Result<(), SvcError>>,
+    },
+    /// Pair with one of the devices a scan found, and connect it.
+    Pair {
+        /// Its object path.
+        path: String,
+        /// Answered when the whole pair-trust-connect chain has finished,
+        /// which for a device that wants a code confirmed is however long the
+        /// user takes to look at their phone.
+        reply: oneshot::Sender<Result<(), SvcError>>,
+    },
 }
 
 /// Where a command's answer goes.
@@ -85,8 +114,27 @@ fn reply_of(command: Command) -> oneshot::Sender<Result<(), SvcError>> {
     match command {
         Command::SetPowered { reply, .. }
         | Command::SetConnected { reply, .. }
-        | Command::AnswerPrompt { reply, .. } => reply,
+        | Command::AnswerPrompt { reply, .. }
+        | Command::SetDiscovery { reply, .. }
+        | Command::Pair { reply, .. } => reply,
     }
+}
+
+/// A pairing that has finished, on its way back to the loop.
+///
+/// Pairing cannot be awaited on the task's own loop: BlueZ calls *back* into
+/// the panel's agent partway through `Pair`, and a loop blocked on the call
+/// would never poll the channel that question arrives on — so the row would
+/// never appear, the user could never confirm, and every outgoing pairing would
+/// time out. So the chain is spawned and reports here instead, carrying the
+/// caller's `reply` with it so a failure still lands under the row that asked.
+struct Paired {
+    /// The device it was about.
+    path: String,
+    /// How it went.
+    result: Result<(), SvcError>,
+    /// The caller waiting on it.
+    reply: oneshot::Sender<Result<(), SvcError>>,
 }
 
 /// Everything the task knows, and everything it talks to.
@@ -104,8 +152,17 @@ struct World {
 
     /// Whether the radio switch is being waited on.
     powering: bool,
-    /// The device a connect or disconnect is in flight for.
+    /// The device a connect, disconnect or pairing is in flight for.
     pending: Option<String>,
+
+    /// Whether the device list is open, and unpaired devices belong in it.
+    browsing: bool,
+    /// Whether `StartDiscovery` is outstanding against this adapter.
+    scanning: bool,
+    /// When the burst runs out. See [`DISCOVERY_LIMIT`].
+    scan_deadline: Option<tokio::time::Instant>,
+    /// Where a spawned pairing reports back.
+    paired: mpsc::Sender<Paired>,
 
     /// The question on screen, and where its answer goes.
     prompt: Option<PairingPrompt>,
@@ -163,6 +220,8 @@ pub(crate) async fn run(
 
     let (events, mut queue) = mpsc::unbounded_channel();
     let (agent_out, mut agent_in) = mpsc::channel(AGENT_QUEUE);
+    // One pairing at a time — `pending` sees to that — so one slot is enough.
+    let (paired_out, mut paired_in) = mpsc::channel(1);
 
     // Subscribed before the first read, so a change that lands between the two
     // is queued rather than lost.
@@ -179,6 +238,10 @@ pub(crate) async fn run(
         devices: Vec::new(),
         powering: false,
         pending: None,
+        browsing: false,
+        scanning: false,
+        scan_deadline: None,
+        paired: paired_out,
         prompt: None,
         answer: None,
         prompt_deadline: None,
@@ -191,6 +254,7 @@ pub(crate) async fn run(
 
     loop {
         let deadline = world.prompt_deadline;
+        let scan_deadline = world.scan_deadline;
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { break };
@@ -207,14 +271,24 @@ pub(crate) async fn run(
                 world.publish();
             }
             Some(message) = agent_in.recv() => world.agent(message).await,
+            Some(finished) = paired_in.recv() => world.settle_pair(finished).await,
             () = wait_until(deadline) => {
                 info!("bluetooth: nobody answered the pairing prompt");
                 world.clear_prompt();
                 world.publish();
             }
+            () = wait_until(scan_deadline) => {
+                debug!("bluetooth: the discovery burst ran out; the radio stops looking");
+                world.stop_scanning().await;
+                world.publish();
+            }
         }
     }
 
+    // The radio stops looking even if the panel is being torn down mid-scan:
+    // a discovery session outliving the process that opened it is a radio
+    // transmitting with nobody left to look at what it finds.
+    let _ = world.set_discovery(false).await;
     world.unregister_agent().await;
 }
 
@@ -317,6 +391,8 @@ impl World {
                 }
                 self.available = false;
                 self.powered = false;
+                self.scanning = false;
+                self.scan_deadline = None;
                 self.adapter = None;
                 self.devices.clear();
                 return;
@@ -341,6 +417,12 @@ impl World {
             .and_then(|interfaces| interfaces.get(names::ADAPTER))
             .and_then(|adapter| property::<bool>(adapter, "Powered"))
             .unwrap_or(false);
+        // A radio switched off from anywhere takes the discovery session with
+        // it, so the spinner goes rather than turning over a dead adapter.
+        if !self.powered {
+            self.scanning = false;
+            self.scan_deadline = None;
+        }
 
         let mut devices = Vec::new();
         if let Some(adapter) = &adapter {
@@ -351,7 +433,13 @@ impl World {
                 if !path.as_str().starts_with(&prefix) {
                     continue;
                 }
-                if let Some(device) = read_device(path.as_str(), interfaces) {
+                // The device being paired stays in the list even once the scan
+                // that found it has stopped: it is the row with the spinner on
+                // it, and a row that vanished the moment it was clicked would
+                // be the panel losing the thing the user was doing.
+                let held = self.pending.as_deref() == Some(path.as_str());
+                if let Some(device) = read_device(path.as_str(), interfaces, self.browsing || held)
+                {
                     devices.push(device);
                 }
             }
@@ -509,6 +597,10 @@ impl World {
                 reply,
             } => (self.set_connected(&path, connected).await, reply),
             Command::AnswerPrompt { confirm, reply } => (self.answer_prompt(confirm), reply),
+            Command::SetDiscovery { on, reply } => (self.set_discovery(on).await, reply),
+            // The one command that does not answer here: the chain runs off
+            // this loop and carries the caller's reply with it.
+            Command::Pair { path, reply } => return self.begin_pair(path, reply).await,
         };
         self.publish();
         let _ = reply.send(answer);
@@ -586,6 +678,174 @@ impl World {
         answer.map_err(|error| SvcError::Bluetooth(describe(&error, connected)))
     }
 
+    /// Open or close the discovery session behind the device list.
+    ///
+    /// The radio looks around for at most [`DISCOVERY_LIMIT`], and not one
+    /// moment of it happens because a panel was merely looked at: the caller is
+    /// the *chevron*, not the popover. Every other way the list can leave the
+    /// screen — the section collapsing, the panel closing, the radio going off,
+    /// the process going away — closes it again.
+    ///
+    /// Closing it is more than stopping the scan: it also takes what the scan
+    /// found back out of the list, which is why `browsing` and `scanning` are
+    /// two flags rather than one.
+    async fn set_discovery(&mut self, on: bool) -> Result<(), SvcError> {
+        if on && !self.access.writable() {
+            // Not an error the user needs to see. A build being worked on
+            // simply lists what BlueZ already knows about, exactly as it does
+            // for the Wi-Fi scan.
+            debug!("bluetooth: not scanning (read-only)");
+            return Ok(());
+        }
+        let wanted = on && self.powered;
+        if self.browsing == on && self.scanning == wanted {
+            return Ok(());
+        }
+        self.browsing = on;
+        if !wanted {
+            self.stop_scanning().await;
+            // The list still has to lose whatever the scan found.
+            self.read_tree().await;
+            return Ok(());
+        }
+
+        let Some(path) = self.adapter.clone() else {
+            return Ok(());
+        };
+        let adapter = self
+            .adapter_proxy(&path)
+            .await
+            .map_err(|error| SvcError::Bluetooth(error.to_string()))?;
+        // `scanning` is set from the answer rather than from the intent: a
+        // spinner beside a discovery BlueZ refused is a control lying about a
+        // radio that is not on.
+        adapter
+            .start_discovery()
+            .await
+            .map_err(|error| SvcError::Bluetooth(error.to_string()))?;
+        self.scanning = true;
+        self.scan_deadline = Some(tokio::time::Instant::now() + DISCOVERY_LIMIT);
+        self.read_tree().await;
+        Ok(())
+    }
+
+    /// Stop the radio looking, leaving the list as it stands.
+    ///
+    /// The burst running out, a pairing starting, and the list closing all end
+    /// here. Only the last of them also clears `browsing` — a pairing has to
+    /// keep the row it is happening under, and a list that has finished looking
+    /// still shows what it found.
+    async fn stop_scanning(&mut self) {
+        self.scan_deadline = None;
+        if !self.scanning {
+            return;
+        }
+        self.scanning = false;
+        let Some(path) = self.adapter.clone() else {
+            return;
+        };
+        let Ok(adapter) = self.adapter_proxy(&path).await else {
+            return;
+        };
+        // Refused is the normal answer when somebody else's session is the one
+        // still running, or when BlueZ has already dropped ours.
+        if let Err(error) = adapter.stop_discovery().await {
+            debug!("bluetooth: the adapter would not stop looking ({error})");
+        }
+    }
+
+    /// Start pairing with one of the devices a scan found.
+    ///
+    /// Spawned rather than awaited: `Pair` is the call BlueZ answers the
+    /// panel's own agent through, and a task loop blocked on it would never
+    /// deliver the question to the row that has to answer it. See [`Paired`].
+    async fn begin_pair(&mut self, path: String, reply: oneshot::Sender<Result<(), SvcError>>) {
+        if let Err(error) = self.pair_precondition(&path) {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        let object = match OwnedObjectPath::try_from(path.as_str()) {
+            Ok(object) => object,
+            Err(error) => {
+                let _ = reply.send(Err(SvcError::Bluetooth(error.to_string())));
+                return;
+            }
+        };
+        let device = match self.device_proxy(&object).await {
+            Ok(device) => device,
+            Err(error) => {
+                let _ = reply.send(Err(SvcError::Bluetooth(error.to_string())));
+                return;
+            }
+        };
+
+        // The radio stops looking first. BlueZ pairs a great deal more
+        // reliably when it is not also scanning, and the row does not go
+        // anywhere: `browsing` is what keeps it listed, and that stays on.
+        self.stop_scanning().await;
+
+        self.pending = Some(path.clone());
+        self.mark_pending();
+        self.publish();
+
+        let done = self.paired.clone();
+        tokio::spawn(async move {
+            let result = pair_and_connect(&device).await;
+            let _ = done
+                .send(Paired {
+                    path,
+                    result,
+                    reply,
+                })
+                .await;
+        });
+    }
+
+    /// Whether a pairing may start at all.
+    fn pair_precondition(&self, path: &str) -> Result<(), SvcError> {
+        if !self.access.writable() {
+            return Err(self.read_only());
+        }
+        if !self.powered {
+            return Err(SvcError::Bluetooth("the radio is off".to_string()));
+        }
+        if self.pending.is_some() {
+            return Err(SvcError::Bluetooth(
+                "another device is connecting".to_string(),
+            ));
+        }
+        if self
+            .devices
+            .iter()
+            .any(|device| device.path == path && device.paired)
+        {
+            return Err(SvcError::Bluetooth(
+                "this device is already paired".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Take a finished pairing off the row and answer whoever asked for it.
+    ///
+    /// The snapshot goes out before the caller is answered, for the reason
+    /// [`World::command`] spells out: the inline failure is rendered the
+    /// instant the future resolves, and it must not land beside a spinner that
+    /// is still turning.
+    async fn settle_pair(&mut self, finished: Paired) {
+        let Paired {
+            path,
+            result,
+            reply,
+        } = finished;
+        if self.pending.as_deref() == Some(path.as_str()) {
+            self.pending = None;
+        }
+        self.read_tree().await;
+        self.publish();
+        let _ = reply.send(result);
+    }
+
     /// Answer the pairing row.
     fn answer_prompt(&mut self, confirm: bool) -> Result<(), SvcError> {
         let Some(reply) = self.answer.take() else {
@@ -614,6 +874,8 @@ impl World {
             available: self.available,
             powered: self.powered,
             powering: self.powering,
+            browsing: self.browsing,
+            scanning: self.scanning,
             devices,
             prompt: self.prompt.clone(),
             access: self.access,
@@ -647,6 +909,57 @@ impl World {
     }
 }
 
+/// Pair with a device, trust it, and connect it.
+///
+/// The three calls GNOME's own pairing makes, in that order and for the same
+/// reasons. `Trusted` is what stops the machine asking again every time the
+/// headset comes out of its case, and the `Connect` is what makes a pairing the
+/// user just performed do something — BlueZ connects some profiles by itself
+/// after a pair and not others, so a panel that stopped at `Pair` would leave
+/// half of them silently unpaired-looking.
+///
+/// A `Connect` that fails is **not** a failed pairing. The device is paired,
+/// trusted and in the list; it just did not come up, which is what the row's own
+/// switch is for. Saying "pairing failed" there would be the panel reporting a
+/// success as a failure.
+async fn pair_and_connect(device: &DeviceProxy<'static>) -> Result<(), SvcError> {
+    device
+        .pair()
+        .await
+        .map_err(|error| SvcError::Bluetooth(describe_pairing(&error)))?;
+    if let Err(error) = device.set_trusted(true).await {
+        // Worth a line and not worth a caption: the pairing worked, and the
+        // cost of this is being asked again next time.
+        warn!("bluetooth: paired, but could not mark the device trusted ({error})");
+    }
+    if let Err(error) = device.connect().await {
+        info!("bluetooth: paired, but the device did not connect ({error})");
+    }
+    Ok(())
+}
+
+/// What went wrong with a pairing, in words a row can show.
+fn describe_pairing(error: &zbus::Error) -> String {
+    let text = error.to_string();
+    // BlueZ's own names, which are the useful part. `AuthenticationCanceled`
+    // is the user pressing Cancel in the panel's own confirmation row, and
+    // repeating the interface name back at somebody who just did that is the
+    // panel explaining their own click to them.
+    if text.contains("AuthenticationCanceled") || text.contains("AuthenticationRejected") {
+        return "the pairing was cancelled".to_string();
+    }
+    if text.contains("AuthenticationTimeout") {
+        return "the device stopped waiting; try again".to_string();
+    }
+    if text.contains("AlreadyExists") {
+        return "this device is already paired".to_string();
+    }
+    if text.contains("ConnectionAttemptFailed") || text.contains("Failed") {
+        return "the device did not answer; is it in pairing mode?".to_string();
+    }
+    text
+}
+
 /// What went wrong, in words a row can show.
 ///
 /// BlueZ's own error names are the useful part: `org.bluez.Error.Failed` on a
@@ -661,25 +974,29 @@ fn describe(error: &zbus::Error, connecting: bool) -> String {
 }
 
 /// One device out of the tree, or nothing if it does not belong in the list.
-fn read_device(path: &str, interfaces: &Interfaces) -> Option<BtDevice> {
+///
+/// `browsing` is whether unpaired devices belong in it at all — see
+/// [`listed`].
+fn read_device(path: &str, interfaces: &Interfaces, browsing: bool) -> Option<BtDevice> {
     let device = interfaces.get(names::DEVICE)?;
     let paired = property::<bool>(device, "Paired").unwrap_or(false);
-    if !listed(paired) {
-        return None;
-    }
 
     let address = property::<String>(device, "Address").unwrap_or_default();
-    let alias = property::<String>(device, "Alias")
+    let name = property::<String>(device, "Alias")
         .filter(|alias| !alias.trim().is_empty())
         .or_else(|| property::<String>(device, "Name"))
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| {
-            if address.is_empty() {
-                "Unknown device".to_string()
-            } else {
-                address.clone()
-            }
-        });
+        .filter(|name| !is_address(name, &address));
+    if !listed(paired, name.is_some(), browsing) {
+        return None;
+    }
+    let alias = name.unwrap_or_else(|| {
+        if address.is_empty() {
+            "Unknown device".to_string()
+        } else {
+            address.clone()
+        }
+    });
 
     let battery_pct = interfaces
         .get(names::BATTERY)
@@ -695,6 +1012,16 @@ fn read_device(path: &str, interfaces: &Interfaces) -> Option<BtDevice> {
         battery_pct,
         pending: false,
     })
+}
+
+/// Whether a "name" is really the device's own address wearing a label.
+///
+/// BlueZ gives a device that has not answered a name request an `Alias` built
+/// out of its address with the colons turned into dashes. It is a string, it is
+/// not empty, and it is not a name — so a scan filtered on "has a name" would
+/// otherwise fill the list with MAC addresses.
+fn is_address(name: &str, address: &str) -> bool {
+    !address.is_empty() && name.replace('-', ":").eq_ignore_ascii_case(address)
 }
 
 #[cfg(test)]
@@ -737,7 +1064,7 @@ mod tests {
             (names::BATTERY, &[("Percentage", Value::from(85_u8))]),
         ]);
 
-        let device = read_device("/org/bluez/hci0/dev_AA", &tree).expect("a device");
+        let device = read_device("/org/bluez/hci0/dev_AA", &tree, false).expect("a device");
         assert_eq!(device.alias, "WH-1000XM4");
         assert_eq!(device.icon, IconKind::Headset);
         assert!(device.connected);
@@ -746,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn a_device_that_has_never_been_paired_is_not_a_row() {
+    fn a_device_that_has_never_been_paired_is_a_row_only_while_the_list_is_open() {
         let tree = interfaces(&[(
             names::DEVICE,
             &[
@@ -755,15 +1082,47 @@ mod tests {
             ],
         )]);
         assert!(
-            read_device("/org/bluez/hci0/dev_BB", &tree).is_none(),
-            "a phone walking past the window is not a row in Quick Settings"
+            read_device("/org/bluez/hci0/dev_BB", &tree, false).is_none(),
+            "a phone walking past a closed list is not a row in Quick Settings"
         );
+        let found = read_device("/org/bluez/hci0/dev_BB", &tree, true).expect("a found device");
+        assert!(!found.paired, "and it is drawn as something to pair with");
+    }
+
+    #[test]
+    fn a_scan_does_not_put_bare_addresses_in_the_list() {
+        // BlueZ hands out an address-shaped alias for a device that has not
+        // answered a name request. Nobody can pick their own headset out of a
+        // column of MAC addresses.
+        let tree = interfaces(&[(
+            names::DEVICE,
+            &[
+                ("Paired", Value::from(false)),
+                ("Address", Value::from("AA:BB:CC:DD:EE:FF")),
+                ("Alias", Value::from("AA-BB-CC-DD-EE-FF")),
+            ],
+        )]);
+        assert!(read_device("/org/bluez/hci0/dev_AA", &tree, true).is_none());
+
+        // The same device once it *is* paired stays a row, address or not:
+        // something got it into the list, and taking it away again would be
+        // the panel losing a device the user owns.
+        let paired = interfaces(&[(
+            names::DEVICE,
+            &[
+                ("Paired", Value::from(true)),
+                ("Address", Value::from("AA:BB:CC:DD:EE:FF")),
+                ("Alias", Value::from("AA-BB-CC-DD-EE-FF")),
+            ],
+        )]);
+        let device = read_device("/org/bluez/hci0/dev_AA", &paired, true).expect("a device");
+        assert_eq!(device.alias, "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
     fn an_object_with_no_device_interface_is_skipped() {
         let tree = interfaces(&[(names::ADAPTER, &[("Powered", Value::from(true))])]);
-        assert!(read_device("/org/bluez/hci0", &tree).is_none());
+        assert!(read_device("/org/bluez/hci0", &tree, true).is_none());
     }
 
     #[test]
@@ -775,7 +1134,7 @@ mod tests {
                 ("Address", Value::from("AA:BB:CC:DD:EE:FF")),
             ],
         )]);
-        let device = read_device("/org/bluez/hci0/dev_AA", &addressed).expect("a device");
+        let device = read_device("/org/bluez/hci0/dev_AA", &addressed, false).expect("a device");
         assert_eq!(device.alias, "AA:BB:CC:DD:EE:FF");
         assert_eq!(device.icon, IconKind::Generic);
         assert_eq!(device.battery_pct, None);
@@ -785,7 +1144,7 @@ mod tests {
             names::DEVICE,
             &[("Paired", Value::from(true)), ("Alias", Value::from("  "))],
         )]);
-        let device = read_device("/org/bluez/hci0/dev_CC", &nameless).expect("a device");
+        let device = read_device("/org/bluez/hci0/dev_CC", &nameless, false).expect("a device");
         assert_eq!(device.alias, "Unknown device");
     }
 
@@ -796,8 +1155,35 @@ mod tests {
             (names::DEVICE, &[("Paired", Value::from(true))]),
             (names::BATTERY, &[("Percentage", Value::from(255_u8))]),
         ]);
-        let device = read_device("/org/bluez/hci0/dev_AA", &tree).expect("a device");
+        let device = read_device("/org/bluez/hci0/dev_AA", &tree, false).expect("a device");
         assert_eq!(device.battery_pct, None);
+    }
+
+    #[test]
+    fn an_alias_bluez_built_out_of_an_address_is_not_a_name() {
+        assert!(is_address("AA-BB-CC-DD-EE-FF", "AA:BB:CC:DD:EE:FF"));
+        assert!(is_address("aa-bb-cc-dd-ee-ff", "AA:BB:CC:DD:EE:FF"));
+        assert!(is_address("AA:BB:CC:DD:EE:FF", "AA:BB:CC:DD:EE:FF"));
+        assert!(!is_address("WH-1000XM4", "AA:BB:CC:DD:EE:FF"));
+        // A device with no address at all: whatever it called itself stands.
+        assert!(!is_address("WH-1000XM4", ""));
+    }
+
+    #[test]
+    fn a_pairing_says_what_to_do_about_it_rather_than_naming_an_interface() {
+        let cancelled = zbus::Error::Failure("org.bluez.Error.AuthenticationCanceled".into());
+        assert_eq!(describe_pairing(&cancelled), "the pairing was cancelled");
+
+        let timeout = zbus::Error::Failure("org.bluez.Error.AuthenticationTimeout".into());
+        assert!(describe_pairing(&timeout).contains("try again"));
+
+        let unreachable = zbus::Error::Failure("org.bluez.Error.ConnectionAttemptFailed".into());
+        assert!(describe_pairing(&unreachable).contains("pairing mode"));
+
+        // Anything BlueZ says that the panel has no better words for is
+        // repeated rather than swallowed.
+        let odd = zbus::Error::Failure("org.bluez.Error.NotSupported".into());
+        assert_eq!(describe_pairing(&odd), odd.to_string());
     }
 
     #[test]
@@ -849,6 +1235,18 @@ mod tests {
         ] {
             assert!(!interesting(&signal(interface, member)), "{member}");
         }
+    }
+
+    #[test]
+    fn a_discovery_burst_is_bounded_and_long_enough_to_find_something() {
+        assert!(
+            DISCOVERY_LIMIT >= Duration::from_secs(10),
+            "a device in pairing mode has to have time to announce itself"
+        );
+        assert!(
+            DISCOVERY_LIMIT <= Duration::from_secs(60),
+            "past this it is a radio transmitting at a panel nobody is watching"
+        );
     }
 
     #[test]

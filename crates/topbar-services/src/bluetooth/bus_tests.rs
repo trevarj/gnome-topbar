@@ -79,7 +79,8 @@ async fn control(served: &fake::Served) -> zbus::Proxy<'_> {
     .expect("the control interface is there")
 }
 
-/// A fake with a headset, a mouse and a phone nobody paired.
+/// A fake with a headset, a mouse, a phone nobody paired, and a beacon that
+/// has not said what it is called.
 fn furnished() -> Arc<Bluez> {
     let bluez = Bluez::new();
     bluez.seed_device(
@@ -95,6 +96,12 @@ fn furnished() -> Arc<Bluez> {
     bluez.seed_device(
         "stranger",
         FakeDevice::paired("Somebody's Pixel", "99:88:77:66:55:44", "phone").unpaired(),
+    );
+    bluez.seed_device(
+        "beacon",
+        FakeDevice::paired("", "12:34:56:78:9A:BC", "")
+            .unpaired()
+            .nameless(),
     );
     bluez
 }
@@ -404,6 +411,167 @@ async fn cancelling_the_row_refuses_the_pairing() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn opening_the_list_scans_and_pairing_what_it_found_answers_in_the_panel() {
+    let bus = private_bus!();
+    let bluez = furnished();
+    let _served = fake::serve(bus.address(), &bluez)
+        .await
+        .expect("BlueZ serves");
+
+    let bluetooth = panel(&bus);
+    let state = settle(&bluetooth, "the device list", |state| {
+        !state.devices.is_empty()
+    })
+    .await;
+    assert!(
+        state.devices.iter().all(|device| device.paired),
+        "a list nobody has opened is paired devices only"
+    );
+    assert!(
+        !bluez.called("StartDiscovery"),
+        "the radio must not transmit because a service started: {:?}",
+        bluez.calls()
+    );
+    // `Pair` calls back into the agent, so it has to be on the bus first.
+    until(&bluez, "the agent to register", |bluez| {
+        !bluez.agents().is_empty()
+    })
+    .await;
+
+    bluetooth
+        .handle()
+        .start_discovery()
+        .await
+        .expect("the radio looks around");
+    let state = settle(&bluetooth, "something the scan found", |state| {
+        state.devices.iter().any(|device| !device.paired)
+    })
+    .await;
+    assert!(state.browsing && state.scanning);
+    assert!(bluez.discovering(), "BlueZ was actually asked");
+    let found: Vec<&str> = state
+        .devices
+        .iter()
+        .filter(|device| !device.paired)
+        .map(|device| device.alias.as_str())
+        .collect();
+    assert_eq!(
+        found,
+        ["Somebody's Pixel"],
+        "the beacon with nothing but a MAC address is not something anybody can pick"
+    );
+    let path = state.devices[state.devices.len() - 1].path.clone();
+
+    // Spawned, because that is how the panel calls it: the reply stays
+    // outstanding for as long as the pairing takes, and the *question* has to
+    // reach the row in the meantime. A service that awaited `Pair` on its own
+    // loop would never deliver it, and this is the test that says so.
+    let pairing = {
+        let handle = bluetooth.handle().clone();
+        let path = path.clone();
+        tokio::spawn(async move { handle.pair(path).await })
+    };
+
+    let state = settle(&bluetooth, "the pairing row", |state| {
+        state.prompt.is_some()
+    })
+    .await;
+    assert!(
+        bluez.called("StopDiscovery"),
+        "BlueZ pairs a great deal better when it is not also scanning: {:?}",
+        bluez.calls()
+    );
+    let prompt = state.prompt.as_ref().expect("a prompt");
+    assert_eq!(prompt.alias, "Somebody's Pixel");
+    assert_eq!(
+        prompt.code.as_deref(),
+        Some(super::model::passkey_text(fake::PAIR_PASSKEY).as_str())
+    );
+    assert!(
+        !state.scanning,
+        "the radio stops looking around while it pairs"
+    );
+    assert!(
+        state.browsing,
+        "but the row being paired has to stay in the list under it"
+    );
+    assert!(
+        state
+            .devices
+            .iter()
+            .any(|device| device.path == path && device.pending),
+        "and it is the row that spins"
+    );
+
+    bluetooth
+        .handle()
+        .confirm_pairing()
+        .await
+        .expect("the user confirms");
+    pairing.await.expect("joined").expect("the pairing lands");
+
+    assert!(bluez.is_paired("stranger"));
+    assert!(
+        bluez.is_trusted("stranger"),
+        "or the machine asks again every time it comes back: {:?}",
+        bluez.calls()
+    );
+    assert!(
+        bluez.called(&format!("Connect {path}")),
+        "a pairing that connected nothing looks like one that failed: {:?}",
+        bluez.calls()
+    );
+
+    let state = bluetooth.current();
+    let device = state
+        .devices
+        .iter()
+        .find(|device| device.path == path)
+        .expect("the phone");
+    assert!(device.paired, "it has moved into the paired group");
+    assert!(!device.pending, "and the spinner stops");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn closing_the_list_stops_the_radio_and_takes_the_strangers_with_it() {
+    let bus = private_bus!();
+    let bluez = furnished();
+    let _served = fake::serve(bus.address(), &bluez)
+        .await
+        .expect("BlueZ serves");
+
+    let bluetooth = panel(&bus);
+    settle(&bluetooth, "the device list", |state| {
+        !state.devices.is_empty()
+    })
+    .await;
+    bluetooth
+        .handle()
+        .start_discovery()
+        .await
+        .expect("the radio looks around");
+    settle(&bluetooth, "something the scan found", |state| {
+        state.devices.iter().any(|device| !device.paired)
+    })
+    .await;
+
+    bluetooth
+        .handle()
+        .stop_discovery()
+        .await
+        .expect("the list closes");
+
+    let state = bluetooth.current();
+    assert!(!state.browsing && !state.scanning);
+    assert!(
+        state.devices.iter().all(|device| device.paired),
+        "a closed list is not a place to leave somebody else's phone"
+    );
+    assert!(bluez.called("StopDiscovery"), "calls {:?}", bluez.calls());
+    assert!(!bluez.discovering(), "the radio really stopped");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_only_panel_registers_no_agent_and_writes_nothing() {
     let bus = private_bus!();
     let bluez = furnished();
@@ -435,6 +603,20 @@ async fn a_read_only_panel_registers_no_agent_and_writes_nothing() {
         .await
         .expect_err("nor are the headphones this build's to move");
 
+    // A scan is the one refusal that is not an error: the panel asks for one
+    // every time the list is opened, and a build being worked on simply lists
+    // what BlueZ already knows about — exactly as the Wi-Fi scan does.
+    bluetooth
+        .handle()
+        .start_discovery()
+        .await
+        .expect("a read-only panel declines quietly rather than raising a caption");
+    bluetooth
+        .handle()
+        .pair("/org/bluez/hci0/dev_stranger".to_string())
+        .await
+        .expect_err("and somebody else's phone is certainly not this build's to pair");
+
     // The assertion that matters: nothing was even attempted.
     let calls = bluez.calls();
     assert!(
@@ -446,6 +628,14 @@ async fn a_read_only_panel_registers_no_agent_and_writes_nothing() {
     assert!(
         !calls.iter().any(|call| call.starts_with("Connect")),
         "a read-only panel called Connect: {calls:?}"
+    );
+    assert!(
+        !calls.iter().any(|call| call.contains("Discovery")),
+        "a read-only panel made the developer's own adapter transmit: {calls:?}"
+    );
+    assert!(
+        !calls.iter().any(|call| call.starts_with("Pair")),
+        "a read-only panel paired something: {calls:?}"
     );
     assert!(
         bluez.agents().is_empty(),

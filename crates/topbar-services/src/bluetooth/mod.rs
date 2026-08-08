@@ -9,28 +9,38 @@
 //!   fake.rs    a BlueZ of a test's own
 //! ```
 //!
-//! ## What the panel does, and what it does not
+//! ## What the panel does, and when the radio transmits
 //!
-//! It lists **paired** devices and connects them, which is what GNOME's own
-//! Quick Settings does. It does not scan, and it does not pair: pairing wants a
-//! device list, a scan and a trust decision, and that is a Settings dialog
-//! rather than a row in a menu. v1 did all of it, and the cost was a ten-second
-//! discovery burst every time its card was opened — a radio transmitting
-//! because somebody looked at a panel.
+//! It lists **paired** devices and connects them. Open the device list and it
+//! also scans, lists what it found under an "Available devices" header, and
+//! pairs with a row that is clicked — pair, trust, connect, the same three
+//! calls GNOME's own pairing makes.
 //!
-//! The agent is the exception, and it is there for the *other* direction: a
-//! phone that starts a pairing with this machine asks a question, BlueZ hands
-//! it to the default agent, and on a niri desktop there is otherwise nobody to
-//! answer. So the panel answers it, in a row with the six-digit code and two
-//! buttons. See [`agent`] for the capability that promise is made under.
+//! The discovery is bounded by the *chevron*, not by the panel. v1 scanned for
+//! ten seconds every time its card was opened, which is a radio transmitting
+//! because somebody looked at a panel; here nothing happens until the device
+//! list is deliberately opened, and it stops the moment the list is collapsed,
+//! the popover is closed, the radio goes off, a pairing starts, or the process
+//! goes away. `BtState` carries both halves separately —
+//! [`BtState::browsing`] is whether found devices are listed and
+//! [`BtState::scanning`] is whether the radio is actually looking — because a
+//! pairing needs the first without the second.
+//!
+//! The agent serves the *other* direction, and predates all of it: a phone that
+//! starts a pairing with this machine asks a question, BlueZ hands it to the
+//! default agent, and on a niri desktop there is otherwise nobody to answer. So
+//! the panel answers it, in a row with the six-digit code and two buttons — the
+//! same row an outgoing pairing raises. See [`agent`] for the capability that
+//! promise is made under.
 //!
 //! ## Safety
 //!
 //! Everything that changes the machine is gated on
 //! [`Access`](crate::network::Access), exactly as the network service is. A
 //! debug build talking to the real system bus **registers no agent** — which
-//! would otherwise take the session's own pairing prompts — and refuses the
-//! radio switch and every connect. Tests and the smoke run point the service at
+//! would otherwise take the session's own pairing prompts — refuses the radio
+//! switch, every connect and every pairing, and never makes the developer's
+//! own adapter transmit. Tests and the smoke run point the service at
 //! a BlueZ of their own with `TOPBAR_SMOKE_BLUEZ_BUS`, which is the signal that
 //! changing things is safe.
 
@@ -169,6 +179,31 @@ impl BluetoothHandle {
             reply,
         })
         .await
+    }
+
+    /// Open the discovery session behind the device list.
+    ///
+    /// Called when the list is expanded, and paid for in radio time — so the
+    /// caller must close it again on every path the list can leave the screen.
+    pub async fn start_discovery(&self) -> Result<(), SvcError> {
+        self.send(|reply| task::Command::SetDiscovery { on: true, reply })
+            .await
+    }
+
+    /// Close it: stop looking, and drop what the scan found out of the list.
+    pub async fn stop_discovery(&self) -> Result<(), SvcError> {
+        self.send(|reply| task::Command::SetDiscovery { on: false, reply })
+            .await
+    }
+
+    /// Pair with one of the devices the scan found, then connect it.
+    ///
+    /// Answers when the whole chain has finished. For a device that wants a
+    /// code confirmed that is however long the user takes to look at the other
+    /// screen — the question arrives in the panel's own pairing row while this
+    /// is outstanding.
+    pub async fn pair(&self, path: String) -> Result<(), SvcError> {
+        self.send(|reply| task::Command::Pair { path, reply }).await
     }
 
     /// Answer the pairing row: Confirm.
