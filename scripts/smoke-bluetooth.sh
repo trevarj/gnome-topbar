@@ -22,8 +22,10 @@
 #                 mid-connect with a spinner, one idle
 #   3  fail       a connect that fails: the inline caption, the switch reverted
 #   4  pairing    a pairing this panel did not start: the code, then confirmed
-#   5  off        the radio switched off: the caption, and the indicator gone
-#   6  real       the REAL system bus, read-only: no agent, no writes
+#   5  discover   the device list open: the scan header, what it found, and a
+#                 pairing the panel *did* start, confirmed in the same row
+#   6  off        the radio switched off: the caption, and the indicator gone
+#   7  real       the REAL system bus, read-only: no agent, no writes, no scan
 #
 # Screenshots and captured output land in target/visual-smoke/bt/<scenario>/.
 set -eu
@@ -127,6 +129,26 @@ run devices quick-settings-bluetooth
 run spinner quick-settings-bluetooth "$default_bt --outcome slow"
 run fail quick-settings-bluetooth-connect "$default_bt --outcome fail"
 run pairing quick-settings-bluetooth
+# A scan needs something to find: a phone that says what it is called, and a
+# beacon that answers with nothing but its address — which the panel refuses to
+# put in a list, because nobody can pick their own headset out of a MAC. The
+# pair action acts on the phone rather than on the keyboard the connect
+# scenarios use, so the variable is moved for the one run and put back after.
+nearby='--device pixel|Pixel_8|77:66:55:44:33:22|phone|unpaired
+  --device beacon|ignored|12:34:56:78:9A:BC|phone|unpaired|nameless'
+# The only scenario that has to wait for something rather than provoke it: the
+# discovery burst is bounded, and its one still frame is the one after it runs
+# out. That is most of a minute before the pairing has even started.
+saved_timeout=${TOPBAR_SMOKE_TIMEOUT:-}
+export TOPBAR_SMOKE_BT_DEVICE=/org/bluez/hci0/dev_pixel
+export TOPBAR_SMOKE_TIMEOUT="${TOPBAR_SMOKE_TIMEOUT:-200}"
+run discover quick-settings-bluetooth "$default_bt $nearby"
+export TOPBAR_SMOKE_BT_DEVICE=/org/bluez/hci0/dev_kb
+if [ -n "$saved_timeout" ]; then
+  export TOPBAR_SMOKE_TIMEOUT="$saved_timeout"
+else
+  unset TOPBAR_SMOKE_TIMEOUT
+fi
 run off quick-settings-bluetooth-off
 run_real
 

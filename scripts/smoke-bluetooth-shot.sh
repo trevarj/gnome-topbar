@@ -109,15 +109,49 @@ case "$scenario" in
     fake Agents
     ;;
 
+  discover)
+    # (f) the device list open, which is the only thing in the panel that makes
+    # the radio transmit. The "Available devices" header goes up with the scan
+    # spinner in it, the phone the scan found is a row under it, and the beacon
+    # that answered with nothing but a MAC address is not.
+    # A turning spinner can never give `shot` two identical frames, so the
+    # frames taken while the burst is running are allowed to give up: "still
+    # changing" is the evidence that the scan really was running.
+    SHOT_TIMEOUT=8 shot discover topbar-popover || true
+    # A device arriving mid-scan, which is what switching one on looks like.
+    fake AddNearbyDevice "q30" "Soundcore Q30" "AB:CD:EF:01:23:45" "audio-headphones"
+    sleep 3
+    SHOT_TIMEOUT=8 shot discover-found topbar-popover || true
+    # The burst is bounded — DISCOVERY_LIMIT — so waiting it out is what gives
+    # this scenario its one still frame: the spinner stops, the header stays,
+    # and the rows the scan found stay under it.
+    sleep 22
+    shot discover-settled topbar-popover
+    # Pairing one of them. The fake calls the panel's own Agent1 while `Pair`
+    # is still outstanding, which is the shape that would deadlock a service
+    # awaiting the call on the loop that has to deliver the question.
+    "$SMOKE_TOPBAR" popover show quick-settings-bluetooth-pair >/dev/null 2>&1 || true
+    sleep 6
+    # The row spins for as long as the pairing is outstanding, so this one
+    # cannot settle either. The code in the box is what the frame is for.
+    SHOT_TIMEOUT=8 shot discover-confirm topbar-popover || true
+    "$SMOKE_TOPBAR" popover show quick-settings-bluetooth-confirm >/dev/null 2>&1 || true
+    sleep 6
+    shot discover-paired topbar-popover
+    # StartDiscovery, Pair, Trusted and Connect all had to reach BlueZ, and
+    # the scan had to stop before the pairing began.
+    fake Calls
+    ;;
+
   off)
-    # (f) the radio switched off: the rows go, the caption arrives, and the
+    # (g) the radio switched off: the rows go, the caption arrives, and the
     # bar indicator goes with them.
     shot bt-off topbar-popover
     fake Calls
     ;;
 
   real)
-    # (g) the machine's REAL BlueZ, with no override in the environment. The
+    # (h) the machine's REAL BlueZ, with no override in the environment. The
     # panel lists whatever is paired and does nothing else: no agent
     # registered, no radio switched, no device connected. The log line is the
     # evidence, and `bluetoothctl show` afterwards is the corroboration.
