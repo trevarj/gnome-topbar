@@ -12,6 +12,7 @@ use gtk4::gdk;
 use topbar_core::Config;
 use topbar_services::Services;
 
+use crate::fonts::FontRendering;
 use crate::surfaces::layer_popover::{self, LayerPopover};
 
 /// The bar a widget is being mounted into.
@@ -40,6 +41,9 @@ pub struct BarContext {
 #[derive(Clone)]
 struct Host {
     top_margin: i32,
+    /// The font settings for the popover glyph-clipping workaround, applied on
+    /// every open — see [`LayerPopover::open`]. `None` when the feature is off.
+    font_rendering: Option<FontRendering>,
     host: Rc<RefCell<Option<Rc<LayerPopover>>>>,
 }
 
@@ -57,6 +61,7 @@ impl BarContext {
             services: services.clone(),
             host: Host {
                 top_margin: layer_popover::window_top(config),
+                font_rendering: FontRendering::from_config(config),
                 host: Rc::new(RefCell::new(None)),
             },
         }
@@ -71,7 +76,11 @@ impl BarContext {
         if let Some(host) = self.host.host.borrow().as_ref() {
             return Rc::clone(host);
         }
-        let host = LayerPopover::new(&self.monitor, self.host.top_margin);
+        let host = LayerPopover::new(
+            &self.monitor,
+            self.host.top_margin,
+            self.host.font_rendering.clone(),
+        );
         *self.host.host.borrow_mut() = Some(Rc::clone(&host));
         host
     }

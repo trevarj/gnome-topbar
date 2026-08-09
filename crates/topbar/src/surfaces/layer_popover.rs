@@ -35,6 +35,7 @@ use topbar_core::Config;
 use tracing::debug;
 
 use crate::anim::{Animation, AnimationParams, Easing, ScaleBox, motion_enabled};
+use crate::fonts::{self, FontRendering};
 use crate::style::{self, classes};
 use crate::wayland::blur::{self, BlurAttachment};
 
@@ -274,6 +275,9 @@ pub struct LayerPopover {
     motion: Rc<Cell<Motion>>,
     /// Gap between the bar and the surface, from `bar.popover_offset`.
     top_margin: i32,
+    /// The font settings for the glyph-clipping workaround, re-applied on
+    /// every open. `None` when `advanced.pango_font_rendering` is off.
+    font_rendering: Option<FontRendering>,
     /// Whoever is open. `None` once the close animation has finished.
     open: RefCell<Option<Anchored>>,
     /// The blur behind the surface. Suspended for the length of every close.
@@ -283,8 +287,15 @@ pub struct LayerPopover {
 impl LayerPopover {
     /// Build the host for `monitor`, `top_margin` pixels below the bar.
     ///
+    /// `font_rendering` carries the Pango glyph-clipping workaround's settings;
+    /// see [`Self::open`] for why it is applied per-open rather than once.
+    ///
     /// Nothing is shown until [`Self::open`]; both surfaces stay unmapped.
-    pub fn new(monitor: &gdk::Monitor, top_margin: i32) -> Rc<Self> {
+    pub fn new(
+        monitor: &gdk::Monitor,
+        top_margin: i32,
+        font_rendering: Option<FontRendering>,
+    ) -> Rc<Self> {
         // The catcher is created first so the compositor stacks it below the
         // popover: layer surfaces within one layer keep their creation order.
         let catcher = build_catcher(monitor);
@@ -316,6 +327,7 @@ impl LayerPopover {
             monitor: monitor.clone(),
             motion: Rc::new(Cell::new(Motion::new())),
             top_margin,
+            font_rendering,
             open: RefCell::new(None),
         });
 
@@ -368,6 +380,15 @@ impl LayerPopover {
             .map(|open| Rc::clone(&open.refresh));
         if let Some(refresh) = refresh {
             refresh();
+        }
+
+        // The glyph-clipping workaround the bar applies once at build, applied
+        // here instead: a popover is a layer surface too, so its labels clip the
+        // same tall glyphs the bar's did, and it is applied *after* refresh so
+        // the rows a panel rebuilds on every open — the notification history
+        // rebuilds its groups each time — are covered. See fonts.rs.
+        if let (Some(rendering), Some(open)) = (&self.font_rendering, self.open.borrow().as_ref()) {
+            fonts::render_tree(rendering, &open.content);
         }
 
         self.place();
