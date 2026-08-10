@@ -31,6 +31,7 @@
 //! | QS row reveal | `expander::ROW_REVEAL_MS` 150 | ease-out / ease-in | yes |
 //! | Chevron turn | `expander::REVEAL_MS` 200, `CHEVRON_TURN` 180° | ease-out / ease-in | yes, from the live angle |
 //! | Crypto view crossfade | `crypto::popover::SWITCH_MS` 150 | linear | superseded-safe |
+//! | Media card arrive / leave | `media::CARD_REVEAL_MS` 200 | ease-out / ease-in | yes, from the live reveal |
 //! | Media art crossfade | `media::ART_FADE_MS` 150 | linear | restart only |
 //! | Media track text swap | `media::TEXT_FADE_MS` 150 | linear | restart only |
 //! | Media play/pause glyph | `media::ICON_FADE_MS` 120 | ease-out | restart only |

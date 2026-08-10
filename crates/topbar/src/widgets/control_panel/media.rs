@@ -39,7 +39,7 @@ use gtk4::{
 use topbar_services::{ArtRef, MediaState, PlaybackStatus, PlayerView, Services};
 use tracing::debug;
 
-use crate::anim::{Animation, AnimationParams, Easing, ripple};
+use crate::anim::{Animation, AnimationParams, Easing, SlideBox, motion_enabled, ripple};
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::classes;
 use crate::widgets::app_icon;
@@ -56,6 +56,8 @@ const ART_FADE_MS: u64 = 150;
 const TEXT_FADE_MS: u64 = 150;
 /// How long the play/pause glyph takes to come back after a swap.
 const ICON_FADE_MS: u64 = 120;
+/// How long the whole card takes to arrive in the column, or to leave it.
+const CARD_REVEAL_MS: u64 = 200;
 /// Size of a player's icon in the switcher.
 const SWITCHER_ICON: i32 = 16;
 /// How often the seek bar moves between position polls.
@@ -82,6 +84,12 @@ const SCOPE: ActionScope = ActionScope::Toast { widget: "media" };
 
 /// The media card.
 pub struct Card {
+    /// What the column actually holds: the card slides down into this.
+    slot: SlideBox,
+    /// The arrival and the departure.
+    reveal: Animation,
+    /// Whether the card is in the column, so an unchanged render does nothing.
+    shown: Cell<bool>,
     root: gtk4::Box,
     art: RoundedPicture,
     /// The cover the card has asked for, so the same one is never decoded
@@ -134,9 +142,6 @@ impl Card {
     pub fn new(services: &Services) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Vertical, 12);
         root.add_css_class(classes::CARD);
-        // Nothing is playing until the service says otherwise, and a card with
-        // nothing in it must never take up a row of the column.
-        root.set_visible(false);
 
         // --- art -----------------------------------------------------------
         let art = RoundedPicture::new(ART_SIZE, ART_RADIUS);
@@ -242,7 +247,20 @@ impl Card {
         root.append(&seek_row);
         root.append(&controls);
 
+        // Nothing is playing until the service says otherwise, and a card with
+        // nothing in it must never take up a row of the column. Hidden rather
+        // than merely unrevealed: an invisible child is not measured, which is
+        // what keeps the column closed up.
+        let slot = SlideBox::new();
+        slot.set_child(&root);
+        slot.set_reveal(0.0);
+        slot.set_opacity(0.0);
+        slot.set_visible(false);
+
         let card = Rc::new(Self {
+            reveal: Animation::new(&slot),
+            shown: Cell::new(false),
+            slot,
             art_fade: Animation::new(&art),
             text_fade: Animation::new(&text),
             icon_fade: Animation::new(&play_icon),
@@ -289,8 +307,64 @@ impl Card {
     }
 
     /// The widget to put in the panel's right column.
-    pub fn root(&self) -> &gtk4::Box {
-        &self.root
+    pub fn root(&self) -> &SlideBox {
+        &self.slot
+    }
+
+    /// Bring the card into the column, or take it back out.
+    ///
+    /// Reveal and opacity in one run, the way a banner arrives. The slot never
+    /// changes its *measured* height — see [`SlideBox`], where the reason is
+    /// spelled out — so the popover's own height still arrives in one
+    /// configure. What moves is where the card is painted inside the space
+    /// that is already there, which is what makes it read as arriving rather
+    /// than as appearing.
+    fn set_shown(&self, shown: bool) {
+        if self.shown.get() == shown {
+            return;
+        }
+        self.shown.set(shown);
+
+        if !motion_enabled() {
+            self.reveal.cancel();
+            self.slot.set_reveal(if shown { 1.0 } else { 0.0 });
+            self.slot.set_opacity(if shown { 1.0 } else { 0.0 });
+            self.slot.set_visible(shown);
+            return;
+        }
+
+        // A card taken away part-way through arriving pays only for the
+        // distance it has left to travel.
+        let from = self.slot.reveal();
+        let target = if shown { 1.0 } else { 0.0 };
+        let duration = (CARD_REVEAL_MS as f64 * (target - from).abs()).round() as u64;
+        let easing = if shown {
+            Easing::EaseOutCubic
+        } else {
+            Easing::EaseInCubic
+        };
+
+        if shown {
+            // The height arrives first, in one configure; the card then slides
+            // down into the space that is already there.
+            self.slot.set_visible(true);
+        }
+
+        let slot = self.slot.clone();
+        let finished = self.slot.clone();
+        self.reveal.start(
+            AnimationParams::new(duration).with_easing(easing),
+            Box::new(move |progress| {
+                let reveal = from + (target - from) * progress;
+                slot.set_reveal(reveal);
+                slot.set_opacity(reveal);
+            }),
+            Some(Box::new(move || {
+                if !shown {
+                    finished.set_visible(false);
+                }
+            })),
+        );
     }
 
     /// Re-render, and start following the playback position.
@@ -326,7 +400,7 @@ impl Card {
     /// Draw `state`.
     fn render(self: &Rc<Self>, state: &MediaState) {
         let Some(view) = state.active() else {
-            self.root.set_visible(false);
+            self.set_shown(false);
             self.active.replace(None);
             // Forgotten, so a player coming back takes the quiet first-render
             // path instead of dipping text nobody has seen yet.
@@ -334,7 +408,7 @@ impl Card {
             self.stop_ticking();
             return;
         };
-        self.root.set_visible(true);
+        self.set_shown(true);
 
         self.render_text(view);
 
