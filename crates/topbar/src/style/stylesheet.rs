@@ -1242,12 +1242,22 @@ scale.media-seek {
 scale.media-seek trough {
     min-height: 4px;
     background-color: var(--color-card);
+    border: none;
     border-radius: 9999px;
 }
 
+/* Adwaita paints the filled part with a 1px blue border as well as a blue
+   background, and then pulls it out again with a matching -1px margin. At 4px
+   tall that border is half the bar, so the fill read as Adwaita's blue with a
+   thread of the accent down the middle of it; and with the border gone, the
+   margin alone would leave the fill fatter than the trough it sits in. Both
+   have to go, which is the same lesson the knob below and `.qs-meter` learned
+   separately. */
 scale.media-seek highlight {
     min-height: 4px;
     background-color: var(--color-accent);
+    border: none;
+    margin: 0;
     border-radius: 9999px;
 }
 
@@ -1979,12 +1989,17 @@ osd-bar {
 
 .qs-slider trough {
     background-color: var(--color-card);
+    border: none;
     border-radius: 9999px;
     min-height: 6px;
 }
 
+/* The same borders the seek bar's fill had, for the same reason. See
+   scale.media-seek highlight. */
 .qs-slider highlight {
     background-color: var(--color-accent);
+    border: none;
+    margin: 0;
     border-radius: 9999px;
     min-height: 6px;
 }
