@@ -51,6 +51,17 @@ const SWITCHER_ICON: i32 = 20;
 const TICK: std::time::Duration = std::time::Duration::from_millis(500);
 /// Shown while a player has no cover.
 const ART_PLACEHOLDER: &str = "audio-x-generic-symbolic";
+/// The transport glyphs.
+///
+/// Named here rather than at their use sites for the reason `style::icons`
+/// gives: a name Adwaita drops in some future release breaks in one place.
+const PREVIOUS_ICON: &str = "media-skip-backward-symbolic";
+/// The glyph for a player that is playing, so the button offers to pause it.
+const PAUSE_ICON: &str = "media-playback-pause-symbolic";
+/// The glyph for a player that is not.
+const PLAY_ICON: &str = "media-playback-start-symbolic";
+/// The other end of the transport row.
+const NEXT_ICON: &str = "media-skip-forward-symbolic";
 /// Where this card's failures are reported.
 const SCOPE: ActionScope = ActionScope::Toast { widget: "media" };
 
@@ -138,10 +149,10 @@ impl Card {
         artist.set_single_line_mode(true);
         artist.set_ellipsize(pango::EllipsizeMode::End);
 
-        let (previous, _) = control_button("media-skip-backward-symbolic", "Previous");
-        let (play_pause, play_icon) = control_button("media-playback-start-symbolic", "Play");
+        let (previous, _) = control_button(PREVIOUS_ICON, "Previous");
+        let (play_pause, play_icon) = control_button(PLAY_ICON, "Play");
         play_pause.add_css_class(classes::MEDIA_CONTROL_PRIMARY);
-        let (next, _) = control_button("media-skip-forward-symbolic", "Next");
+        let (next, _) = control_button(NEXT_ICON, "Next");
 
         let controls = gtk4::Box::new(Orientation::Horizontal, 4);
         controls.add_css_class(classes::MEDIA_CONTROLS);
@@ -289,11 +300,7 @@ impl Card {
         );
 
         let playing = view.status == PlaybackStatus::Playing;
-        let icon = if playing {
-            "media-playback-pause-symbolic"
-        } else {
-            "media-playback-start-symbolic"
-        };
+        let icon = if playing { PAUSE_ICON } else { PLAY_ICON };
         if self.play_icon.icon_name().as_deref() != Some(icon) {
             self.play_icon.set_icon_name(Some(icon));
         }
