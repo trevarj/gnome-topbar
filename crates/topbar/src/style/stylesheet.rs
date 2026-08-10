@@ -1876,6 +1876,11 @@ osd-bar {
 .keyboard .notification-group-header:focus,
 .keyboard .notification-group-clear:focus,
 .keyboard .notification-close:focus,
+/* The media card cleared its backgrounds the same way and was left out of this
+   list, so the transport was the one part of the panel a keyboard could reach
+   and not see. */
+.keyboard .media-control:focus,
+.keyboard .media-switcher-button:focus,
 .keyboard .dnd-row switch:focus {
     outline: 2px solid var(--color-accent);
     outline-offset: -2px;

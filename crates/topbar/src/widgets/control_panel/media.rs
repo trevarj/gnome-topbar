@@ -39,7 +39,7 @@ use gtk4::{
 use topbar_services::{ArtRef, MediaState, PlaybackStatus, PlayerView, Services};
 use tracing::debug;
 
-use crate::anim::{Animation, AnimationParams, Easing};
+use crate::anim::{Animation, AnimationParams, Easing, ripple};
 use crate::bridge::{self, ActionScope, BindingGuard};
 use crate::style::classes;
 use crate::widgets::app_icon;
@@ -414,6 +414,7 @@ impl Card {
     fn switcher_button(self: &Rc<Self>, view: &PlayerView) -> Button {
         let button = Button::new();
         button.add_css_class(classes::MEDIA_SWITCHER_BUTTON);
+        ripple::install(&button);
         button.set_focus_on_click(false);
         button.set_tooltip_text(Some(&view.identity));
 
@@ -728,6 +729,7 @@ fn control_button(icon_name: &str, tooltip: &str) -> (Button, Image) {
     let button = Button::new();
     button.set_child(Some(&icon));
     button.add_css_class(classes::MEDIA_CONTROL);
+    ripple::install(&button);
     button.set_focus_on_click(false);
     button.set_tooltip_text(Some(tooltip));
     (button, icon)
