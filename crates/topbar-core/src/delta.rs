@@ -202,6 +202,7 @@ fn changed_widgets(old: &Config, new: &Config) -> BTreeSet<String> {
     check("clock", a.clock != b.clock);
     check("weather", a.weather != b.weather);
     check("crypto", a.crypto != b.crypto);
+    check("notmuch", a.notmuch != b.notmuch);
     check("tray", a.tray != b.tray);
     check("quick_settings", a.quick_settings != b.quick_settings);
     check("system_monitor", a.system_monitor != b.system_monitor);

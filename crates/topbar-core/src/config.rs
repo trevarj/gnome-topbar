@@ -788,6 +788,7 @@ fn parse_widgets(mut table: Table, lint: &mut Lint) -> WidgetsConfig {
             "clock" => widget_section!(clock, CLOCK_KEYS),
             "weather" => widget_section!(weather, WEATHER_KEYS),
             "crypto" => widget_section!(crypto, CRYPTO_KEYS),
+            "notmuch" => widget_section!(notmuch, NOTMUCH_KEYS),
             "tray" => widget_section!(tray, TRAY_KEYS),
             "quick_settings" => widget_section!(quick_settings, QUICK_SETTINGS_KEYS),
             "system_monitor" => widget_section!(system_monitor, SYSTEM_MONITOR_KEYS),
@@ -993,6 +994,9 @@ pub struct WidgetsConfig {
     /// `[widgets.crypto]`
     #[serde(skip)]
     pub crypto: CryptoConfig,
+    /// `[widgets.notmuch]`
+    #[serde(skip)]
+    pub notmuch: NotmuchConfig,
     /// `[widgets.tray]`
     #[serde(skip)]
     pub tray: TrayConfig,
@@ -1030,6 +1034,7 @@ impl Default for WidgetsConfig {
             clock: ClockConfig::default(),
             weather: WeatherConfig::default(),
             crypto: CryptoConfig::default(),
+            notmuch: NotmuchConfig::default(),
             tray: TrayConfig::default(),
             quick_settings: QuickSettingsConfig::default(),
             system_monitor: SystemMonitorConfig::default(),
@@ -1064,6 +1069,7 @@ impl WidgetsConfig {
         self.clock.validate(lint);
         self.weather.validate(lint);
         self.crypto.validate(lint);
+        self.notmuch.validate(lint);
         self.quick_settings.validate(lint);
         self.system_monitor.validate(lint);
         self.headset.validate(lint);
@@ -1357,6 +1363,76 @@ pub fn is_valid_crypto_entry(entry: &str) -> bool {
     match entry.split_once('/') {
         Some((base, quote)) => asset(base) && asset(quote) && base != quote,
         None => asset(entry),
+    }
+}
+
+const NOTMUCH_KEYS: &[&str] = &[
+    "query",
+    "interval",
+    "max_items",
+    "tooltip",
+    "on_click",
+    "on_click_right",
+    "on_click_middle",
+];
+
+/// `[widgets.notmuch]` — unread mail, counted with notmuch.
+///
+/// The maildir itself is whatever fills it — lieer, offlineimap, mbsync — and
+/// notmuch's business after that. The panel reads the index notmuch already
+/// knows where to find and never opens a message file, which is why there is
+/// no `maildir` key here: `NOTMUCH_CONFIG` is where a person says where their
+/// mail lives, and a second answer to that question is a second one to get
+/// wrong.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotmuchConfig {
+    /// The notmuch query the count and the list both come from.
+    ///
+    /// Not validated beyond being non-empty. Notmuch's parser is lenient —
+    /// `tag:unread and ((` returns a number rather than an error — so there is
+    /// nothing here that could tell a typo from an intention.
+    pub query: String,
+    /// Seconds between counts.
+    pub interval: u64,
+    /// How many conversations the popover lists.
+    pub max_items: u32,
+    /// Static tooltip, shown until there is a count to show instead.
+    pub tooltip: String,
+    /// Shell command run on left-click. Left-click opens the popover.
+    pub on_click: Option<String>,
+    /// Shell command run on right-click.
+    pub on_click_right: Option<String>,
+    /// Shell command run on middle-click.
+    pub on_click_middle: Option<String>,
+}
+
+impl Default for NotmuchConfig {
+    fn default() -> Self {
+        Self {
+            query: "tag:unread and tag:inbox".to_string(),
+            interval: 300,
+            max_items: 10,
+            tooltip: "Mail".to_string(),
+            on_click: None,
+            on_click_right: None,
+            on_click_middle: None,
+        }
+    }
+}
+
+impl NotmuchConfig {
+    fn validate(&self, lint: &mut Lint) {
+        check_interval(lint, "widgets.notmuch.interval", self.interval);
+        if self.query.trim().is_empty() {
+            lint.error("widgets.notmuch.query: must not be empty".to_string());
+        }
+        if self.max_items == 0 {
+            lint.error(
+                "widgets.notmuch.max_items: invalid value '0', a list of nothing is not a list"
+                    .to_string(),
+            );
+        }
     }
 }
 
@@ -2449,6 +2525,51 @@ popover_background_opacity = 2.0
         let errors = errors_of("[osd]\nposition = \"middle\"\n");
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("bottom, left, right, top"));
+    }
+
+    #[test]
+    fn the_notmuch_query_defaults_to_the_unread_inbox() {
+        let (config, _) = parse_ok("[widgets]\nright = [\"clock\"]\n");
+        assert_eq!(config.widgets.notmuch.query, "tag:unread and tag:inbox");
+        assert_eq!(config.widgets.notmuch.interval, 300);
+        assert_eq!(config.widgets.notmuch.max_items, 10);
+    }
+
+    #[test]
+    fn a_blank_notmuch_query_is_refused() {
+        // Notmuch answers an empty query with every message in the database,
+        // which is the one wrong number it is easiest to ship by accident.
+        let errors = errors_of("[widgets.notmuch]\nquery = \"   \"\n");
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].starts_with("widgets.notmuch.query:"),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_notmuch_list_of_nothing_is_refused() {
+        let errors = errors_of("[widgets.notmuch]\nmax_items = 0\n");
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("max_items"), "{errors:?}");
+    }
+
+    #[test]
+    fn the_notmuch_poll_never_runs_more_often_than_once_a_minute() {
+        let errors = errors_of("[widgets.notmuch]\ninterval = 5\n");
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("at least 60 seconds"), "{errors:?}");
+    }
+
+    #[test]
+    fn an_unknown_notmuch_key_warns_rather_than_being_ignored() {
+        let (_, warnings) = parse_ok("[widgets.notmuch]\nmaildir = \"~/Mail\"\n");
+        assert!(
+            warning_keys(&warnings)
+                .iter()
+                .any(|key| key.contains("notmuch")),
+            "{warnings:?}"
+        );
     }
 
     #[test]
