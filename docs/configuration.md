@@ -197,8 +197,8 @@ Which buttons are actually wired depends on what the widget already does with
 them:
 
 - `headset`, `os_logo` and `custom-*` wire all three.
-- `quick_settings` and `system_monitor` wire right and middle only; left click
-  opens their popover.
+- `quick_settings`, `system_monitor` and `notmuch` wire right and middle only;
+  left click opens their popover.
 - `clock`, `weather`, `crypto`, `tray`, `keyboard_layout` and `workspaces`
   accept the keys for compatibility but do not act on them.
 
@@ -277,6 +277,44 @@ worse than saying no.
 `show_description = false` cuts the bar down to `☁ 21°`. It is the bar's line
 only: the tooltip, the popover and the control panel's forecast card all go on
 naming the condition in full.
+
+## `[widgets.notmuch]`
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `query` | string | `"tag:unread and tag:inbox"` | The notmuch query the count and the list come from. |
+| `interval` | integer | `300` | Seconds between counts. Minimum 60. |
+| `max_items` | integer | `10` | Conversations the popover lists. |
+| `tooltip` | string | `"Mail"` | Shown until there is a count to show instead. |
+
+An envelope on the bar, and nothing at all when nothing matches the query. The
+count is in the tooltip rather than beside the icon: an envelope is the same
+width at three messages and at three hundred, and a widget that changes width
+every time mail arrives moves everything next to it. Left click opens a list of
+the newest conversations — sender, subject, and when the newest message in each
+arrived.
+
+The panel does not sync mail. Something else fills the maildir and runs
+`notmuch new` — lieer, mbsync, offlineimap, a systemd timer — and this widget
+reads the index that already exists. It never opens a message file and never
+writes anything. `notmuch` has to be on `PATH`, and where the mail lives is
+`NOTMUCH_CONFIG`'s business; there is deliberately no key here that answers that
+question a second time.
+
+The header's number counts **messages** and the rows are **conversations**, so
+the two rarely match. A conversation holding more than one unread message says
+how many, which is what reconciles them.
+
+`query` is passed to notmuch as a single argument and never through a shell. It
+is also not checked beyond being non-empty, because notmuch's parser is lenient
+— `tag:unread and ((` returns a number rather than an error — so there is
+nothing the panel could inspect that would tell a typo from an intention. If
+the count looks wrong, run the query through `notmuch count` and compare.
+
+A `notmuch` that cannot be run, a database that will not open, or output that
+does not parse all hide the widget rather than showing a zero: "nothing unread"
+and "I could not tell" look identical on a panel, and only one of them is safe
+to guess. The reason is logged once per attempt.
 
 ## `[widgets.crypto]`
 
