@@ -321,6 +321,13 @@ impl Reloader {
                 handle.configure(interval, seed).await
             });
         }
+        if changed("notmuch") {
+            // The query and the interval together decide what runs at all, so
+            // the service starts its count over rather than editing one field.
+            let notmuch = services.notmuch.clone();
+            let settings = config.widgets.notmuch.clone();
+            Runtime::handle().spawn(async move { notmuch.configure(&settings).await });
+        }
         if changed("system_monitor") {
             let handle = services.resources.handle().clone();
             let interval = Duration::from_secs(config.widgets.system_monitor.interval.max(1));

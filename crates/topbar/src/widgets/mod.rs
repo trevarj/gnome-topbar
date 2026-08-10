@@ -9,6 +9,7 @@ mod expander;
 mod headset;
 mod keyboard_layout;
 pub mod notifications;
+mod notmuch;
 mod os_logo;
 mod quick_settings;
 mod rounded_picture;
@@ -95,6 +96,10 @@ pub fn mount(name: &str, config: &Config, context: &BarContext) -> Option<Mounte
             let quick_settings = quick_settings::QuickSettingsWidget::new(config, context);
             Some(MountedWidget::new(quick_settings.root(), quick_settings))
         }
+        "notmuch" => {
+            let mail = notmuch::NotmuchWidget::new(&config.widgets.notmuch, context);
+            Some(MountedWidget::new(mail.root(), mail))
+        }
         "keyboard_layout" => {
             let layout = keyboard_layout::KeyboardLayoutWidget::new(
                 &config.widgets.keyboard_layout,
@@ -137,6 +142,7 @@ pub fn handles(name: &str) -> bool {
                 | "crypto"
                 | "headset"
                 | "keyboard_layout"
+                | "notmuch"
                 | "os_logo"
                 | "quick_settings"
                 | "system_monitor"

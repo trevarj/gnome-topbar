@@ -147,6 +147,13 @@ pub fn wifi_signal(bucket: u8) -> &'static str {
 /// There is something to install.
 pub const UPDATES: &str = "software-update-available-symbolic";
 
+/// Mail that has not been read.
+///
+/// The only mail state the panel ever draws: an inbox with nothing new in it
+/// is an *absent* widget, not a read envelope, so `mail-read-symbolic` would
+/// have nothing to say.
+pub const MAIL_UNREAD: &str = "mail-unread-symbolic";
+
 /// Something has arrived that has not been looked at yet.
 ///
 /// A filled circle rather than a bell, which is what GNOME Shell's own date
@@ -255,6 +262,7 @@ mod tests {
     #[test]
     fn every_name_is_a_symbolic_one() {
         let names = [
+            MAIL_UNREAD,
             VOLUME_MUTED,
             VOLUME_LOW,
             VOLUME_MEDIUM,

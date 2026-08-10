@@ -371,6 +371,7 @@ mod tests {
                 "system_monitor" => widgets.system_monitor.cpu_threshold = 50,
                 "headset" => widgets.headset.interval = 30,
                 "keyboard_layout" => widgets.keyboard_layout.format = "long".to_string(),
+                "notmuch" => widgets.notmuch.interval = 900,
                 "os_logo" => widgets.os_logo.tooltip = Some("distro".into()),
                 other => panic!("`{other}` has no case here; add one"),
             }

@@ -335,6 +335,31 @@ pub const CALENDAR_SELECTED: &str = "calendar-selected";
 /// A cell belonging to the month either side of the one on screen.
 pub const CALENDAR_OUTSIDE: &str = "calendar-outside";
 
+/// The unread-mail widget.
+pub const NOTMUCH: &str = "notmuch";
+/// The envelope on it.
+pub const NOTMUCH_ICON: &str = "notmuch-icon";
+/// Its popover.
+pub const NOTMUCH_POPOVER: &str = "notmuch-popover";
+/// The popover's header row.
+pub const NOTMUCH_HEADER: &str = "notmuch-header";
+/// The message count in that header.
+pub const NOTMUCH_COUNT: &str = "notmuch-count";
+/// Where the conversation rows live.
+pub const NOTMUCH_LIST: &str = "notmuch-list";
+/// One conversation.
+pub const NOTMUCH_ROW: &str = "notmuch-row";
+/// Who it is from.
+pub const NOTMUCH_SENDER: &str = "notmuch-sender";
+/// What it is about.
+pub const NOTMUCH_SUBJECT: &str = "notmuch-subject";
+/// When the newest message in it arrived.
+pub const NOTMUCH_TIME: &str = "notmuch-time";
+/// How many unread messages one conversation holds.
+pub const NOTMUCH_MATCHED: &str = "notmuch-matched";
+/// The line under a list that had to stop somewhere.
+pub const NOTMUCH_MORE: &str = "notmuch-more";
+
 /// What is drawn behind the album art while a player has no cover.
 pub const MEDIA_ART_PLACEHOLDER: &str = "media-art-placeholder";
 /// The track title.
@@ -745,6 +770,18 @@ pub const ALL: &[&str] = &[
     CALENDAR_TODAY,
     CALENDAR_SELECTED,
     CALENDAR_OUTSIDE,
+    NOTMUCH,
+    NOTMUCH_ICON,
+    NOTMUCH_POPOVER,
+    NOTMUCH_HEADER,
+    NOTMUCH_COUNT,
+    NOTMUCH_LIST,
+    NOTMUCH_ROW,
+    NOTMUCH_SENDER,
+    NOTMUCH_SUBJECT,
+    NOTMUCH_TIME,
+    NOTMUCH_MATCHED,
+    NOTMUCH_MORE,
     MEDIA_ART_PLACEHOLDER,
     MEDIA_TITLE,
     MEDIA_ARTIST,

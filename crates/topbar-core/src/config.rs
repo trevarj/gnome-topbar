@@ -36,6 +36,7 @@ pub const SUPPORTED_WIDGETS: &[&str] = &[
     "crypto",
     "headset",
     "keyboard_layout",
+    "notmuch",
     "os_logo",
     "quick_settings",
     "system_monitor",

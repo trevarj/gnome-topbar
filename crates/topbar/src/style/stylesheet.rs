@@ -1318,6 +1318,78 @@ button.media-switcher-active {
     color: var(--color-foreground-muted);
 }
 
+/* ===== Mail ===== */
+
+/* The count lives in the tooltip, not on the bar: an envelope is the same
+   width whether it is three messages or three hundred, and a widget that
+   changes width every time mail arrives moves everything beside it. */
+.notmuch-icon {
+    -gtk-icon-size: var(--icon-size);
+}
+
+.notmuch-popover {
+    min-width: 320px;
+}
+
+.notmuch-header {
+    min-height: 28px;
+    margin-bottom: 4px;
+}
+
+/* Tabular figures, so a count crossing a digit boundary does not shuffle the
+   header's title sideways. */
+.notmuch-count {
+    font-weight: 700;
+    color: var(--color-foreground-muted);
+    font-feature-settings: "tnum";
+}
+
+.notmuch-row {
+    border-radius: var(--radius-card);
+    padding: 6px 8px;
+}
+
+.notmuch-row:hover {
+    background-color: var(--color-widget-hover);
+}
+
+.notmuch-sender {
+    font-weight: 700;
+}
+
+.notmuch-subject {
+    font-size: 0.92em;
+    color: var(--color-foreground-muted);
+}
+
+.notmuch-time {
+    font-size: 0.85em;
+    color: var(--color-foreground-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* How many unread messages one conversation holds. Only drawn past one, which
+   is what stops the header's message count and this list's length looking
+   like they disagree. */
+.notmuch-matched {
+    font-size: 0.85em;
+    font-weight: 700;
+    color: var(--color-foreground-muted);
+    background-color: var(--color-card);
+    border-radius: 9999px;
+    padding: 0 6px;
+}
+
+.notmuch-list {
+    margin: 0;
+}
+
+.notmuch-more {
+    font-size: 0.85em;
+    color: var(--color-foreground-disabled);
+    padding: 0 8px;
+}
+
 /* ===== Notification history ===== */
 
 .notification-list {
