@@ -1181,7 +1181,7 @@ button.dialog-button-primary:hover {
     background-color: var(--color-widget-hover);
     border-radius: 12px;
     color: var(--color-foreground-disabled);
-    -gtk-icon-size: 28px;
+    -gtk-icon-size: 32px;
 }
 
 .media-title {
@@ -1192,8 +1192,12 @@ button.dialog-button-primary:hover {
     color: var(--color-foreground-muted);
 }
 
-.media-controls {
-    margin-top: 4px;
+/* The transport is a centred row of its own now, not a tail on the artist
+   line, so the gap between the buttons is what separates them rather than a
+   box spacing that also has to serve the rows above. Same shape as
+   `.crypto-entry`: the container states the rhythm, the widget states none. */
+.media-controls > *:not(:last-child) {
+    margin-right: 8px;
 }
 
 button.media-control {
@@ -1272,15 +1276,17 @@ scale.media-seek slider {
     font-feature-settings: "tnum";
 }
 
+/* Top-right, on the title's line. The gap is so a long title ellipsizes
+   before it reaches the buttons rather than touching them. */
 .media-switcher {
-    margin-top: 2px;
+    margin-left: 8px;
 }
 
 /* Every button carries the ring's border, transparent until it is the active
    one, so switching players cannot change the size of the row. */
 button.media-switcher-button {
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 2px;
     background: none;
     border: 2px solid transparent;

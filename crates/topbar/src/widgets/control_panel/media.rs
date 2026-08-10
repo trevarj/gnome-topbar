@@ -2,13 +2,19 @@
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────┐
-//! │ ██████  Windowlicker                        │  art, 64px, radius 12
-//! │ ██████  Aphex Twin                          │  title, artist (ellipsized)
-//! │ ██████   ⏮   ⏸   ⏭                          │  transport
-//! │ ───────●───────────────────────  1:12  3:41 │  seek, only when seekable
-//! │ ( )( )                                      │  switcher, only with 2+
+//! │ ██████      Windowlicker         ( )(●)     │  art 72px; switcher, 2+ only
+//! │ ██████       Aphex Twin                     │  title, artist (ellipsized)
+//! │ ██████                                      │
+//! │ ──────●─────────────────────────────────    │  seek, only when seekable
+//! │ 1:12                                   3:41 │
+//! │            ⏮       ⏸       ⏭                │  transport
 //! └─────────────────────────────────────────────┘
 //! ```
+//!
+//! The shape is GNOME's date menu: the square and the text are one block, the
+//! transport is a centred row of its own rather than a tail on the artist
+//! line, and the switcher sits beside the title where it does not move
+//! anything when it appears.
 //!
 //! The whole card is hidden when no player is on the bus, which is the usual
 //! state of a desktop: a card explaining that nothing is playing is a card
@@ -40,13 +46,13 @@ use crate::widgets::app_icon;
 use crate::widgets::rounded_picture::RoundedPicture;
 
 /// Side of the album art, in pixels.
-const ART_SIZE: i32 = 64;
+const ART_SIZE: i32 = 72;
 /// Corner radius of the album art, in pixels.
 const ART_RADIUS: f32 = 12.0;
 /// How long the art takes to change.
 const ART_FADE_MS: u64 = 150;
 /// Size of a player's icon in the switcher.
-const SWITCHER_ICON: i32 = 20;
+const SWITCHER_ICON: i32 = 16;
 /// How often the seek bar moves between position polls.
 const TICK: std::time::Duration = std::time::Duration::from_millis(500);
 /// Shown while a player has no cover.
@@ -105,7 +111,7 @@ pub struct Card {
 impl Card {
     /// Build the card and subscribe it to the media service.
     pub fn new(services: &Services) -> Rc<Self> {
-        let root = gtk4::Box::new(Orientation::Vertical, 10);
+        let root = gtk4::Box::new(Orientation::Vertical, 12);
         root.add_css_class(classes::CARD);
         // Nothing is playing until the service says otherwise, and a card with
         // nothing in it must never take up a row of the column.
@@ -132,43 +138,30 @@ impl Card {
         art_slot.add_overlay(&placeholder_icon);
         art_slot.add_overlay(&art);
         art_slot.set_halign(Align::Start);
-        art_slot.set_valign(Align::Start);
+        // Centred against the text beside it. Top-aligned, the square and the
+        // two lines of text read as two things that happen to share a row.
+        art_slot.set_valign(Align::Center);
 
-        // --- text and transport --------------------------------------------
+        // --- text ------------------------------------------------------------
+        // Centred, so the two lines read as one block against the square
+        // beside them rather than as a ragged column.
         let title = Label::new(None);
         title.add_css_class(classes::MEDIA_TITLE);
-        title.set_xalign(0.0);
+        title.set_xalign(0.5);
         title.set_single_line_mode(true);
         title.set_ellipsize(pango::EllipsizeMode::End);
 
         let artist = Label::new(None);
         artist.add_css_class(classes::MEDIA_ARTIST);
-        artist.set_xalign(0.0);
+        artist.set_xalign(0.5);
         artist.set_single_line_mode(true);
         artist.set_ellipsize(pango::EllipsizeMode::End);
-
-        let (previous, _) = control_button(PREVIOUS_ICON, "Previous");
-        let (play_pause, play_icon) = control_button(PLAY_ICON, "Play");
-        play_pause.add_css_class(classes::MEDIA_CONTROL_PRIMARY);
-        let (next, _) = control_button(NEXT_ICON, "Next");
-
-        let controls = gtk4::Box::new(Orientation::Horizontal, 4);
-        controls.add_css_class(classes::MEDIA_CONTROLS);
-        controls.set_halign(Align::Start);
-        controls.append(&previous);
-        controls.append(&play_pause);
-        controls.append(&next);
 
         let text = gtk4::Box::new(Orientation::Vertical, 2);
         text.set_hexpand(true);
         text.set_valign(Align::Center);
         text.append(&title);
         text.append(&artist);
-        text.append(&controls);
-
-        let top = gtk4::Box::new(Orientation::Horizontal, 12);
-        top.append(&art_slot);
-        top.append(&text);
 
         // --- seek ------------------------------------------------------------
         let seek = Scale::with_range(Orientation::Horizontal, 0.0, 1.0, 1_000_000.0);
@@ -193,13 +186,40 @@ impl Card {
         seek_row.set_visible(false);
 
         // --- switcher --------------------------------------------------------
+        // Top-right, on the title's line. It stays in the flow rather than
+        // being overlaid, because an overlay would sit on top of a long
+        // ellipsized title; in the flow, a second player appearing simply
+        // re-centres the title once.
         let switcher = gtk4::Box::new(Orientation::Horizontal, 6);
         switcher.add_css_class(classes::MEDIA_SWITCHER);
+        switcher.set_valign(Align::Start);
+        switcher.set_halign(Align::End);
         switcher.set_visible(false);
+
+        let top = gtk4::Box::new(Orientation::Horizontal, 12);
+        top.append(&art_slot);
+        top.append(&text);
+        top.append(&switcher);
+
+        // --- transport ---------------------------------------------------
+        // Its own centred row under the seek bar, where GNOME's date menu puts
+        // it, rather than a tail hanging off the bottom of the artist line.
+        // The gap between the buttons is CSS's, like `.crypto-entry`'s.
+        let (previous, _) = control_button(PREVIOUS_ICON, "Previous");
+        let (play_pause, play_icon) = control_button(PLAY_ICON, "Play");
+        play_pause.add_css_class(classes::MEDIA_CONTROL_PRIMARY);
+        let (next, _) = control_button(NEXT_ICON, "Next");
+
+        let controls = gtk4::Box::new(Orientation::Horizontal, 0);
+        controls.add_css_class(classes::MEDIA_CONTROLS);
+        controls.set_halign(Align::Center);
+        controls.append(&previous);
+        controls.append(&play_pause);
+        controls.append(&next);
 
         root.append(&top);
         root.append(&seek_row);
-        root.append(&switcher);
+        root.append(&controls);
 
         let card = Rc::new(Self {
             art_fade: Animation::new(&art),
