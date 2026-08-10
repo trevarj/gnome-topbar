@@ -91,21 +91,23 @@ rss() {
   awk '/^VmRSS:/ { print $2 }' "/proc/$SMOKE_PANEL_PID/status"
 }
 
-# Screenshot, after giving the nested compositor time to present.
-#
-# niri runs inside a winit window here, and a window nobody is looking at is
-# throttled: `grim` hands back the last frame that was *presented*, which can
-# be seconds behind the last frame that was drawn. Waiting is the whole fix.
-shot() {
-  sleep 3
-  grim "$art/$1.png"
+# Screenshots come from the shared helper, which waits on evidence rather than
+# on a clock: the popover has to be mapped, something has to be drawn below the
+# bar, and two consecutive captures have to agree. This script used to sleep
+# three seconds and hope, and the media card is one of the two the comment at
+# the top of smoke-shot.sh is about.
+. "$(dirname "$0")/smoke-shot.sh"
+
+# Every capture here is of the control panel, which is a popover.
+card() {
+  shot "$1" topbar-popover
   echo "smoke-media: $1"
 }
 
 # --- (c) nothing on the bus -------------------------------------------------
 # The panel opened its control panel a second in; with no player there must be
 # no media card at all and the column must look exactly like M4's.
-shot media-0-no-players
+card media-0-no-players
 
 # --- (a) one player ---------------------------------------------------------
 # CanGoNext is off, so the next button has to be visibly dimmed.
@@ -114,20 +116,20 @@ shot media-0-no-players
   --art "file://$art/cover-a.png" --status Playing \
   --length 221000000 --position 72000000 --no-next >/dev/null 2>&1 &
 one=$!
-shot media-1-one-player
+card media-1-one-player
 
 # --- (b) two players --------------------------------------------------------
 "$player" --name smoketwo --identity "Beacon Player" --title "Avril 14th" \
   --artist "Aphex Twin" --album "Drukqs" --art "file://$art/cover-b.png" \
   --status Paused --length 120000000 >/dev/null 2>&1 &
 two=$!
-shot media-2-two-players
+card media-2-two-players
 
 # The card follows what is playing without anyone clicking anything: the first
 # player stops, the second starts, and the switcher's ring moves with it.
 control smokeone SetStatus '"Paused"'
 control smoketwo SetStatus '"Playing"'
-shot media-3-relevance-moved
+card media-3-relevance-moved
 
 # The other half of the rule — a pin, which outranks all of this — is only
 # reachable by clicking a switcher button, and there is no synthetic pointer
@@ -159,7 +161,7 @@ while [ "$index" -lt "$art_swaps" ]; do
 done
 sleep 2
 after=$(rss)
-shot media-4-after-churn
+card media-4-after-churn
 
 {
   echo "swaps=$swaps art_swaps=$art_swaps"
@@ -182,8 +184,8 @@ awk -v warm="${warm:-$before}" -v after="$after" 'BEGIN {
 # The placeholder, not the last track's picture: art is cleared on the same
 # grace period it is fetched on.
 control smoketwo SetTrack "Nothing To Look At" "Nobody" "" 90000000
-shot media-5-no-cover
+card media-5-no-cover
 
 # --- the players go away ----------------------------------------------------
 kill "$one" "$two" 2>/dev/null || true
-shot media-6-players-gone
+card media-6-players-gone
