@@ -51,12 +51,21 @@ const ART_SIZE: i32 = 72;
 const ART_RADIUS: f32 = 12.0;
 /// How long the art takes to change.
 const ART_FADE_MS: u64 = 150;
+/// How long the title and artist take to change, on the same clock as the art
+/// so a new track arrives as one event rather than three.
+const TEXT_FADE_MS: u64 = 150;
+/// How long the play/pause glyph takes to come back after a swap.
+const ICON_FADE_MS: u64 = 120;
 /// Size of a player's icon in the switcher.
 const SWITCHER_ICON: i32 = 16;
 /// How often the seek bar moves between position polls.
 const TICK: std::time::Duration = std::time::Duration::from_millis(500);
 /// Shown while a player has no cover.
 const ART_PLACEHOLDER: &str = "audio-x-generic-symbolic";
+/// Stand-in for a player that names no track.
+const UNKNOWN_TITLE: &str = "Unknown title";
+/// Stand-in for one that names no artist.
+const UNKNOWN_ARTIST: &str = "Unknown artist";
 /// The transport glyphs.
 ///
 /// Named here rather than at their use sites for the reason `style::icons`
@@ -81,8 +90,20 @@ pub struct Card {
     /// Bumped by every art load, so a slow decode cannot overwrite a newer one.
     art_generation: Rc<Cell<u64>>,
     art_fade: Animation,
+    /// The two labels together, so a track change fades them as one thing.
+    text: gtk4::Box,
     title: Label,
     artist: Label,
+    /// The dip that carries one track's text out and the next one's in.
+    text_fade: Animation,
+    /// What the labels say now.
+    ///
+    /// Load-bearing rather than an optimisation: the service resamples the
+    /// position once a second while the panel is open, and every sample is a
+    /// new snapshot, so a card that dipped on every render would strobe.
+    shown_text: RefCell<Option<(String, String)>>,
+    /// The play/pause glyph's fade back in after a swap.
+    icon_fade: Animation,
     previous: Button,
     play_pause: Button,
     play_icon: Image,
@@ -223,12 +244,16 @@ impl Card {
 
         let card = Rc::new(Self {
             art_fade: Animation::new(&art),
+            text_fade: Animation::new(&text),
+            icon_fade: Animation::new(&play_icon),
             root,
             art,
             art_key: Cell::new(None),
             art_generation: Rc::new(Cell::new(0)),
+            text,
             title,
             artist,
+            shown_text: RefCell::new(None),
             previous,
             play_pause,
             play_icon,
@@ -303,25 +328,18 @@ impl Card {
         let Some(view) = state.active() else {
             self.root.set_visible(false);
             self.active.replace(None);
+            // Forgotten, so a player coming back takes the quiet first-render
+            // path instead of dipping text nobody has seen yet.
+            self.shown_text.replace(None);
             self.stop_ticking();
             return;
         };
         self.root.set_visible(true);
 
-        set_text(
-            &self.title,
-            view.title.as_deref().unwrap_or("Unknown title"),
-        );
-        set_text(
-            &self.artist,
-            view.artist.as_deref().unwrap_or("Unknown artist"),
-        );
+        self.render_text(view);
 
         let playing = view.status == PlaybackStatus::Playing;
-        let icon = if playing { PAUSE_ICON } else { PLAY_ICON };
-        if self.play_icon.icon_name().as_deref() != Some(icon) {
-            self.play_icon.set_icon_name(Some(icon));
-        }
+        self.render_glyph(playing);
         self.play_pause
             .set_tooltip_text(Some(if playing { "Pause" } else { "Play" }));
 
@@ -343,6 +361,76 @@ impl Card {
         if self.ticker.borrow().is_some() {
             self.start_ticking();
         }
+    }
+
+    /// Put this track's title and artist on the card, dipping through the
+    /// change when there was another track there a moment ago.
+    ///
+    /// A dip rather than a true crossfade, for the reason the keyboard-layout
+    /// indicator gives: two ellipsized lines drawn over each other read as a
+    /// smear rather than as a change.
+    fn render_text(&self, view: &PlayerView) {
+        let next = track_text(view);
+        if self.shown_text.borrow().as_ref() == Some(&next) {
+            return;
+        }
+        let first = self.shown_text.replace(Some(next.clone())).is_none();
+
+        if first {
+            // The card is arriving, and its own reveal is the animation; two
+            // runs over each other is one too many.
+            set_text(&self.title, &next.0);
+            set_text(&self.artist, &next.1);
+            return;
+        }
+
+        // Cancel and reset to a known state first, so a track that changed
+        // part-way through the last dip cannot strand the text half faded.
+        self.text_fade.cancel();
+        self.text.set_opacity(1.0);
+
+        let text = self.text.clone();
+        let title = self.title.clone();
+        let artist = self.artist.clone();
+        let swapped = Cell::new(false);
+        self.text_fade.start(
+            AnimationParams::new(TEXT_FADE_MS).with_easing(Easing::Linear),
+            Box::new(move |progress| {
+                // One run, two halves: out, swap, in. Two chained runs would be
+                // twice the duration and would need a done callback to survive
+                // being superseded half way through.
+                if progress < 0.5 {
+                    text.set_opacity(1.0 - progress * 2.0);
+                    return;
+                }
+                if !swapped.replace(true) {
+                    set_text(&title, &next.0);
+                    set_text(&artist, &next.1);
+                }
+                text.set_opacity((progress - 0.5) * 2.0);
+            }),
+            None,
+        );
+    }
+
+    /// Show the glyph for what the button would do next.
+    ///
+    /// Faded in rather than swapped, so play and pause do not snap under the
+    /// pointer that just pressed them.
+    fn render_glyph(&self, playing: bool) {
+        let icon = if playing { PAUSE_ICON } else { PLAY_ICON };
+        if self.play_icon.icon_name().as_deref() == Some(icon) {
+            return;
+        }
+        self.play_icon.set_icon_name(Some(icon));
+
+        let glyph = self.play_icon.clone();
+        glyph.set_opacity(0.0);
+        self.icon_fade.start(
+            AnimationParams::new(ICON_FADE_MS).with_easing(Easing::EaseOutCubic),
+            Box::new(move |progress| glyph.set_opacity(progress)),
+            None,
+        );
     }
 
     /// Draw the seek bar, unless this player has nothing to seek.
@@ -723,6 +811,23 @@ fn switcher_key(view: &PlayerView) -> String {
     )
 }
 
+/// What the two labels say for `view`.
+///
+/// Pulled out of the render path so the guard in front of the text dip can be
+/// tested without a display: the service resamples the position once a second
+/// while the panel is open, so `render` runs at about 1Hz on an unchanged
+/// track, and only this pair decides whether any of that is worth animating.
+fn track_text(view: &PlayerView) -> (String, String) {
+    (
+        view.title
+            .clone()
+            .unwrap_or_else(|| UNKNOWN_TITLE.to_string()),
+        view.artist
+            .clone()
+            .unwrap_or_else(|| UNKNOWN_ARTIST.to_string()),
+    )
+}
+
 /// One transport button and the icon inside it.
 fn control_button(icon_name: &str, tooltip: &str) -> (Button, Image) {
     let icon = Image::from_icon_name(icon_name);
@@ -771,6 +876,101 @@ pub fn format_duration(microseconds: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A player with nothing filled in but the two fields the labels read.
+    fn player(bus_name: &str, title: Option<&str>, artist: Option<&str>) -> PlayerView {
+        PlayerView {
+            bus_name: bus_name.to_string(),
+            identity: "Test Player".to_string(),
+            desktop_entry: None,
+            status: PlaybackStatus::Playing,
+            title: title.map(str::to_string),
+            artist: artist.map(str::to_string),
+            album: None,
+            art: None,
+            position_us: 0,
+            length_us: 200_000_000,
+            rate: 1.0,
+            can_play: true,
+            can_pause: true,
+            can_go_next: true,
+            can_go_previous: true,
+            can_seek: true,
+            sampled_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn a_fresh_position_sample_does_not_change_what_the_labels_say() {
+        // The service republishes once a second while the panel is open,
+        // because the sample time is part of the snapshot. If that moved the
+        // text the card would dip through the same track for ever.
+        let mut view = player(
+            "org.mpris.MediaPlayer2.a",
+            Some("Windowlicker"),
+            Some("Aphex Twin"),
+        );
+        let before = track_text(&view);
+        view.position_us = 42_000_000;
+        view.sampled_at = Instant::now();
+        assert_eq!(track_text(&view), before);
+    }
+
+    #[test]
+    fn a_new_title_changes_it() {
+        let one = player(
+            "org.mpris.MediaPlayer2.a",
+            Some("Windowlicker"),
+            Some("Aphex Twin"),
+        );
+        let two = player(
+            "org.mpris.MediaPlayer2.a",
+            Some("Avril 14th"),
+            Some("Aphex Twin"),
+        );
+        assert_ne!(track_text(&one), track_text(&two));
+    }
+
+    #[test]
+    fn a_new_artist_under_the_same_title_changes_it_too() {
+        let one = player(
+            "org.mpris.MediaPlayer2.a",
+            Some("Windowlicker"),
+            Some("Aphex Twin"),
+        );
+        let two = player(
+            "org.mpris.MediaPlayer2.a",
+            Some("Windowlicker"),
+            Some("AFX"),
+        );
+        assert_ne!(track_text(&one), track_text(&two));
+    }
+
+    #[test]
+    fn two_players_showing_the_same_track_read_the_same() {
+        // The switcher moving between players that happen to agree is not a
+        // track change, and must not be animated as one.
+        let one = player(
+            "org.mpris.MediaPlayer2.a",
+            Some("Windowlicker"),
+            Some("Aphex Twin"),
+        );
+        let two = player(
+            "org.mpris.MediaPlayer2.b",
+            Some("Windowlicker"),
+            Some("Aphex Twin"),
+        );
+        assert_eq!(track_text(&one), track_text(&two));
+    }
+
+    #[test]
+    fn a_player_that_names_nothing_still_says_something() {
+        let quiet = player("org.mpris.MediaPlayer2.a", None, None);
+        assert_eq!(
+            track_text(&quiet),
+            (UNKNOWN_TITLE.to_string(), UNKNOWN_ARTIST.to_string())
+        );
+    }
 
     #[test]
     fn durations_read_the_way_a_player_writes_them() {

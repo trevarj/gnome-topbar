@@ -32,6 +32,8 @@
 //! | Chevron turn | `expander::REVEAL_MS` 200, `CHEVRON_TURN` 180° | ease-out / ease-in | yes, from the live angle |
 //! | Crypto view crossfade | `crypto::popover::SWITCH_MS` 150 | linear | superseded-safe |
 //! | Media art crossfade | `media::ART_FADE_MS` 150 | linear | restart only |
+//! | Media track text swap | `media::TEXT_FADE_MS` 150 | linear | restart only |
+//! | Media play/pause glyph | `media::ICON_FADE_MS` 120 | ease-out | restart only |
 //! | Keyboard layout switch | `keyboard_layout::SWITCH_FADE_MS` 150 | ease-out | restart only |
 //! | Hold to confirm | `hold::HOLD_MS` 650 | linear fill | cancelled by releasing |
 //!
