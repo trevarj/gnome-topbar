@@ -28,6 +28,7 @@ use crate::media::Media;
 use crate::network::Network;
 use crate::niri::Niri;
 use crate::notifications::Notifications;
+use crate::notmuch::Notmuch;
 use crate::power::Power;
 use crate::power_profiles::PowerProfiles;
 use crate::privacy::Privacy;
@@ -87,6 +88,8 @@ pub struct Services {
     pub updates: Updates,
     /// Crypto prices, as one cache for the whole panel.
     pub crypto: Crypto,
+    /// Unread mail, as notmuch sees whatever fills the maildir.
+    pub notmuch: Notmuch,
     /// Every configured `custom-*` widget's script, one runner each.
     pub custom: CustomWidgets,
     /// The headset battery, when there is a headset to read.
@@ -147,6 +150,15 @@ const SMOKE_BLUEZ_BUS: &str = "TOPBAR_SMOKE_BLUEZ_BUS";
 /// sandbox so a scenario can be on Arch or Debian without the machine being
 /// either; `/etc` itself is only ever read.
 const SMOKE_ROOT: &str = "TOPBAR_SMOKE_ROOT";
+/// Which `notmuch` the mail service runs.
+///
+/// Debug builds only, and the one seam here that names a *program* rather than
+/// a bus or a directory. `PATH` is not a strong enough promise: the smoke run
+/// prepends its own directory, which leaves the developer's real notmuch — and
+/// their real mail — one entry behind a fake of the same name. This says which
+/// binary outright, and the scenario for "there is no notmuch on this machine"
+/// points it at a path that does not exist.
+const SMOKE_NOTMUCH: &str = "TOPBAR_SMOKE_NOTMUCH";
 
 /// A smoke override, in debug builds only.
 fn smoke(variable: &str) -> Option<String> {
@@ -175,6 +187,8 @@ fn smoke(variable: &str) -> Option<String> {
 struct Demand {
     /// A `crypto` widget is placed.
     crypto: bool,
+    /// A `notmuch` widget is placed.
+    notmuch: bool,
     /// A `weather` widget is placed, or the clock's control panel draws one.
     weather: bool,
     /// A `headset` widget is placed.
@@ -197,6 +211,7 @@ impl Demand {
         let quick_settings = placed("quick_settings");
         Self {
             crypto: placed("crypto"),
+            notmuch: placed("notmuch"),
             weather: placed("weather") || control_panel,
             headset: placed("headset"),
             tray: placed("tray"),
@@ -231,11 +246,13 @@ impl Services {
             .map_or(DEFAULT_ICON_SIZE, |size| size as i32);
         let allow_overdrive = config.audio.allow_overdrive;
         let updates = config.updates.clone();
+        let notmuch = config.widgets.notmuch.clone();
         let power_bus = smoke(SMOKE_BUS);
         let power_sysfs = smoke(SMOKE_SYSFS).map(PathBuf::from);
         let nm_bus = smoke(SMOKE_NM_BUS);
         let bluez_bus = smoke(SMOKE_BLUEZ_BUS);
         let root = smoke(SMOKE_ROOT).map_or_else(|| PathBuf::from("/"), PathBuf::from);
+        let notmuch_program = smoke(SMOKE_NOTMUCH).map(PathBuf::from);
         let demand = Demand::of(config);
         let placed: std::collections::BTreeSet<String> =
             config.widgets.placed().map(str::to_string).collect();
@@ -262,6 +279,7 @@ impl Services {
                 ),
                 updates: Updates::with_root(&updates, &connectivity, root, demand.quick_settings),
                 crypto: Crypto::start(&crypto, state.crypto, store, &connectivity, demand.crypto),
+                notmuch: Notmuch::start(&notmuch, notmuch_program, demand.notmuch),
                 custom: CustomWidgets::start(&custom, &connectivity, &|name| placed.contains(name)),
                 headset: Headset::start(&headset, demand.headset),
                 tray: Tray::start(icon_size, None, demand.tray),
@@ -321,6 +339,9 @@ impl Services {
         self.headset.poll_now().await;
         self.battery.handle().refresh().await.ok();
         self.updates.recheck().await;
+        // A machine that has been asleep for a day has a day's mail in it, and
+        // this one costs a local index query rather than a round trip.
+        self.notmuch.recheck().await;
         // The network before the two things that go out over it. The radio was
         // down for the length of the sleep and everything NetworkManager said
         // about it was said to a socket nobody was reading, so the panel reads
@@ -347,8 +368,9 @@ impl Services {
     pub fn start_if_needed(&self, config: &Config) -> Vec<&'static str> {
         let demand = Demand::of(config);
         let mut started = Vec::new();
-        let checks: [(bool, &'static str, &dyn Fn() -> bool); 11] = [
+        let checks: [(bool, &'static str, &dyn Fn() -> bool); 12] = [
             (demand.crypto, "crypto", &|| self.crypto.ensure_started()),
+            (demand.notmuch, "notmuch", &|| self.notmuch.ensure_started()),
             (demand.weather, "weather", &|| self.weather.ensure_started()),
             (demand.headset, "headset", &|| self.headset.ensure_started()),
             (demand.tray, "tray", &|| self.tray.ensure_started()),
@@ -433,6 +455,7 @@ mod tests {
             demand,
             Demand {
                 crypto: false,
+                notmuch: false,
                 weather: false,
                 headset: false,
                 tray: false,

@@ -28,6 +28,7 @@ pub mod media;
 pub mod network;
 pub mod niri;
 pub mod notifications;
+pub mod notmuch;
 pub mod power;
 pub mod power_profiles;
 pub mod privacy;
@@ -89,6 +90,7 @@ pub use notifications::{
     Action, CloseReason, GroupView, IconSource, ImageData, NotifState, NotificationView,
     Notifications, NotificationsHandle, ToastView, Urgency,
 };
+pub use notmuch::{MailThread, Notmuch, NotmuchHandle, NotmuchState};
 pub use power::{Power, PowerAction};
 pub use power_profiles::{PowerProfiles, PowerProfilesHandle, PowerProfilesState, ProfileView};
 pub use privacy::{Privacy, PrivacyState};
