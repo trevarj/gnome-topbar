@@ -1168,16 +1168,17 @@ button.dialog-button-primary:hover {
 /* ===== Media ===== */
 
 /* The card is hidden outright when no player is on the bus, so it needs no
-   empty state of its own — the column simply closes up. */
-.media-card {
-    padding: 12px;
-}
+   empty state of its own — the column simply closes up. It wears nothing but
+   `.control-panel-card`, deliberately: it used to carry a padding of its own
+   that was 2px tighter than every other card in the column, which is exactly
+   the kind of difference nobody can name and everybody can see. */
 
 /* The art is drawn by rounded-picture, which clips it in snapshot(); the
    placeholder behind it carries the same radius so the corner never changes
-   shape as a cover arrives. */
+   shape as a cover arrives. It is painted a step lighter than the card it sits
+   on, because a square in the card's own colour is a square nobody can see. */
 .media-art-placeholder {
-    background-color: var(--color-card);
+    background-color: var(--color-widget-hover);
     border-radius: 12px;
     color: var(--color-foreground-disabled);
     -gtk-icon-size: 28px;

@@ -335,11 +335,7 @@ pub const CALENDAR_SELECTED: &str = "calendar-selected";
 /// A cell belonging to the month either side of the one on screen.
 pub const CALENDAR_OUTSIDE: &str = "calendar-outside";
 
-/// The media card in the control panel's right column.
-pub const MEDIA_CARD: &str = "media-card";
-/// The album art.
-pub const MEDIA_ART: &str = "media-art";
-/// What is drawn behind it while a player has no cover.
+/// What is drawn behind the album art while a player has no cover.
 pub const MEDIA_ART_PLACEHOLDER: &str = "media-art-placeholder";
 /// The track title.
 pub const MEDIA_TITLE: &str = "media-title";
@@ -749,8 +745,6 @@ pub const ALL: &[&str] = &[
     CALENDAR_TODAY,
     CALENDAR_SELECTED,
     CALENDAR_OUTSIDE,
-    MEDIA_CARD,
-    MEDIA_ART,
     MEDIA_ART_PLACEHOLDER,
     MEDIA_TITLE,
     MEDIA_ARTIST,

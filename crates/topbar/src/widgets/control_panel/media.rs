@@ -107,14 +107,12 @@ impl Card {
     pub fn new(services: &Services) -> Rc<Self> {
         let root = gtk4::Box::new(Orientation::Vertical, 10);
         root.add_css_class(classes::CARD);
-        root.add_css_class(classes::MEDIA_CARD);
         // Nothing is playing until the service says otherwise, and a card with
         // nothing in it must never take up a row of the column.
         root.set_visible(false);
 
         // --- art -----------------------------------------------------------
         let art = RoundedPicture::new(ART_SIZE, ART_RADIUS);
-        art.add_css_class(classes::MEDIA_ART);
 
         // The placeholder is the *measured* child, so the slot is exactly one
         // square whether or not there is a cover; the icon and the art are
