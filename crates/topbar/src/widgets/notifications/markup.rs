@@ -143,7 +143,7 @@ fn tag(rest: &str) -> Option<(Tag, usize)> {
 
 /// Length of a well-formed XML entity at the start of `rest`, if there is one.
 fn entity(rest: &str) -> Option<usize> {
-    let end = rest[..rest.len().min(12)].find(';')?;
+    let end = rest.bytes().take(12).position(|byte| byte == b';')?;
     let name = &rest[1..end];
     let known = matches!(name, "amp" | "lt" | "gt" | "quot" | "apos")
         || (name.starts_with('#')
@@ -194,6 +194,7 @@ mod tests {
         assert_eq!(sanitize("Tom & Jerry"), "Tom &amp; Jerry");
         assert_eq!(sanitize("a &amp; b &lt; c &#39;"), "a &amp; b &lt; c &#39;");
         assert_eq!(sanitize("&notanentity"), "&amp;notanentity");
+        assert_eq!(sanitize("&apos;s muc…"), "&apos;s muc…");
     }
 
     #[test]
