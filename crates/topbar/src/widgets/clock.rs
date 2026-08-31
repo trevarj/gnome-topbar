@@ -33,17 +33,6 @@ const FALLBACK_FORMAT: &str = "%a %b %-d  %H:%M";
 /// Shown beside the time while Do Not Disturb is on.
 const DND_ICON: &str = "notifications-disabled-symbolic";
 
-/// Something that re-renders when the clock crosses a minute boundary.
-///
-/// The control panel shows the same wall clock the bar does. A timer of its
-/// own would drift against the bar's — one would repaint a fraction of a
-/// second after the other, which is visible when they sit on the same screen —
-/// so it hangs off the clock's already-aligned tick instead.
-pub trait MinuteListener {
-    /// The minute just changed to `now`.
-    fn on_minute(&self, now: DateTime<Local>);
-}
-
 /// The clock widget.
 pub struct ClockWidget {
     shell: WidgetShell,
@@ -123,8 +112,7 @@ impl ClockWidget {
             popovers::attach(context, WIDGET_NAME, shell.root(), move || {
                 let panel = ControlPanel::new(&settings, &weather, &services);
                 if let Some(clock) = clock.upgrade() {
-                    let listener: Rc<dyn MinuteListener> = Rc::clone(&panel) as _;
-                    clock.listeners.borrow_mut().push(Rc::downgrade(&listener));
+                    clock.listeners.borrow_mut().push(Rc::downgrade(&panel));
                 }
                 panel as Rc<dyn PopoverContent>
             })
@@ -152,9 +140,13 @@ struct ClockInner {
     timer: RefCell<Option<glib::SourceId>>,
     /// The minute the listeners were last told about.
     minute: Cell<u32>,
-    /// Surfaces sharing this clock's tick. Held weakly: they belong to
-    /// whatever built them, and a closed popover must not keep one alive.
-    listeners: RefCell<Vec<Weak<dyn MinuteListener>>>,
+    /// Control panels sharing this clock's tick. The panel shows the same
+    /// wall clock the bar does, and a timer of its own would drift against
+    /// the bar's — one would repaint a fraction of a second after the other,
+    /// which is visible when they sit on the same screen. Held weakly: they
+    /// belong to whatever built them, and a closed popover must not keep one
+    /// alive.
+    listeners: RefCell<Vec<Weak<ControlPanel>>>,
 }
 
 impl ClockInner {
@@ -176,13 +168,13 @@ impl ClockInner {
         }
         // Upgrade first, then call: a listener is free to do whatever it likes
         // while the list is not borrowed, including subscribing another one.
-        let live: Vec<Rc<dyn MinuteListener>> = {
+        let live: Vec<Rc<ControlPanel>> = {
             let mut listeners = self.listeners.borrow_mut();
             listeners.retain(|listener| listener.strong_count() > 0);
             listeners.iter().filter_map(Weak::upgrade).collect()
         };
-        for listener in live {
-            listener.on_minute(now);
+        for panel in live {
+            panel.on_minute(now);
         }
     }
 

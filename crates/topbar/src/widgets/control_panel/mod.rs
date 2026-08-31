@@ -25,7 +25,6 @@ use topbar_services::Services;
 
 use crate::style::classes;
 use crate::surfaces::popovers::PopoverContent;
-use crate::widgets::clock::MinuteListener;
 use crate::widgets::control_panel::calendar::Calendar;
 use crate::widgets::weather::forecast::Forecast;
 
@@ -170,8 +169,11 @@ impl PopoverContent for ControlPanel {
     }
 }
 
-impl MinuteListener for ControlPanel {
-    fn on_minute(&self, now: DateTime<Local>) {
+impl ControlPanel {
+    /// The clock's minute boundary just passed: re-render what displays it.
+    /// Hangs off the bar clock's already-aligned tick (see
+    /// `ClockInner::listeners`) rather than a timer of its own.
+    pub(crate) fn on_minute(&self, now: DateTime<Local>) {
         self.render(now);
         // "5m ago" is only true for a minute, and the history is the one place
         // in the panel where that shows.
