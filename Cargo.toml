@@ -33,7 +33,6 @@ futures-util = { version = "0.3", features = ["sink"] }
 
 # Compositor / desktop protocols
 niri-ipc = "=26.4.0"
-system-tray = "0.8"
 libpulse-binding = "2.30"
 
 # Serialization and config
@@ -76,7 +75,6 @@ libc = "0.2"
 gtk4 = { version = "0.11", features = ["v4_18"] }
 gtk4-layer-shell = "0.8"
 gdk4-wayland = { version = "0.11", features = ["wayland_crate"] }
-pango = { version = "0.22", features = ["v1_56"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 

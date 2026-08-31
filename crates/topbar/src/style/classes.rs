@@ -397,14 +397,6 @@ pub const EMPTY_STATE_LABEL: &str = "empty-state-label";
 pub const DND_ROW: &str = "dnd-row";
 /// Its label.
 pub const DND_LABEL: &str = "dnd-label";
-/// Text standing in for content a later milestone fills in.
-///
-/// Unused between milestones — M6 took the last placeholder out of the control
-/// panel — but the rule and the constant stay, because every milestone that
-/// reserves a card needs them again.
-#[allow(dead_code)]
-pub const PLACEHOLDER: &str = "placeholder";
-
 /// The notifications column's header row.
 pub const NOTIFICATION_HEADER: &str = "notification-header";
 /// The Clear button in it.
@@ -800,7 +792,6 @@ pub const ALL: &[&str] = &[
     EMPTY_STATE_LABEL,
     DND_ROW,
     DND_LABEL,
-    PLACEHOLDER,
     NOTIFICATION_HEADER,
     NOTIFICATION_CLEAR_ALL,
     NOTIFICATION_LIST,

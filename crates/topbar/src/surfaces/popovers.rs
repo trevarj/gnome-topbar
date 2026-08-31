@@ -120,26 +120,6 @@ pub struct PopoverHandle {
     entry: Rc<Entry>,
 }
 
-impl PopoverHandle {
-    /// Open the popover, closing whatever else was open.
-    #[allow(dead_code)]
-    pub fn open(&self) {
-        self.entry.open();
-    }
-
-    /// Close it, if it is the one on screen.
-    #[allow(dead_code)]
-    pub fn close(&self) {
-        self.entry.close();
-    }
-
-    /// Flip it.
-    #[allow(dead_code)]
-    pub fn toggle(&self) {
-        self.entry.toggle();
-    }
-}
-
 impl Drop for PopoverHandle {
     fn drop(&mut self) {
         // A rebuilt widget must not leave its old tree on screen.

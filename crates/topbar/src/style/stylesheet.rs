@@ -637,11 +637,6 @@ window.click-catcher-window,
     font-weight: 500;
 }
 
-/* Reserved space for a later milestone's content. */
-.placeholder {
-    color: var(--color-foreground-disabled);
-}
-
 /* ===== Calendar ===== */
 
 /* The chevrons sit tight against the popover's padding, GNOME style. */
