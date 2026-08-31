@@ -149,10 +149,20 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_fake_tool_on_the_path_is_read_and_published() {
+        // The script is executed directly, so its shebang has to name a shell
+        // that is really there — not every environment ships `/bin/sh` (Nix
+        // sandboxes do not). The one on `PATH` is the one the tests run under.
+        let sh = std::env::split_paths(&std::env::var_os("PATH").expect("a PATH"))
+            .map(|dir| dir.join("sh"))
+            .find(|candidate| candidate.is_file())
+            .expect("a shell on PATH");
         let script = std::env::temp_dir().join(format!("topbar-hs-{}.sh", std::process::id()));
         std::fs::write(
             &script,
-            "#!/bin/sh\nprintf '{\"devices\":[{\"status\":\"success\",\"device\":\"Fake\",\"battery\":{\"status\":\"BATTERY_AVAILABLE\",\"level\":45}}]}'\n",
+            format!(
+                "#!{}\nprintf '{{\"devices\":[{{\"status\":\"success\",\"device\":\"Fake\",\"battery\":{{\"status\":\"BATTERY_AVAILABLE\",\"level\":45}}}}]}}'\n",
+                sh.display()
+            ),
         )
         .expect("the script is written");
         #[cfg(unix)]
